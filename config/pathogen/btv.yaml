@@ -39,7 +39,7 @@ fetch:
   # combinations are engineered, which is exactly what the congruence screen
   # would otherwise flag as natural reassortment.
   query_filter: >-
-    NOT patent[Title] NOT "reverse genetics"[Title] NOT "reassortant"[Title]
+    NOT patent[Properties] NOT "reverse genetics"[Title] NOT "reassortant"[Title]
   min_length: 300
   max_length: 4500
   batch_size: 200
@@ -139,6 +139,11 @@ segments:
   # cross-segment comparison. Without this the RF matrix is computed on a
   # shifting taxon set and is not interpretable.
   require_complete_isolates: true
+  # Which GenBank field ties an isolate's segments together. GenBank assigns
+  # each segment its own accession, so labelling tips by accession would make
+  # the shared-taxon set across segment trees EMPTY and congruence impossible
+  # to assess. Curation falls back to `strain` when `isolate` is absent.
+  isolate_key: isolate
 
 # --- dates ------------------------------------------------------------------
 dates:

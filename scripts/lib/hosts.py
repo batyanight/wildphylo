@@ -30,6 +30,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+# Specimen descriptions that arrive via /isolation_source when /host is absent.
+SAMPLE_TYPE_RE = re.compile(
+    r"(?:[\w\s-]*\b(?:urine|blood|serum|swab|tissue|lung|brain|spleen|"
+    r"faeces|feces|stool|saliva|csf|plasma|biopsy|necropsy|cell culture|"
+    r"supernatant)\b[\w\s-]*)")
+
+
 @dataclass(frozen=True)
 class HostRule:
     pattern: str
@@ -49,13 +56,35 @@ class HostMatch:
     reason: str = ""
 
 
+def normalize_text(raw: str) -> str:
+    """
+    Tidy a /host string before matching.
+
+    Submitters write `Canis_lupus_familiaris` with underscores, and underscore
+    is a word character — so a word-boundary pattern can never match inside it.
+    Also collapses whitespace and strips the surrounding punctuation GenBank
+    accumulates.
+    """
+    s = str(raw).replace("_", " ")
+    s = re.sub(r"[;,]", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
 def _compile(pattern: str) -> tuple[re.Pattern, bool]:
     if len(pattern) > 1 and pattern.startswith("/") and pattern.endswith("/"):
         return re.compile(pattern[1:-1], re.IGNORECASE), True
     # Word-boundary match. \b is wrong at non-word edges (e.g. a pattern ending
     # in "."), so guard with lookarounds that tolerate those.
+    #
+    # An optional plural suffix is allowed because submitters write "dogs" and
+    # "Arctic foxes". Pure word-boundary matching rejected those, which was a
+    # REGRESSION against the old substring matcher -- it cost ~100 domestic dog
+    # records on the CDV dataset before this was added. The suffix is only
+    # tried when the pattern does not already end in "s", so "vulpes" does not
+    # acquire a spurious alternative.
     esc = re.escape(pattern)
-    return re.compile(rf"(?<!\w){esc}(?!\w)", re.IGNORECASE), False
+    suffix = "" if pattern.endswith("s") else "(?:s|es)?"
+    return re.compile(rf"(?<!\w){esc}{suffix}(?!\w)", re.IGNORECASE), False
 
 
 def load_host_table(path: Path) -> list[HostRule]:
@@ -136,7 +165,16 @@ def normalize_host(raw: str, rules: list[HostRule]) -> HostMatch:
     """
     if not raw or not str(raw).strip():
         return HostMatch("", "unknown", True, reason="empty_host_field")
-    text = str(raw).strip()
+    text = normalize_text(raw)
+    if not text:
+        return HostMatch("", "unknown", True, reason="empty_host_field")
+
+    # GenBank's /isolation_source is read as a fallback for /host, so clinical
+    # sample types leak in. They describe the specimen, not the animal, and
+    # must not be matched against the host table or sent to review as if a
+    # pattern were missing.
+    if SAMPLE_TYPE_RE.fullmatch(text.lower()):
+        return HostMatch("", "unknown", True, reason="sample_type_not_a_host")
     for r in rules:
         if r.regex.search(text):
             return HostMatch(r.canonical, r.group, False, r.pattern)

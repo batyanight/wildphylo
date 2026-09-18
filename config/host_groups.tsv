@@ -2,8 +2,31 @@
 # pattern <TAB> canonical_host <TAB> host_group
 #
 # `pattern` is matched case-insensitively as a substring of the /host qualifier.
-# Order matters: the FIRST match wins, so put specific patterns above general ones
-# (e.g. "raccoon dog" must appear before "dog").
+# Order matters: the FIRST match wins, so specific patterns must sit above
+# general ones.
+#
+# TWO kinds of ordering error, both fixed below. Both are silent.
+#
+#   1. GROUP ERROR — the record lands in the wrong discrete-trait state and
+#      contributes a host transition that never happened.
+#      Was: "Zalophus californianus (California sea lion)" matched `lion`
+#      (wild_felid) before `sea lion` (pinniped), so a pinniped entered the
+#      tree as Panthera leo. The `sea lion` rule was unreachable.
+#
+#   2. SPECIES-NAME ERROR — the group is right but the canonical name is
+#      another species. Harmless for the BEAST trait, wrong everywhere the
+#      canonical name is shown: Auspice metadata, tables, figure legends.
+#      Was: snow leopard -> Panthera pardus, mountain lion -> Panthera leo,
+#      leopard cat -> Panthera pardus, maned wolf -> Canis lupus,
+#      black-footed ferret -> Mustela putorius furo, arctic fox -> Vulpes sp.,
+#      bobcat -> Lynx sp., sable -> Martes sp.
+#
+# ORDERING RULE, applied throughout:
+#   subspecies binomial  >  species binomial  >  specific common name
+#     >  genus  >  generic common noun
+# A genus pattern (`vulpes`, `lynx`, `martes`, `mustela`) must sit BELOW every
+# species in that genus, because real GenBank host strings carry both the
+# binomial and the common name and the genus would otherwise win.
 #
 # host_group values used downstream as the BEAST discrete trait:
 #   domestic_dog, wild_canid, wild_felid, mustelid, procyonid, pinniped,
@@ -11,15 +34,17 @@
 #
 # Anything unmatched goes to needs_review.tsv for you to adjudicate.
 
-# --- must precede "dog" ---
+# --- must precede "dog" -----------------------------------------------------
 raccoon dog	Nyctereutes procyonoides	wild_canid
 nyctereutes	Nyctereutes procyonoides	wild_canid
 prairie dog	Cynomys sp.	other
+cynomys	Cynomys sp.	other
 bush dog	Speothos venaticus	wild_canid
+speothos	Speothos venaticus	wild_canid
 african wild dog	Lycaon pictus	wild_canid
 lycaon	Lycaon pictus	wild_canid
 
-# --- domestic dog ---
+# --- domestic dog -----------------------------------------------------------
 canis lupus familiaris	Canis lupus familiaris	domestic_dog
 canis familiaris	Canis lupus familiaris	domestic_dog
 domestic dog	Canis lupus familiaris	domestic_dog
@@ -27,28 +52,46 @@ dog	Canis lupus familiaris	domestic_dog
 canine	Canis lupus familiaris	domestic_dog
 puppy	Canis lupus familiaris	domestic_dog
 
-# --- wild canids ---
+# --- wild canids ------------------------------------------------------------
+# Species-specific canids precede `wolf` and `fox`.
+maned wolf	Chrysocyon brachyurus	wild_canid
+chrysocyon	Chrysocyon brachyurus	wild_canid
+ethiopian wolf	Canis simensis	wild_canid
+canis simensis	Canis simensis	wild_canid
 grey wolf	Canis lupus	wild_canid
 gray wolf	Canis lupus	wild_canid
 canis lupus	Canis lupus	wild_canid
 wolf	Canis lupus	wild_canid
 coyote	Canis latrans	wild_canid
 canis latrans	Canis latrans	wild_canid
-red fox	Vulpes vulpes	wild_canid
-vulpes	Vulpes sp.	wild_canid
+# Vulpes species precede the genus and the bare noun.
+vulpes lagopus	Vulpes lagopus	wild_canid
 arctic fox	Vulpes lagopus	wild_canid
+vulpes vulpes	Vulpes vulpes	wild_canid
+red fox	Vulpes vulpes	wild_canid
+vulpes zerda	Vulpes zerda	wild_canid
+fennec	Vulpes zerda	wild_canid
+vulpes	Vulpes sp.	wild_canid
 grey fox	Urocyon cinereoargenteus	wild_canid
 gray fox	Urocyon cinereoargenteus	wild_canid
 urocyon	Urocyon cinereoargenteus	wild_canid
-fox	Vulpes sp.	wild_canid
-jackal	Canis sp.	wild_canid
-dhole	Cuon alpinus	wild_canid
-cuon	Cuon alpinus	wild_canid
-maned wolf	Chrysocyon brachyurus	wild_canid
+crab-eating fox	Cerdocyon thous	wild_canid
 crab-eating	Cerdocyon thous	wild_canid
 cerdocyon	Cerdocyon thous	wild_canid
+otocyon	Otocyon megalotis	wild_canid
+bat-eared fox	Otocyon megalotis	wild_canid
+fox	Vulpes sp.	wild_canid
+canis mesomelas	Canis mesomelas	wild_canid
+black-backed jackal	Canis mesomelas	wild_canid
+canis aureus	Canis aureus	wild_canid
+golden jackal	Canis aureus	wild_canid
+jackal	Canis sp.	wild_canid
+# Common misspelling of Cerdocyon in GenBank submissions.
+cerdocyun	Cerdocyon thous	wild_canid
+dhole	Cuon alpinus	wild_canid
+cuon	Cuon alpinus	wild_canid
 
-# --- wild felids ---
+# --- wild felids ------------------------------------------------------------
 # NOTE: subspecies patterns MUST precede the species pattern, or the binomial
 # match swallows them and you lose the Amur/Siberian distinction — which is the
 # whole point of this project.
@@ -57,80 +100,146 @@ amur tiger	Panthera tigris altaica	wild_felid
 siberian tiger	Panthera tigris altaica	wild_felid
 panthera tigris	Panthera tigris	wild_felid
 tiger	Panthera tigris	wild_felid
+# `snow leopard`, `leopard cat` and `amur leopard` MUST precede `leopard`.
+panthera uncia	Panthera uncia	wild_felid
+snow leopard	Panthera uncia	wild_felid
+uncia	Panthera uncia	wild_felid
+prionailurus bengalensis	Prionailurus bengalensis	wild_felid
+leopard cat	Prionailurus bengalensis	wild_felid
+prionailurus	Prionailurus sp.	wild_felid
 panthera pardus orientalis	Panthera pardus orientalis	wild_felid
 amur leopard	Panthera pardus orientalis	wild_felid
 panthera pardus	Panthera pardus	wild_felid
 leopard	Panthera pardus	wild_felid
-panthera leo	Panthera leo	wild_felid
-lion	Panthera leo	wild_felid
-jaguar	Panthera onca	wild_felid
-panthera onca	Panthera onca	wild_felid
-snow leopard	Panthera uncia	wild_felid
-uncia	Panthera uncia	wild_felid
-lynx	Lynx sp.	wild_felid
-bobcat	Lynx rufus	wild_felid
+# `mountain lion` and `sea lion` MUST precede `lion`.
+# `sea lion` is the one that was changing the host GROUP.
+zalophus	Zalophus sp.	pinniped
+sea lion	Zalophus sp.	pinniped
+otaria	Otaria flavescens	pinniped
+puma concolor	Puma concolor	wild_felid
+mountain lion	Puma concolor	wild_felid
 puma	Puma concolor	wild_felid
 cougar	Puma concolor	wild_felid
-mountain lion	Puma concolor	wild_felid
-leopard cat	Prionailurus bengalensis	wild_felid
-prionailurus	Prionailurus sp.	wild_felid
-cheetah	Acinonyx jubatus	wild_felid
+panthera leo	Panthera leo	wild_felid
+lion	Panthera leo	wild_felid
+panthera onca	Panthera onca	wild_felid
+jaguar	Panthera onca	wild_felid
+# Lynx species precede the genus.
+lynx rufus	Lynx rufus	wild_felid
+bobcat	Lynx rufus	wild_felid
+lynx lynx	Lynx lynx	wild_felid
+eurasian lynx	Lynx lynx	wild_felid
+lynx pardinus	Lynx pardinus	wild_felid
+iberian lynx	Lynx pardinus	wild_felid
+lynx	Lynx sp.	wild_felid
 acinonyx	Acinonyx jubatus	wild_felid
+cheetah	Acinonyx jubatus	wild_felid
 serval	Leptailurus serval	wild_felid
+leopardus pardalis	Leopardus pardalis	wild_felid
+ocelot	Leopardus pardalis	wild_felid
+leopardus	Leopardus sp.	wild_felid
+leptailurus	Leptailurus serval	wild_felid
 felis catus	Felis catus	other
 domestic cat	Felis catus	other
 
-# --- mustelids ---
-ferret	Mustela putorius furo	mustelid
-mustela	Mustela sp.	mustelid
-mink	Neovison vison	mustelid
-neovison	Neovison vison	mustelid
-badger	Meles meles	mustelid
-meles	Meles meles	mustelid
-otter	Lutra sp.	mustelid
-lutra	Lutra sp.	mustelid
-marten	Martes sp.	mustelid
-martes	Martes sp.	mustelid
-sable	Martes zibellina	mustelid
-wolverine	Gulo gulo	mustelid
+# --- mustelids --------------------------------------------------------------
+# Mustela species precede `ferret` and the genus `mustela`.
+mustela nigripes	Mustela nigripes	mustelid
 black-footed ferret	Mustela nigripes	mustelid
+black footed ferret	Mustela nigripes	mustelid
+mustela putorius	Mustela putorius furo	mustelid
+ferret	Mustela putorius furo	mustelid
+# Neovison vison was reassigned to Neogale in 2021; both names are in GenBank.
+neogale	Neogale vison	mustelid
+neovison	Neogale vison	mustelid
+pekania	Pekania pennanti	mustelid
+fisher	Pekania pennanti	mustelid
+mustela vison	Neovison vison	mustelid
+mink	Neovison vison	mustelid
+mustela	Mustela sp.	mustelid
+# Martes species precede the genus.
+martes zibellina	Martes zibellina	mustelid
+sable	Martes zibellina	mustelid
+martes	Martes sp.	mustelid
+marten	Martes sp.	mustelid
+meles	Meles meles	mustelid
+badger	Meles meles	mustelid
+lutra	Lutra sp.	mustelid
+otter	Lutra sp.	mustelid
+gulo	Gulo gulo	mustelid
+wolverine	Gulo gulo	mustelid
+mephitis	Mephitis mephitis	mustelid
 skunk	Mephitis mephitis	mustelid
 
-# --- procyonids ---
-raccoon	Procyon lotor	procyonid
+# --- procyonids -------------------------------------------------------------
 procyon	Procyon lotor	procyonid
-coati	Nasua sp.	procyonid
+raccoon	Procyon lotor	procyonid
 nasua	Nasua sp.	procyonid
+coati	Nasua sp.	procyonid
+potos	Potos flavus	procyonid
 kinkajou	Potos flavus	procyonid
 
-# --- pinnipeds ---
-seal	Phoca sp.	pinniped
+# --- pinnipeds --------------------------------------------------------------
+# `sea lion` and `zalophus` are declared above, with the felids, so that they
+# beat `lion`. Listing them here as well would be dead weight.
+# Otariids (eared seals) before the bare `seal`, which would otherwise pull
+# them into Phoca — a different family. Arctocephalus, Zalophus and Otaria are
+# otariids; Phoca and Pusa are phocids.
+arctocephalus	Arctocephalus sp.	pinniped
+fur seal	Arctocephalus sp.	pinniped
+phoca vitulina	Phoca vitulina	pinniped
+harbor seal	Phoca vitulina	pinniped
+harbour seal	Phoca vitulina	pinniped
 phoca	Phoca sp.	pinniped
-sea lion	Zalophus sp.	pinniped
-zalophus	Zalophus sp.	pinniped
+pusa caspica	Pusa caspica	pinniped
+caspian seal	Pusa caspica	pinniped
+pusa sibirica	Pusa sibirica	pinniped
+baikal seal	Pusa sibirica	pinniped
+pusa	Pusa sp.	pinniped
+seal	Phoca sp.	pinniped
 
-# --- other carnivore families ---
-red panda	Ailurus fulgens	ailurid
+# --- other carnivore families -----------------------------------------------
 ailurus	Ailurus fulgens	ailurid
-giant panda	Ailuropoda melanoleuca	ursid
+red panda	Ailurus fulgens	ailurid
+lesser panda	Ailurus fulgens	ailurid
 ailuropoda	Ailuropoda melanoleuca	ursid
-bear	Ursus sp.	ursid
+giant panda	Ailuropoda melanoleuca	ursid
 ursus	Ursus sp.	ursid
+bear	Ursus sp.	ursid
+paradoxurus	Paradoxurus hermaphroditus	viverrid
+asian palm civet	Paradoxurus hermaphroditus	viverrid
 civet	Viverridae sp.	viverrid
 viverr	Viverridae sp.	viverrid
-mongoose	Herpestidae sp.	viverrid
 binturong	Arctictis binturong	viverrid
-hyena	Crocuta crocuta	other
+arctictis	Arctictis binturong	viverrid
+mongoose	Herpestidae sp.	viverrid
 crocuta	Crocuta crocuta	other
+parahyaena	Parahyaena brunnea	other
+brown hyena	Parahyaena brunnea	other
+hyena	Crocuta crocuta	other
+hyaena	Crocuta crocuta	other
 
-# --- primates & non-carnivores ---
-macaque	Macaca sp.	primate
+# --- primates & non-carnivores ----------------------------------------------
+callithrix	Callithrix sp.	primate
+marmoset	Callithrix sp.	primate
 macaca	Macaca sp.	primate
+macaque	Macaca sp.	primate
 monkey	Primates sp.	primate
+# Non-carnivore hosts. CDV in these is notable but they are dead-end
+# detections, not maintenance hosts -- grouped as 'other' and excluded from
+# the discrete trait by the dta_states map.
+tamandua	Tamandua tetradactyla	other
+myrmecophaga	Myrmecophaga tridactyla	other
+giant anteater	Myrmecophaga tridactyla	other
+anteater	Myrmecophagidae sp.	other
+coendou	Coendou sp.	other
+porcupine	Coendou sp.	other
+sus scrofa	Sus scrofa	other
+wild boar	Sus scrofa	other
 peccary	Tayassuidae sp.	other
 javelina	Tayassuidae sp.	other
 
-# --- non-host / lab ---
+# --- non-host / lab ---------------------------------------------------------
 vero	CELL_CULTURE	unknown
 cell culture	CELL_CULTURE	unknown
 cell line	CELL_CULTURE	unknown

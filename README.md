@@ -126,7 +126,7 @@ scripts/
   datepolicy.py              midpoint vs interval, decided per dataset
   segments.py                congruence screening and reassortment localisation
   preflight.py               per-step verification
-tests/                       144 tests
+tests/                       170 tests
 docs/DECISIONS.md            why each default is what it is
 docs/NEXTSTRAIN.md           organising many builds without chaos
 docs/PORTING.md              what is not wired up yet, and exactly why
@@ -158,13 +158,13 @@ Done and CI-verified:
       (CDV schedules 9 jobs; BTV 18, across its 3 analysed segments)
 - [x] CI: tests on two Python versions, config validation, DAG dry run
 
-**Not yet working end to end.** The DAG builds cleanly for both shipped
-configs, but six carried-over scripts still take the old repo's command-line
-arguments rather than the ones the Snakefile passes, and four scripts are
-referenced but unwritten. Every gap is enumerated with its exact flag
+**Not yet working end to end.** Acquisition and curation are ported and tested;
+four carried-over scripts still take the old repo's command-line arguments, and
+four scripts are referenced but unwritten. Every gap is enumerated with its exact flag
 mismatch in **[docs/PORTING.md](docs/PORTING.md)**.
 
-- [ ] Port `01`, `02`, `04`, `06`, `07`, `09` onto the config and the new libraries
+- [x] Port `01_fetch` and `02_curate` onto the config and the new libraries
+- [ ] Port `04`, `06`, `07`, `09`
 - [ ] Write `08b_convergence.py`, `08d_drt_summary.py`, `12_compare_builds.py`,
       `13_check_updates.py`
 - [ ] End-to-end run on CDV, then BTV

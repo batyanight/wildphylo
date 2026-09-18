@@ -172,14 +172,14 @@ rule fetch:
         gb  = f"{OUT}/raw/{PATHOGEN}.gb",
         acc = f"{OUT}/raw/{PATHOGEN}.acc",
     params:
-        taxid = config["fetch"]["taxid"],
-        filt  = config["fetch"].get("query_filter", ""),
-        email = config.get("ncbi_email", ""),
+        cfg = lambda w: config["_path"],
     log: f"{OUT}/logs/01_fetch.log"
     shell:
-        "python scripts/01_fetch_sequences.py"
-        " --taxid {params.taxid} --query-filter {params.filt:q}"
-        " --email {params.email} --out {output.gb} --acc {output.acc} 2>&1 | tee {log}"
+        # Email and API key come from the environment (NCBI_EMAIL,
+        # NCBI_API_KEY), never from the config: they are personal credentials,
+        # not analysis parameters, and a config file gets committed.
+        "python scripts/01_fetch_sequences.py --config {params.cfg}"
+        " --out {output.gb} --acc {output.acc} --log {log} 2>&1 | tee {log}"
 
 
 rule curate:
@@ -200,7 +200,8 @@ rule curate:
     log: f"{OUT}/logs/02_curate.log"
     shell:
         "python scripts/02_curate_metadata.py --config {params.cfg}"
-        " --gb {input.gb} --out-dir {OUT}/interim 2>&1 | tee {log}"
+        " --gb {input.gb} --out-dir {OUT}/interim --log {log}"
+        " 2>&1 | tee {log}"
 
 
 rule review_gate:

@@ -9,11 +9,33 @@ surprise.
 Verified by comparing each script's `--help` against what `workflow/Snakefile`
 invokes.
 
+### Done
+
+**`01_fetch_sequences.py`** — ported. Entrez query built from `fetch.taxid`,
+`fetch.min_length`/`max_length` and `fetch.query_filter`; explicit `--out`/`--acc`;
+runs `preflight.check_fetch` against the previous build's accession count before
+downloading; a short download is now an error rather than a warning. Email and
+API key are read from `NCBI_EMAIL`/`NCBI_API_KEY`, never from the config.
+
+**`02_curate_metadata.py`** — ported, and now multi-locus. Host table, locus
+aliases, date plausibility bounds and vaccine patterns all come from config.
+Uses `lib.dates` (never raises on malformed input) and `lib.hosts` (word-boundary
+matching, with the shadowing audit logged every run). Writes one FASTA per
+analysed locus with tip labels already built.
+
+One design change came out of testing it on BTV: **for a segmented pathogen the
+tip label keys on the isolate, not the accession.** GenBank assigns each segment
+its own accession, so accession-keyed labels leave the shared-taxon set across
+segment trees empty — and congruence screening, the entire reason for analysing
+segments separately, becomes impossible. `segments.isolate_key` names the field;
+curation falls back to `strain`, and logs an error if no isolate appears in more
+than one record.
+
+### Still to do
+
 | Script | Snakefile passes | Script accepts | Work |
 |---|---|---|---|
-| `01_fetch_sequences.py` | `--taxid --query-filter --out --acc --email` | `--query --outdir --email --api-key --force --dry-run` | Build the Entrez query from `fetch.taxid` + `fetch.query_filter` instead of the hardcoded `txid11232`; switch `--outdir` for explicit `--out`/`--acc` |
-| `02_curate_metadata.py` | `--config --gb --out-dir` | `--config --gb --interim --processed --min-length` | Collapse `--interim`/`--processed` into `--out-dir`; drive host table, locus aliases, date bounds and vaccine patterns from the config; swap in `lib.dates` and `lib.hosts` |
-| `04_alignment_qc.py` | `--aln --metadata --out-tsv --out-png` | `--aln --metadata --outdir --plot --trim-to` | Explicit output paths so Snakemake can track them |
+| `04_alignment_qc.py` | `--aln --metadata --out-tsv --out-png` | `--aln --metadata --outdir --plot --trim-to` | Explicit output paths so Snakemake can track them. Verified to read `02`'s output correctly: label/metadata cross-check reports 0 disagreements |
 | `06_subsample.py` | `--config --out-aln --out-meta` | `--outdir --prefix --clades` | Explicit outputs; read strata from `subsample.strata` rather than the hardcoded clade × host × time; drop the hardcoded `WILD` set in favour of `hosts.wild_groups` |
 | `07_make_beast_xml.py` | `--config --metadata --temporal-report --out-xml --out-traits --replicate` | `--out --prefix --rate` | Centre the clock prior on the measured root-to-tip slope from `--temporal-report` when `clock_rate_prior` is null; honour `imprecise_date_policy: interval` by emitting sampled tip dates; read model choices from `beast.*` |
 | `09_make_auspice.py` | `--config --alignment --output` | `--title --maintainer --most-recent --trait-key` | Read title/maintainer/colourings from `nextstrain.*`; generate the dataset description from the gate verdicts (see `docs/NEXTSTRAIN.md` §3) |
@@ -43,10 +65,19 @@ another pathogen.
 
 ## Suggested order
 
-1. `01` and `02` — nothing runs without them, and `02` is where `lib.dates` and
-   `lib.hosts` start paying for themselves.
-2. `13_check_updates.py` — small, and it unblocks the scheduled rebuild.
-3. `04` and `06` — mechanical argument changes.
+1. ~~`01` and `02`~~ — done.
+2. `04` and `06` — mechanical argument changes; `04` already consumes `02`'s
+   output correctly.
+3. `13_check_updates.py` — small, and it unblocks the scheduled rebuild.
 4. `08b` — the convergence gate is already specified by its tests.
 5. `07` — the largest piece, because of the clock-prior and tip-date work.
 6. `09`, `12` — the publishing end.
+
+## Testing without NCBI
+
+`tests/fixtures/make_genbank.py` builds synthetic GenBank files for CDV
+(unsegmented) and BTV (segmented). Each record exercises one specific path —
+malformed date, implausible year, vaccine strain, unrecognised host, missing
+locus, alias spelling, length-heuristic fallback, pinniped — so the expected
+answer is known independently of what the code does, and the tests do not
+depend on NCBI being reachable.

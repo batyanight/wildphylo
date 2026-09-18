@@ -18,7 +18,7 @@ fetch:
   taxid: 00000                    # NCBI Taxonomy ID. Find it at
                                   # https://www.ncbi.nlm.nih.gov/taxonomy
   query_filter: >-
-    NOT patent[Title]
+    NOT patent[Properties]
   min_length: 300
   max_length: 50000
   batch_size: 200
@@ -49,6 +49,18 @@ dates:
   min_year: 1950
   max_year: null
   imprecise_date_policy: interval   # midpoint | interval | exclude
+
+# --- segments (segmented pathogens only; delete for a single-locus taxon) ---
+# segments:
+#   concatenate: never          # never | if_congruent | always
+#   congruence_gate: true
+#   collapse_support: 70
+#   # The field tying one isolate's segments together. Each segment has its own
+#   # accession in GenBank, so labelling by accession leaves no taxon shared
+#   # between segment trees and congruence cannot be assessed at all.
+#   isolate_key: isolate
+#   reassortant_threshold: 0.6
+#   exclude_reassortants_from_dta: true
 
 hosts:
   # Copy config/host_groups.tsv and rewrite it for your host range.

@@ -29,7 +29,7 @@ fetch:
   # Appended to the taxid clause. Keep exclusions here rather than in code so
   # the provenance record shows exactly what was asked for.
   query_filter: >-
-    NOT patent[Title]
+    NOT patent[Properties]
   min_length: 400
   max_length: 20000
   batch_size: 200

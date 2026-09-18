@@ -1,35 +1,31 @@
 #!/usr/bin/env python3
 """
-02_curate_metadata.py — parse GenBank records into a curated metadata table.
+02_curate_metadata.py — normalise metadata and extract loci, for any taxon.
 
-Does four things:
-  1. Extracts accession, host, country, collection date, strain, gene content
-  2. Normalizes host names to canonical taxa and functional groups
-  3. Flags vaccine and vaccine-derived strains for exclusion
-  4. Parses collection dates to decimal years for tip-dated phylogenetics
+Config-driven and multi-locus. Host table, locus aliases, date plausibility
+bounds and exclusion thresholds all come from the pathogen config, so a new
+taxon needs a new config rather than edits here. A segmented pathogen declares
+`loci` and gets one FASTA per analysed segment.
 
-Everything excluded is logged with a reason. Everything ambiguous is routed to
-needs_review.tsv for human adjudication — that file is your job, not the script's.
+    python scripts/02_curate_metadata.py --config config/pathogen/cdv.yaml \\
+        --gb data/raw/cdv.gb --out-dir data/interim
 
-Usage
------
-    python scripts/02_curate_metadata.py --gb data/raw/cdv_20260819.gb
+Outputs, all in --out-dir:
 
-Outputs
--------
-    data/interim/metadata_all.tsv       every record, with flags, nothing dropped
-    data/interim/needs_review.tsv       ambiguous host or date — REVIEW BY HAND
-    data/interim/exclusions.tsv         what was excluded and why
-    data/processed/metadata_clean.tsv   analysis-ready records
-    data/processed/sequences_H.fasta    H (hemagglutinin) gene sequences
-    data/processed/sequences_all.fasta  all retained sequences
-    logs/02_curate_YYYYMMDD.log
+    metadata_all.tsv      every parsed record, nothing dropped
+    metadata_clean.tsv    records that survived exclusion
+    exclusions.tsv        what was dropped, with a machine-readable reason
+    needs_review.tsv      records a human should adjudicate
+    <locus>.fasta         one per analysed locus, tip labels already built
 
-Note on the H gene: CDV hemagglutinin is annotated inconsistently across GenBank
-as "H", "HA", "hemagglutinin" or "haemagglutinin", and sometimes not at all on
-whole-genome records. The extractor checks feature qualifiers first, then falls
-back to a length heuristic on records whose description mentions H. Records it
-can't resolve go to needs_review rather than being silently dropped.
+Tip labels are `ACCESSION|host_group|decimal_year`, which is the contract every
+downstream step reads.
+
+Nothing is dropped silently. Every exclusion carries a reason and lands in
+exclusions.tsv; anything ambiguous lands in needs_review.tsv rather than being
+guessed at.
+
+Exit codes: 0 success, 1 nothing usable, 2 bad usage.
 """
 
 import argparse
@@ -39,74 +35,21 @@ import re
 import sys
 from pathlib import Path
 
-try:
-    from Bio import SeqIO
-except ImportError as exc:                       # noqa: F401
-    # Raise rather than sys.exit: this module gets imported by the notebook,
-    # and SystemExit inside a notebook produces a confusing traceback.
-    raise ImportError(
-        "Biopython is required.\n"
-        "  terminal: pip install biopython\n"
-        "  notebook: %pip install biopython   (then restart the kernel)"
-    ) from exc
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lib.config import load, ConfigError            # noqa: E402
+from lib.dates import parse_collection_date, PRECISION_RANK  # noqa: E402
+from lib.hosts import load_host_table, audit_host_table, normalize_host  # noqa: E402
+from lib.preflight import check_curation            # noqa: E402
 
 try:
     import pandas as pd
-except ImportError as exc:                       # noqa: F401
-    # Raise rather than sys.exit: this module gets imported by the notebook,
-    # and SystemExit inside a notebook produces a confusing traceback.
-    raise ImportError(
-        "pandas is required.\n"
-        "  terminal: pip install pandas\n"
-        "  notebook: %pip install pandas   (then restart the kernel)"
-    ) from exc
+    from Bio import SeqIO
+except ImportError as exc:                          # pragma: no cover
+    raise ImportError("pandas and biopython are required: "
+                      "pip install pandas biopython") from exc
 
 
-# CDV H gene is ~1824 nt (607 aa). Allow generous slack for partials.
-H_FULL_MIN, H_FULL_MAX = 1750, 1900
-H_PARTIAL_MIN = 400          # shorter than this is too little signal to be useful
-
-H_NAMES = {"h", "ha", "hemagglutinin", "haemagglutinin", "hemaglutinin",
-           "h protein", "attachment protein", "hemagglutinin protein"}
-F_NAMES = {"f", "fusion", "fusion protein", "f protein"}
-N_NAMES = {"n", "np", "nucleocapsid", "nucleoprotein", "nucleocapsid protein"}
-
-MONTHS = {m: i for i, m in enumerate(
-    ["jan", "feb", "mar", "apr", "may", "jun",
-     "jul", "aug", "sep", "oct", "nov", "dec"], start=1)}
-
-
-# ----------------------------------------------------------------------------
-# config loading
-# ----------------------------------------------------------------------------
-
-def load_vaccine_patterns(path: Path) -> list[str]:
-    pats = []
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if line and not line.startswith("#"):
-            pats.append(line.lower())
-    return pats
-
-
-def load_host_table(path: Path) -> list[tuple[str, str, str]]:
-    """Ordered list of (pattern, canonical_host, host_group). First match wins."""
-    rows = []
-    for line in path.read_text().splitlines():
-        line = line.rstrip()
-        if not line or line.lstrip().startswith("#"):
-            continue
-        parts = line.split("\t")
-        if len(parts) != 3:
-            logging.warning("skipping malformed host_groups line: %r", line)
-            continue
-        rows.append((parts[0].strip().lower(), parts[1].strip(), parts[2].strip()))
-    return rows
-
-
-# ----------------------------------------------------------------------------
-# field extraction
-# ----------------------------------------------------------------------------
+# --- GenBank feature reading ------------------------------------------------
 
 def first_qualifier(feature, keys) -> str:
     for key in keys:
@@ -117,15 +60,19 @@ def first_qualifier(feature, keys) -> str:
 
 def extract_source_fields(record) -> dict:
     out = {"host": "", "country": "", "collection_date": "",
-           "strain": "", "isolate": "", "lat_lon": ""}
+           "strain": "", "isolate": "", "lat_lon": "", "segment": ""}
     for feat in record.features:
         if feat.type == "source":
-            out["host"] = first_qualifier(feat, ["host", "specific_host", "isolation_source"])
+            out["host"] = first_qualifier(
+                feat, ["host", "specific_host", "isolation_source"])
             out["country"] = first_qualifier(feat, ["geo_loc_name", "country"])
             out["collection_date"] = first_qualifier(feat, ["collection_date"])
             out["strain"] = first_qualifier(feat, ["strain"])
             out["isolate"] = first_qualifier(feat, ["isolate"])
             out["lat_lon"] = first_qualifier(feat, ["lat_lon"])
+            # Segmented viruses carry /segment on the source feature. Without
+            # it, a segment can only be guessed from the description.
+            out["segment"] = first_qualifier(feat, ["segment"])
             break
     return out
 
@@ -135,119 +82,65 @@ def gene_label(feature) -> str:
     return re.sub(r"\s+", " ", label)
 
 
-def extract_gene_seq(record, name_set) -> tuple[str, str]:
-    """Return (sequence, how_found) for the first CDS/gene matching name_set."""
+def extract_by_annotation(record, aliases: set[str]) -> tuple[str, str]:
+    """
+    First CDS/gene/mat_peptide whose gene, product or note matches an alias.
+    Returns (sequence, how_found).
+    """
     for feat in record.features:
         if feat.type not in ("CDS", "gene", "mat_peptide"):
             continue
         label = gene_label(feat)
         if not label:
             continue
-        if label in name_set or any(label.startswith(n + " ") for n in name_set):
+        if label in aliases or any(label.startswith(a + " ") for a in aliases):
             try:
                 seq = str(feat.extract(record.seq))
-            except Exception:                          # noqa: BLE001
+            except Exception:                        # noqa: BLE001
                 continue
             if seq:
                 return seq, "annotation"
     return "", ""
 
 
-def extract_H(record) -> tuple[str, str]:
-    """H gene by annotation, falling back to a whole-record length heuristic."""
-    seq, how = extract_gene_seq(record, H_NAMES)
+def extract_locus(record, locus: dict, meta: dict) -> tuple[str, str]:
+    """
+    Pull one locus from a record.
+
+    Annotation first. Failing that, fall back to treating the whole record as
+    the locus, but only when the description mentions it AND the length is
+    plausible — otherwise a whole-genome record would be handed on as if it
+    were a single gene.
+    """
+    aliases = {a.strip().lower() for a in locus.get("aliases", []) if a.strip()}
+    if not aliases:
+        return "", ""
+
+    seq, how = extract_by_annotation(record, aliases)
     if seq:
         return seq, how
 
+    # Segment number is decisive when GenBank provides it.
+    seg = str(locus.get("segment", "")).strip()
+    if seg and str(meta.get("segment", "")).strip() == seg:
+        return str(record.seq), "segment_qualifier"
+
     desc = record.description.lower()
-    mentions_H = any(k in desc for k in
-                     ("hemagglutinin", "haemagglutinin", " h gene", "h protein", "(h)"))
-    if mentions_H and H_FULL_MIN <= len(record.seq) <= H_FULL_MAX:
+    if not any(a in desc for a in aliases):
+        return "", ""
+
+    expected = locus.get("expected_length")
+    if not expected:
+        return "", ""
+    tol = float(locus.get("length_tolerance", 0.15))
+    lo_full, hi_full = expected * (1 - tol), expected * (1 + tol)
+    min_usable = locus.get("min_usable_length", 300)
+    n = len(record.seq)
+    if lo_full <= n <= hi_full:
         return str(record.seq), "length_heuristic_full"
-    if mentions_H and H_PARTIAL_MIN <= len(record.seq) < H_FULL_MIN:
+    if min_usable <= n < lo_full:
         return str(record.seq), "length_heuristic_partial"
     return "", ""
-
-
-# ----------------------------------------------------------------------------
-# normalization
-# ----------------------------------------------------------------------------
-
-def normalize_host(raw: str, host_table) -> tuple[str, str, bool]:
-    """Return (canonical_host, host_group, is_ambiguous)."""
-    if not raw or not raw.strip():
-        return "", "unknown", True
-    low = raw.strip().lower()
-    for pattern, canonical, group in host_table:
-        if pattern in low:
-            return canonical, group, False
-    return "", "unknown", True
-
-
-def parse_collection_date(raw: str) -> tuple[str, float | None, str]:
-    """
-    Return (iso_date_or_partial, decimal_year, precision).
-    precision is one of: day, month, year, range, none.
-
-    Decimal year uses the midpoint of the known interval, which is the honest
-    representation for month- and year-only dates in tip-dated phylogenetics.
-    """
-    if not raw or not raw.strip():
-        return "", None, "none"
-    s = raw.strip()
-
-    # "2011/2013" or "2011-01-01/2011-12-31" — a range. Use the midpoint.
-    if "/" in s:
-        parts = [p.strip() for p in s.split("/") if p.strip()]
-        vals = [parse_collection_date(p)[1] for p in parts]
-        vals = [v for v in vals if v is not None]
-        if vals:
-            return s, sum(vals) / len(vals), "range"
-        return s, None, "none"
-
-    # ISO: 2013-08-14 or 2013-08
-    m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", s)
-    if m:
-        y, mo, d = map(int, m.groups())
-        return s, to_decimal_year(y, mo, d), "day"
-    m = re.fullmatch(r"(\d{4})-(\d{2})", s)
-    if m:
-        y, mo = map(int, m.groups())
-        return s, to_decimal_year(y, mo, None), "month"
-
-    # GenBank style: 14-Aug-2013 / Aug-2013
-    m = re.fullmatch(r"(\d{1,2})-([A-Za-z]{3})-(\d{4})", s)
-    if m:
-        d, mon, y = int(m.group(1)), m.group(2).lower(), int(m.group(3))
-        if mon in MONTHS:
-            return f"{y:04d}-{MONTHS[mon]:02d}-{d:02d}", to_decimal_year(y, MONTHS[mon], d), "day"
-    m = re.fullmatch(r"([A-Za-z]{3})-(\d{4})", s)
-    if m:
-        mon, y = m.group(1).lower(), int(m.group(2))
-        if mon in MONTHS:
-            return f"{y:04d}-{MONTHS[mon]:02d}", to_decimal_year(y, MONTHS[mon], None), "month"
-
-    # bare year
-    m = re.fullmatch(r"(\d{4})", s)
-    if m:
-        y = int(m.group(1))
-        return s, to_decimal_year(y, None, None), "year"
-
-    return s, None, "none"
-
-
-def to_decimal_year(year: int, month: int | None, day: int | None) -> float:
-    """Decimal year; midpoint of the known interval when month/day are missing."""
-    start = dt.date(year, 1, 1)
-    days_in_year = (dt.date(year + 1, 1, 1) - start).days
-    if month is None:
-        return year + 0.5
-    if day is None:
-        first = dt.date(year, month, 1)
-        nxt = dt.date(year + 1, 1, 1) if month == 12 else dt.date(year, month + 1, 1)
-        mid = first + (nxt - first) / 2
-        return year + (mid - start).days / days_in_year
-    return year + (dt.date(year, month, day) - start).days / days_in_year
 
 
 def is_vaccine(record, meta, patterns) -> tuple[bool, str]:
@@ -256,182 +149,297 @@ def is_vaccine(record, meta, patterns) -> tuple[bool, str]:
         meta.get("strain", ""), meta.get("isolate", ""), meta.get("host", ""),
     ]).lower()
     for pat in patterns:
-        if pat in haystack:
+        if pat and pat in haystack:
             return True, pat
     return False, ""
 
 
-# ----------------------------------------------------------------------------
-# main
-# ----------------------------------------------------------------------------
+def load_vaccine_patterns(path: Path | None) -> list[str]:
+    if not path or not Path(path).is_file():
+        return []
+    out = []
+    for line in Path(path).read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            out.append(line.lower())
+    return out
+
+
+def loci_of(cfg: dict) -> list[dict]:
+    """Analysed loci, as a list, whether the config is single- or multi-locus."""
+    if "loci" in cfg:
+        return [dict(l) for l in cfg["loci"] if l.get("analyse")]
+    return [dict(cfg["locus"])]
+
+
+def write_fasta(path: Path, entries: list[tuple[str, str]]) -> int:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as fh:
+        for label, seq in entries:
+            fh.write(f">{label}\n")
+            for i in range(0, len(seq), 60):
+                fh.write(seq[i:i + 60] + "\n")
+    return len(entries)
+
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--gb", required=True, type=Path, help="GenBank file from step 01")
-    ap.add_argument("--config", default=Path("config"), type=Path)
-    ap.add_argument("--interim", default=Path("data/interim"), type=Path)
-    ap.add_argument("--processed", default=Path("data/processed"), type=Path)
-    ap.add_argument("--logdir", default=Path("logs"), type=Path)
-    ap.add_argument("--min-length", type=int, default=H_PARTIAL_MIN,
-                    help="Drop H sequences shorter than this (default %(default)s nt)")
+    ap = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--config", required=True, type=Path)
+    ap.add_argument("--gb", required=True, type=Path,
+                    help="GenBank flat file from step 01")
+    ap.add_argument("--out-dir", required=True, type=Path)
+    ap.add_argument("--log", type=Path)
     ap.add_argument("--keep-vaccines", action="store_true",
-                    help="Retain vaccine strains (only for testing the filter)")
-    args = ap.parse_args()
+                    help="Retain vaccine strains (for testing the filter only)")
+    ap.add_argument("--accept-unreviewed", action="store_true",
+                    help="Do not fail when needs_review.tsv is non-empty")
+    a = ap.parse_args()
+
+    try:
+        cfg = load(a.config)
+    except ConfigError as e:
+        print(e, file=sys.stderr)
+        return 2
 
     stamp = dt.date.today().strftime("%Y%m%d")
-    args.logdir.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s  %(levelname)-7s  %(message)s",
-        handlers=[logging.FileHandler(args.logdir / f"02_curate_{stamp}.log"),
-                  logging.StreamHandler(sys.stdout)],
-    )
+    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
+    log_path = a.log or Path("logs") / f"02_curate_{cfg['id']}_{stamp}.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    handlers.append(logging.FileHandler(log_path))
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s  %(levelname)-7s  %(message)s",
+                        handlers=handlers, force=True)
 
-    vaccine_patterns = load_vaccine_patterns(args.config / "vaccine_strains.txt")
-    host_table = load_host_table(args.config / "host_groups.tsv")
-    logging.info("loaded %d vaccine patterns, %d host patterns",
-                 len(vaccine_patterns), len(host_table))
+    for w in cfg.get("_warnings", []):
+        logging.warning("config: %s", w)
 
-    rows, h_seqs, all_seqs = [], {}, {}
+    if not a.gb.is_file():
+        logging.error("GenBank file not found: %s", a.gb)
+        return 2
 
-    for record in SeqIO.parse(str(args.gb), "genbank"):
+    # --- config-derived settings -------------------------------------------
+    host_rules = load_host_table(Path(cfg["hosts"]["table"]))
+    for w in audit_host_table(host_rules):
+        # A shadowed host rule is the failure that put a pinniped into the CDV
+        # tree as Panthera leo. Surface it every run, not just at config load.
+        logging.warning("host table: %s", w)
+
+    vac_path = cfg.get("exclude", {}).get("vaccine_patterns_file")
+    vaccine_patterns = load_vaccine_patterns(Path(vac_path) if vac_path else None)
+
+    min_year = cfg["dates"]["min_year"]
+    max_year = cfg["dates"].get("max_year")
+    loci = loci_of(cfg)
+    logging.info("pathogen: %s (%s)", cfg["name"], cfg["id"])
+    logging.info("loci: %s", ", ".join(l["name"] for l in loci))
+    logging.info("%d host rules, %d vaccine patterns",
+                 len(host_rules), len(vaccine_patterns))
+
+    # --- parse --------------------------------------------------------------
+    rows = []
+    seqs: dict[str, dict[str, str]] = {l["name"]: {} for l in loci}
+
+    for record in SeqIO.parse(str(a.gb), "genbank"):
         meta = extract_source_fields(record)
-        canonical, group, host_ambiguous = normalize_host(meta["host"], host_table)
-        iso_date, dec_year, precision = parse_collection_date(meta["collection_date"])
-        vaccine, vaccine_hit = is_vaccine(record, meta, vaccine_patterns)
-        h_seq, h_how = extract_H(record)
-        f_seq, _ = extract_gene_seq(record, F_NAMES)
-        n_seq, _ = extract_gene_seq(record, N_NAMES)
+        hm = normalize_host(meta["host"], host_rules)
+        pd_ = parse_collection_date(meta["collection_date"],
+                                    min_year=min_year, max_year=max_year)
 
-        rows.append({
+        row = {
             "accession": record.id,
             "description": record.description,
             "length": len(record.seq),
+            "segment_raw": meta["segment"],
             "host_raw": meta["host"],
-            "host_canonical": canonical,
-            "host_group": group,
-            "host_ambiguous": host_ambiguous,
+            "host_canonical": hm.canonical,
+            "host_group": hm.group,
+            "host_ambiguous": hm.ambiguous,
+            "host_matched_pattern": hm.matched_pattern,
             "country_raw": meta["country"],
             "country": meta["country"].split(":")[0].strip() if meta["country"] else "",
             "collection_date_raw": meta["collection_date"],
-            "collection_date": iso_date,
-            "decimal_year": dec_year,
-            "date_precision": precision,
+            "collection_date": pd_.iso,
+            "decimal_year": pd_.decimal_year,
+            "date_precision": pd_.precision,
+            "date_uncertainty_years": pd_.uncertainty_years,
+            "date_reason": pd_.reason,
             "strain": meta["strain"],
             "isolate": meta["isolate"],
             "lat_lon": meta["lat_lon"],
-            "is_vaccine": vaccine,
-            "vaccine_pattern": vaccine_hit,
-            "has_H": bool(h_seq),
-            "H_length": len(h_seq),
-            "H_source": h_how,
-            "has_F": bool(f_seq),
-            "has_N": bool(n_seq),
-            "is_complete_genome": "complete genome" in record.description.lower(),
-        })
-        if h_seq:
-            h_seqs[record.id] = h_seq
-        all_seqs[record.id] = str(record.seq)
+        }
+        vac, hit = is_vaccine(record, meta, vaccine_patterns)
+        row["is_vaccine"] = vac
+        row["vaccine_pattern"] = hit
+
+        for locus in loci:
+            name = locus["name"]
+            seq, how = extract_locus(record, locus, meta)
+            row[f"has_{name}"] = bool(seq)
+            row[f"{name}_length"] = len(seq)
+            row[f"{name}_source"] = how
+            if seq:
+                seqs[name][record.id] = seq
+        rows.append(row)
 
     if not rows:
-        logging.error("no records parsed from %s", args.gb)
+        logging.error("no records parsed from %s", a.gb)
         return 1
 
     df = pd.DataFrame(rows)
-    args.interim.mkdir(parents=True, exist_ok=True)
-    args.processed.mkdir(parents=True, exist_ok=True)
-    df.to_csv(args.interim / "metadata_all.tsv", sep="\t", index=False)
+    a.out_dir.mkdir(parents=True, exist_ok=True)
+    df.to_csv(a.out_dir / "metadata_all.tsv", sep="\t", index=False)
     logging.info("parsed %d records", len(df))
 
-    # ---- exclusions -------------------------------------------------------
+    # --- exclusions ---------------------------------------------------------
     df["exclude_reason"] = ""
 
-    def mark(mask, reason):
+    def mark(mask, reason) -> int:
         newly = mask & (df["exclude_reason"] == "")
         df.loc[newly, "exclude_reason"] = reason
-        return int(newly.sum())
+        n = int(newly.sum())
+        if n:
+            logging.info("excluded %5d  %s", n, reason)
+        return n
 
-    if not args.keep_vaccines:
-        n = mark(df["is_vaccine"], "vaccine_or_vaccine_derived")
-        logging.info("excluded %d vaccine / vaccine-derived records", n)
+    if not a.keep_vaccines:
+        mark(df["is_vaccine"], "vaccine_or_vaccine_derived")
     else:
-        logging.warning("--keep-vaccines set: vaccine strains RETAINED (test mode only)")
+        logging.warning("--keep-vaccines set: vaccine strains RETAINED (test mode)")
 
-    n = mark(~df["has_H"], "no_H_gene_sequence")
-    logging.info("excluded %d records without an identifiable H sequence", n)
+    # A record is usable if it carries at least one analysed locus.
+    has_any = df[[f"has_{l['name']}" for l in loci]].any(axis=1)
+    mark(~has_any, "no_analysed_locus_found")
 
-    n = mark(df["H_length"] < args.min_length, f"H_shorter_than_{args.min_length}nt")
-    logging.info("excluded %d records with H shorter than %d nt", n, args.min_length)
+    for locus in loci:
+        name = locus["name"]
+        min_len = locus.get("min_usable_length", 300)
+        expected = locus.get("expected_length")
+        short = df[f"has_{name}"] & (df[f"{name}_length"] < min_len)
+        if len(loci) == 1:
+            mark(short, f"{name}_shorter_than_{min_len}nt")
+        if expected:
+            # Catches whole-genome records whose locus annotation spans the
+            # entire record, and mis-annotated features. Recoverable by hand,
+            # not junk, so it also goes to needs_review.
+            cap = expected * 1.15
+            long = df[f"has_{name}"] & (df[f"{name}_length"] > cap)
+            if len(loci) == 1:
+                mark(long, f"{name}_length_implausible_check_annotation")
 
-    # Catches whole-genome records where the H annotation spans the entire record,
-    # or mis-annotated features. These are recoverable by hand, not junk.
-    n = mark(df["H_length"] > 2100, "H_length_implausible_check_annotation")
-    logging.info("excluded %d records with implausibly long H (annotation problem)", n)
-
-    n = mark(df["decimal_year"].isna(), "no_parseable_collection_date")
-    logging.info("excluded %d records without a usable collection date", n)
-
-    n = mark(df["host_group"] == "unknown", "host_unresolved")
-    logging.info("excluded %d records with unresolved host", n)
+    mark(df["decimal_year"].isna(), "no_parseable_collection_date")
+    mark(df["host_group"] == "unknown", "host_unresolved")
 
     excluded = df[df["exclude_reason"] != ""]
     clean = df[df["exclude_reason"] == ""].copy()
-    excluded.to_csv(args.interim / "exclusions.tsv", sep="\t", index=False)
+    excluded.to_csv(a.out_dir / "exclusions.tsv", sep="\t", index=False)
 
-    # ---- needs review -----------------------------------------------------
-    review = df[
-        (df["host_ambiguous"] & (df["host_raw"].str.strip() != ""))
-        | ((df["decimal_year"].isna()) & (df["collection_date_raw"].str.strip() != ""))
-        | (df["H_source"] == "length_heuristic_partial")
-        | (df["H_length"] > 2100)
-    ]
-    review.to_csv(args.interim / "needs_review.tsv", sep="\t", index=False)
+    # --- needs review -------------------------------------------------------
+    # An unrecognised host or an unparseable date that was actually PRESENT in
+    # the record is a curation gap, not missing data. Those must be seen.
+    review_mask = (
+        (df["host_ambiguous"] & (df["host_raw"].fillna("").str.strip() != ""))
+        | (df["decimal_year"].isna()
+           & (df["collection_date_raw"].fillna("").str.strip() != "")
+           & (df["date_reason"] != "explicitly_unknown"))
+    )
+    for locus in loci:
+        name = locus["name"]
+        review_mask |= (df[f"{name}_source"] == "length_heuristic_partial")
+        expected = locus.get("expected_length")
+        if expected:
+            review_mask |= (df[f"{name}_length"] > expected * 1.15)
+    review = df[review_mask]
+    review.to_csv(a.out_dir / "needs_review.tsv", sep="\t", index=False)
 
-    # ---- outputs ----------------------------------------------------------
-    clean.to_csv(args.processed / "metadata_clean.tsv", sep="\t", index=False)
+    clean.to_csv(a.out_dir / "metadata_clean.tsv", sep="\t", index=False)
 
-    def write_fasta(path: Path, seqs: dict, keep: set) -> int:
-        written = 0
-        with path.open("w") as fh:
-            for acc, seq in seqs.items():
-                if acc in keep:
-                    fh.write(f">{acc}\n")
-                    for i in range(0, len(seq), 60):
-                        fh.write(seq[i:i + 60] + "\n")
-                    written += 1
-        return written
+    # --- per-locus FASTA ----------------------------------------------------
+    # Tip labels: <key>|host_group|decimal_year. Every downstream step parses
+    # that format, so it is a contract rather than a convenience.
+    #
+    # WHICH KEY matters enormously for a segmented pathogen. GenBank gives each
+    # segment of one isolate its own accession, so labelling by accession makes
+    # the shared-taxon set across segments EMPTY — and segment congruence, the
+    # whole reason for analysing segments separately, becomes impossible to
+    # assess. The segments must be tied together by the isolate or strain
+    # qualifier instead. `segments.isolate_key` names which field to use.
+    isolate_key = (cfg.get("segments") or {}).get("isolate_key", "isolate")
+    use_isolate = len(loci) > 1
 
-    keep = set(clean["accession"])
-    n_h = write_fasta(args.processed / "sequences_H.fasta", h_seqs, keep)
-    n_all = write_fasta(args.processed / "sequences_all.fasta", all_seqs, keep)
+    def label_key(row) -> str:
+        if use_isolate:
+            for field in ([isolate_key, "strain", "isolate"]
+                          if isolate_key else ["isolate", "strain"]):
+                v = row.get(field)
+                if isinstance(v, str) and v.strip():
+                    return re.sub(r"[|\s]+", "_", v.strip())
+        return str(row["accession"]).split(".")[0]
 
-    # ---- summary ----------------------------------------------------------
+    label_of, key_counts = {}, {}
+    for _, r in clean.iterrows():
+        if pd.isna(r["decimal_year"]):
+            continue
+        k = label_key(r)
+        key_counts[k] = key_counts.get(k, 0) + 1
+        label_of[r["accession"]] = "{}|{}|{:.3f}".format(
+            k, r["host_group"], r["decimal_year"])
+
+    if use_isolate:
+        linked = sum(1 for n in key_counts.values() if n > 1)
+        logging.info("tip labels keyed on %r: %d distinct isolates from %d records",
+                     isolate_key, len(key_counts), len(label_of))
+        if linked == 0 and len(label_of) > len(loci):
+            logging.error(
+                "no isolate appears in more than one record, so no taxon will be "
+                "shared between segment trees and congruence cannot be assessed. "
+                "Check that %r is populated in the source records, or set "
+                "segments.isolate_key to a field that is.", isolate_key)
+        else:
+            logging.info("%d isolates carry more than one segment", linked)
+    for locus in loci:
+        name = locus["name"]
+        entries = [(label_of[acc], s) for acc, s in seqs[name].items()
+                   if acc in label_of]
+        n = write_fasta(a.out_dir / f"{name}.fasta", entries)
+        logging.info("wrote %s (%d sequences)", a.out_dir / f"{name}.fasta", n)
+
+    # --- checks -------------------------------------------------------------
+    reasons = excluded["exclude_reason"].value_counts().to_dict()
+    checks = check_curation(cfg, len(df), len(clean), len(review), reasons)
+    print()
+    print(checks.render())
+
     logging.info("-" * 62)
     logging.info("RETAINED: %d of %d records", len(clean), len(df))
-    logging.info("H sequences written: %d   (all-locus: %d)", n_h, n_all)
-    logging.info("")
-    logging.info("By host group:")
-    for grp, cnt in clean["host_group"].value_counts().items():
-        logging.info("    %-16s %5d", grp, cnt)
-    logging.info("")
-    logging.info("By date precision:")
-    for prec, cnt in clean["date_precision"].value_counts().items():
-        logging.info("    %-16s %5d", prec, cnt)
     if not clean.empty:
+        logging.info("")
+        logging.info("By host group:")
+        for grp, cnt in clean["host_group"].value_counts().items():
+            logging.info("    %-18s %5d", grp, cnt)
+        logging.info("")
+        logging.info("By date precision:")
+        for prec, cnt in clean["date_precision"].value_counts().items():
+            logging.info("    %-18s %5d", prec, cnt)
         logging.info("")
         logging.info("Date range: %.2f – %.2f",
                      clean["decimal_year"].min(), clean["decimal_year"].max())
         logging.info("Countries represented: %d", clean["country"].nunique())
     logging.info("")
     logging.info("NEEDS HUMAN REVIEW: %d records -> %s",
-                 len(review), args.interim / "needs_review.tsv")
+                 len(review), a.out_dir / "needs_review.tsv")
     logging.info("-" * 62)
-    logging.info("")
-    logging.info("NEXT: open needs_review.tsv. For each ambiguous host, either add a")
-    logging.info("pattern to config/host_groups.tsv or confirm the record should be")
-    logging.info("dropped. Then re-run this script. Repeat until the file is empty or")
-    logging.info("everything left is genuinely unusable.")
+
+    if not checks.ok:
+        return 1
+    if len(review) and not a.accept_unreviewed:
+        logging.warning(
+            "%d records need review. Open needs_review.tsv: for each ambiguous "
+            "host, either add a pattern to %s or confirm the record should be "
+            "dropped, then re-run. Ambiguous host labels are the input to the "
+            "host-transition analysis, so guessing here becomes a result.",
+            len(review), cfg["hosts"]["table"])
     return 0
 
 
