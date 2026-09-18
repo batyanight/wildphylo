@@ -138,3 +138,45 @@ def test_ci_python_versions_are_real(repo_root):
     ci = yaml.safe_load((repo_root / ".github/workflows/ci.yml").read_text())
     versions = ci["jobs"]["test"]["strategy"]["matrix"]["python"]
     assert len(versions) >= 2, "test on more than one Python version"
+
+
+# --- external tool resolution ----------------------------------------------
+
+def test_snakefile_does_not_hardcode_an_iqtree_binary(repo_root):
+    """
+    IQ-TREE ships as `iqtree`, `iqtree2` or `iqtree3` depending on version and
+    channel — a real conda install produced `iqtree` and `iqtree3` but no
+    `iqtree2`. Hardcoding one name fails at runtime with "command not found",
+    which on a large alignment is discovered hours in.
+    """
+    text = (repo_root / SNAKEFILE).read_text()
+    shell_lines = [ln for ln in text.splitlines()
+                   if ln.strip().startswith('"') and "iqtree" in ln]
+    for ln in shell_lines:
+        assert "{params.iqtree}" in ln or "{IQTREE}" in ln, \
+            f"shell command hardcodes an IQ-TREE binary name: {ln.strip()}"
+
+
+def test_iqtree_resolution_prefers_newest_available():
+    import shutil
+    from unittest import mock
+    order = ("iqtree3", "iqtree2", "iqtree")
+
+    def resolve(present):
+        with mock.patch.object(shutil, "which",
+                               side_effect=lambda c: c if c in present else None):
+            for c in order:
+                if shutil.which(c):
+                    return c
+        return None
+
+    assert resolve({"iqtree", "iqtree3"}) == "iqtree3"
+    assert resolve({"iqtree", "iqtree2"}) == "iqtree2"
+    assert resolve({"iqtree"}) == "iqtree"
+    assert resolve(set()) is None
+
+
+def test_environment_does_not_pin_a_version_that_renames_the_binary(repo_root):
+    """The pin must not imply a binary name the workflow then assumes."""
+    env = (repo_root / "environment.yml").read_text()
+    assert "iqtree2=" not in env and "iqtree3=" not in env

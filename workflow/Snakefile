@@ -75,6 +75,27 @@ AUSPICE_JSON = (f"{OUT}/auspice/{_BUILD_NAME}_{_L}.json" if len(LOCI) > 1
                 else f"{OUT}/auspice/{_BUILD_NAME}.json")
 AUSPICE_LOG = f"{OUT}/logs/09_auspice_{_L}.log"
 
+# IQ-TREE ships under three names depending on version and channel: `iqtree`
+# (v1 and some v2 builds), `iqtree2`, and `iqtree3` since 2025. Hardcoding one
+# fails at runtime with "command not found" — invisible until the rule actually
+# runs, which on a large alignment can be hours in. Resolve it once, here, and
+# let config override.
+import shutil as _shutil
+
+def _resolve_iqtree() -> str:
+    named = (config.get("tree") or {}).get("binary")
+    if named:
+        return named
+    for candidate in ("iqtree3", "iqtree2", "iqtree"):
+        if _shutil.which(candidate):
+            return candidate
+    # Nothing found. Return the modern default so the DAG still builds (a dry
+    # run must work without the tools installed); the rule will fail clearly
+    # if it is ever executed.
+    return "iqtree2"
+
+IQTREE = _resolve_iqtree()
+
 SEGMENTED = (config.get("virus") or {}).get("segmented", False)
 CONGRUENCE = (SEGMENTED and len(LOCI) > 1
               and (config.get("segments") or {}).get("congruence_gate", True))
@@ -257,10 +278,11 @@ rule ml_tree:
         ufboot = config["tree"]["ufboot"],
         alrt = config["tree"]["alrt"],
         pre = f"{OUT}/tree/{{locus}}_ml",
+        iqtree = IQTREE,
     threads: 8
     log: f"{OUT}/logs/03_tree_{{locus}}.log"
     shell:
-        "iqtree2 -s {input.aln} -m {params.model} -B {params.ufboot}"
+        "{params.iqtree} -s {input.aln} -m {params.model} -B {params.ufboot}"
         " -alrt {params.alrt} -T {threads} --prefix {params.pre} -redo 2>&1 | tee {log}"
 
 
@@ -530,7 +552,7 @@ rule provenance:
             "platform": platform.platform(),
             "python": platform.python_version(),
             "tools": {"mafft": ver(["mafft", "--version"]),
-                      "iqtree2": ver(["iqtree2", "--version"]),
+                      IQTREE: ver([IQTREE, "--version"]),
                       "beast": ver(["beast", "-version"])},
             "git_commit": ver(["git", "rev-parse", "HEAD"]),
         }

@@ -12,7 +12,11 @@ dependencies:
   - snakemake>=8
   # alignment and ML trees
   - mafft>=7.520
-  - iqtree>=2.2.2
+  # bioconda ships IQ-TREE as `iqtree` (which may be v1, v2 or v3 depending on
+  # the build) and separately as `iqtree2`/`iqtree3`. The workflow resolves
+  # whichever binary is present rather than assuming a name; set tree.binary in
+  # the pathogen config to pin one explicitly.
+  - iqtree>=2.2
   - trimal
   - seqkit
   # Nextstrain
