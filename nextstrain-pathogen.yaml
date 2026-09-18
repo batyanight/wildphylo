@@ -1,0 +1,7 @@
+# Marks this as a Nextstrain-compatible repository so that `nextstrain build`
+# and `nextstrain run` resolve workflows in subdirectories against the repo
+# root. It may be empty; the fields below are for indexing and attribution.
+#
+# NOTE: this repo is the PIPELINE, not a pathogen repo. Nextstrain's convention
+# is one repository per pathogen (see docs/NEXTSTRAIN.md). The per-pathogen
+# repos that consume this pipeline each carry their own file.

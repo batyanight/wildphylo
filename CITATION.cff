@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "wildphylo: a config-driven phylodynamics pipeline for wildlife disease"
+abstract: >-
+  A reproducible, config-driven pipeline for phylodynamic analysis of wildlife
+  pathogens from public sequence data. Covers curation, alignment QC, ML
+  phylogeny, automated temporal-signal assessment, stratified subsampling,
+  Bayesian inference with discrete trait reconstruction, segment congruence
+  screening for segmented genomes, and Nextstrain builds with scheduled
+  rebuilds.
+type: software
+authors:
+  - family-names: Nightingale
+    given-names: Batya
+    orcid: "https://orcid.org/0000-0002-0706-8951"
+# Drafted in collaboration with Claude (Anthropic); see the Acknowledgements
+# section of README.md. Not listed as an author, because authorship entails
+# accountability that a model cannot hold.
+license: MIT
+repository-code: "https://github.com/batyanight/wildphylo"
+keywords:
+  - phylodynamics
+  - wildlife disease
+  - molecular epidemiology
+  - BEAST
+  - Nextstrain
+  - reproducibility

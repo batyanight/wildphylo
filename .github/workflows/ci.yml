@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tests (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Test the pinned floor and a current release. The original CDV repo
+        # pinned biopython 1.83 / pandas 2.2 and had never been run on anything
+        # else; it turned out to work fine on 1.88 / 3.0, but nobody knew.
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run tests
+        run: pytest --cov=scripts/lib --cov-report=term-missing
+
+  configs:
+    name: validate shipped configs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -e ".[dev]"
+
+      - name: Validate every pathogen config
+        # Invoked as a module rather than inline Python. An earlier version
+        # embedded a heredoc here at column 0, which broke out of the YAML
+        # block scalar and made this file invalid -- so GitHub silently ran
+        # no CI at all. tests/test_workflow_integrity.py now parses it.
+        run: PYTHONPATH=scripts python -m lib.config config/pathogen/*.yaml
+
+  dag:
+    name: workflow DAG builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -e ".[dev]"
+
+      - name: Snakemake dry run for every pathogen
+        # A dry run resolves the whole DAG without executing anything, so a
+        # broken rule reference or a bad input function is caught here rather
+        # than partway through a multi-day run.
+        run: |
+          for f in config/pathogen/*.yaml; do
+            case "$(basename "$f")" in _*) continue;; esac
+            echo "::group::dry run $f"
+            snakemake -s workflow/Snakefile --configfile "$f" --cores 1 -n
+            echo "::endgroup::"
+          done
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install ruff
+      - run: ruff check scripts/ tests/
+        continue-on-error: true

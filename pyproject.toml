@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wildphylo"
+version = "0.1.0"
+description = "Config-driven phylodynamics pipeline for wildlife disease"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {file = "LICENSE"}
+dependencies = ["biopython>=1.83", "pandas>=2.2", "numpy", "matplotlib", "pyyaml"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-cov", "snakemake>=8"]
+
+[tool.setuptools]
+packages = ["lib"]
+package-dir = {"lib" = "scripts/lib"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+  "slow: takes more than a second (deselect with -m 'not slow')",
+  "needs_tools: requires mafft/iqtree/beast on PATH",
+]

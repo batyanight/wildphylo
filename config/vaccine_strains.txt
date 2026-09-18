@@ -1,0 +1,48 @@
+# CDV vaccine strains and vaccine-derived lineages.
+# Matched case-insensitively against organism, strain, isolate, title and note fields.
+# One pattern per line. Lines starting with # are comments.
+#
+# IMPORTANT: this list is a starting point, not gospel. Vaccine-derived sequences
+# in GenBank are inconsistently labelled. After running the filter, ALSO check for
+# sequences clustering with the vaccine clade in your first ML tree — that is the
+# real test. Add anything you find back into this file.
+
+# --- Classic attenuated vaccine strains ---
+onderstepoort
+rockborn
+snyder hill
+snyder-hill
+snyderhill
+lederle
+bussell
+convac
+cdv3
+cdv-3
+
+# --- Commercial vaccine product names ---
+nobivac
+vanguard
+recombitek
+enduracell
+duramune
+galaxy
+continuum
+canigen
+eurican
+versican
+quantum
+
+# --- Generic vaccine indicators ---
+vaccine
+vaccinal
+vaccine strain
+attenuated
+attenuation
+cell-adapted
+cell adapted
+vero-adapted
+
+# --- Lab-adapted / reference lines that are not field isolates ---
+onderstepoort-uk
+ondersterpoort
+lederle-adapted

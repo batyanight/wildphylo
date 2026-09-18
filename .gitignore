@@ -1,0 +1,65 @@
+# Build outputs. Every build is reproducible from its config + accession list,
+# so the artefacts are not tracked. Provenance IS tracked (see below).
+builds/*/*/raw/
+builds/*/*/interim/
+builds/*/*/aligned/
+builds/*/*/tree/
+builds/*/*/subsampled/
+builds/*/*/beast/
+builds/*/*/drt/
+builds/*/*/logs/
+
+# Tracked deliberately, because a build cannot be audited without them and
+# they are small:
+!builds/*/*/provenance.json
+!builds/*/*/checks.json
+!builds/*/*/temporal/
+!builds/*/*/qc/*.tsv
+!builds/*/*/raw/*.acc
+!builds/*/*/build_comparison.md
+
+# Auspice JSONs are the published artefact. Track the current ones; dated
+# archives live in builds/ and are not tracked.
+auspice/*.json.gz
+
+# Large alignments and trees
+*.fasta
+*.fa
+*.aln
+*.treefile
+*.trees
+*.tree
+*.nexus
+*.log.gz
+!config/**/*.fasta
+
+# BEAST
+*.ops
+*.state
+*.xml.state
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+.venv/
+venv/
+
+# Snakemake
+.snakemake/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+*.swp
+.vscode/
+.idea/
+
+# Secrets. NCBI API keys belong in the environment, never in a config file.
+.env
+*.key

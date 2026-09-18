@@ -1,0 +1,139 @@
+# =============================================================================
+# TEMPLATE — copy to config/pathogen/<yourid>.yaml and edit.
+#
+#   cp config/pathogen/_template.yaml config/pathogen/myvirus.yaml
+#   snakemake --configfile config/pathogen/myvirus.yaml --cores 8 -n
+#
+# The dry run validates the config and will tell you what is wrong before
+# anything downloads. Work through its warnings before the real run.
+#
+# See config/pathogen/cdv.yaml for a fully worked example.
+# =============================================================================
+
+id: myvirus                       # short slug; names the build directory
+name: My virus
+scientific_name: Genus species
+
+fetch:
+  taxid: 00000                    # NCBI Taxonomy ID. Find it at
+                                  # https://www.ncbi.nlm.nih.gov/taxonomy
+  query_filter: >-
+    NOT patent[Title]
+  min_length: 300
+  max_length: 50000
+  batch_size: 200
+
+locus:
+  name: GENE
+  product: full product name
+  # List every spelling GenBank uses for this gene. Check a handful of records
+  # by hand first -- this is the commonest source of silent data loss, because
+  # a gene the extractor cannot name becomes a record it cannot use.
+  aliases: [GENE, "gene name", "alternate spelling"]
+  expected_length: 1500
+  min_usable_length: 300
+  length_tolerance: 0.15
+  # Pick one well-annotated, published sequence as the coordinate origin.
+  # Every reported position will be in ITS numbering. Without this, positions
+  # are alignment columns, which move whenever the dataset changes.
+  coordinate_reference:
+    accession: null
+    strain: null
+    lineage: null
+    cds: null                     # [start, end], 1-based, in the reference
+
+dates:
+  # Earliest plausible collection date. Anything older is a data-entry error.
+  # Be strict: this is your main defence against a typo'd year silently
+  # dragging the whole calibration.
+  min_year: 1950
+  max_year: null
+  imprecise_date_policy: interval   # midpoint | interval | exclude
+
+hosts:
+  # Copy config/host_groups.tsv and rewrite it for your host range.
+  # Format:  pattern <TAB> canonical_name <TAB> functional_group
+  # Patterns match on word boundaries; wrap in /slashes/ for a regex.
+  # Put SPECIFIC patterns above GENERAL ones -- the dry run will tell you
+  # which rules are shadowed and therefore dead.
+  table: config/host_groups.tsv
+  wild_groups: []
+  reservoir_candidates: []
+  min_group_size: 5
+
+exclude:
+  vaccine_patterns_file: config/vaccine_strains.txt
+  lab_passaged: true
+
+references:
+  table: null                     # optional; for lineage assignment
+  expected_lineages: []
+
+alignment:
+  aligner: mafft
+  mafft_args: "--auto --reorder"
+  trim: false
+  max_gap_fraction: 0.60
+  max_ambiguity_fraction: 0.05
+  min_identity_to_consensus: 0.80
+
+tree:
+  method: iqtree
+  model: MFP
+  ufboot: 1000
+  alrt: 1000
+  threads: AUTO
+
+temporal_signal:
+  min_r_squared: 0.10
+  min_span_years: 5.0
+  permutations: 1000
+  max_concentration: 0.75
+  on_fail: stop                   # leave as stop unless you know why not
+  on_weak: warn
+
+beast:
+  # LEAVE THIS NULL for a new pathogen. The workflow will centre the clock
+  # prior on the root-to-tip slope measured from your own data. Copying a rate
+  # from a published paper on a different virus is the single easiest way to
+  # get a confident wrong answer.
+  clock_rate_prior: null
+  clock_rate_source: null
+  clock_model: relaxed_lognormal
+  substitution_model: HKY+G4
+  tree_prior: coalescent_constant
+  chain_length: 100000000
+  n_chains: 2
+  seeds: [12345, 54321]
+  burnin_fraction: 0.10
+  min_ess: 200
+  discrete_trait:
+    enabled: true
+    trait: host_group
+    # Symmetric halves the number of rates to estimate. Only set this false
+    # if you have enough observed transitions to support directional rates --
+    # n states gives n(n-1) rates, and they are rarely all identifiable.
+    symmetric: true
+    bssvs: true
+  date_randomisation:
+    enabled: true
+    replicates: 20
+    chain_length: 20000000
+
+subsample:
+  target_tips: 400
+  year_bin: 5
+  seed: 12345
+  strata: [clade, host_group, year_bin]
+
+nextstrain:
+  title: "My virus — descriptive title"
+  maintainer: "Your Name"
+  build_name: myvirus
+  colour_by: [host_group, country]
+  geo_resolutions: [country]
+  update:
+    schedule: monthly
+    keep_builds: 12
+    alert_on_tmrca_shift_years: 5.0
+    alert_on_sequence_loss: true

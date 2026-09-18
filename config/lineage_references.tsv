@@ -1,0 +1,71 @@
+# CDV lineage reference sequences for H-gene phylogenetic classification.
+#
+# accession <TAB> lineage <TAB> strain <TAB> type <TAB> source
+#
+# *** VERIFY EVERY ROW BEFORE PUBLISHING ***
+# These were compiled from published literature and patent filings. Some were read
+# from secondary sources rather than the primary GenBank record. Before any of this
+# reaches a manuscript, open each accession on NCBI and confirm the lineage assignment
+# against the depositing publication. An incorrect reference sequence produces a
+# confidently wrong lineage call.
+#
+# NOMENCLATURE WARNING
+# The original scheme (Martella et al. 2006; Nikolin et al. 2012) recognised 9 H-gene
+# lineages. Current classifications recognise 17-19. Some lineages have been renamed
+# or split (e.g. "South America/North America-4"). STATE WHICH SCHEME YOU FOLLOW in
+# the methods, and cite it.
+#
+# type: nuc = nucleotide accession, usable directly
+#       prot = PROTEIN accession — the script must resolve it to the coding nucleotide
+#              record, or you must find the nucleotide equivalent by hand
+#
+# Lineages relevant to clade_3 are listed first.
+
+# --- America-2: the expected match for a North American raccoon-associated lineage ---
+AF164967	America-2	A75/17	nuc	Standard CDV reference genome, widely used
+AF112189	America-2	(reference)	nuc	US patent 8647637 lineage reference panel
+Z47762	America-2	(reference)	nuc	US patent 8647637 lineage reference panel
+AF259552	America-2	(reference)	nuc	US patent 8647637 lineage reference panel
+ACD92997	America-2	16407	prot	Bui et al. 2017 Vietnam study reference panel
+AHM26181	America-2	171391-513	prot	Bui et al. 2017 reference panel
+AAT94553	America-2	01-2689	prot	Bui et al. 2017 reference panel
+CAA90879	America-2	Black panther A-92	prot	Captive felid isolate — directly relevant
+CAA87691	America-2	America dog	prot	Bui et al. 2017 reference panel
+
+# --- America-1 / vaccine lineage: essential as a control ---
+# Any of YOUR field isolates falling in this clade is a vaccine-derived sequence that
+# the name-based filter missed. This is the tree-based vaccine check.
+AF378705	America-1/vaccine	Onderstepoort	nuc	US patent 8647637; 1950s vaccine strain
+JN896987	America-1/vaccine	Snyder Hill	nuc	Used as C-gene numbering reference
+
+# --- Arctic-like ---
+AY964112	Arctic-like	(reference)	nuc	US patent 8647637 reference panel
+AY964108	Arctic-like	(reference)	nuc	US patent 8647637 reference panel
+
+# --- Europe wildlife: relevant to your 4 Denmark sequences and the Meles meles record ---
+ABK35780	Europe-wildlife	H06Ny11	prot	Bui et al. 2017 reference panel
+ABK35782	Europe-wildlife	H06Ny13	prot	Bui et al. 2017 reference panel
+CAA87688	Europe-wildlife	Danish mink	prot	Directly relevant to the Denmark outliers
+CAA59358	Europe-wildlife	German ferret	prot	Bui et al. 2017 reference panel
+
+# --- Europe ---
+AAQ49703	Europe	5804	prot	Bui et al. 2017 reference panel
+AAQ05829	Europe	DK91A	prot	Bui et al. 2017 reference panel
+CAB01252	Europe	2544	prot	Bui et al. 2017 reference panel
+
+# --- Rockborn-like ---
+ADN96002	Rockborn-like	Rockborn	prot	Bui et al. 2017 reference panel
+
+# --- Asia-4 ---
+AHN52227	Asia-4	NJ(11)2	prot	Bui et al. 2017 reference panel
+AHN52229	Asia-4	NJ(12)4	prot	Bui et al. 2017 reference panel
+AHN52230	Asia-4	NJ(12)5	prot	Bui et al. 2017 reference panel
+
+# --- STILL NEEDED ---
+# America-3 is reported co-circulating with America-2 in North American raccoons
+# (Colorado study). No reference accession was located in the sources consulted.
+# Find one before finalising the lineage call — America-3 is the most plausible
+# alternative assignment for clade_3.
+#
+# Also missing: Asia-1, Asia-2, South America-1/2/3, Africa/Southern Africa, Caspian.
+# Add if you want the full global reference panel rather than the subset relevant here.

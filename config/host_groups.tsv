@@ -1,0 +1,136 @@
+# Host normalization table for CDV GenBank records.
+# pattern <TAB> canonical_host <TAB> host_group
+#
+# `pattern` is matched case-insensitively as a substring of the /host qualifier.
+# Order matters: the FIRST match wins, so put specific patterns above general ones
+# (e.g. "raccoon dog" must appear before "dog").
+#
+# host_group values used downstream as the BEAST discrete trait:
+#   domestic_dog, wild_canid, wild_felid, mustelid, procyonid, pinniped,
+#   ailurid, viverrid, ursid, primate, other, unknown
+#
+# Anything unmatched goes to needs_review.tsv for you to adjudicate.
+
+# --- must precede "dog" ---
+raccoon dog	Nyctereutes procyonoides	wild_canid
+nyctereutes	Nyctereutes procyonoides	wild_canid
+prairie dog	Cynomys sp.	other
+bush dog	Speothos venaticus	wild_canid
+african wild dog	Lycaon pictus	wild_canid
+lycaon	Lycaon pictus	wild_canid
+
+# --- domestic dog ---
+canis lupus familiaris	Canis lupus familiaris	domestic_dog
+canis familiaris	Canis lupus familiaris	domestic_dog
+domestic dog	Canis lupus familiaris	domestic_dog
+dog	Canis lupus familiaris	domestic_dog
+canine	Canis lupus familiaris	domestic_dog
+puppy	Canis lupus familiaris	domestic_dog
+
+# --- wild canids ---
+grey wolf	Canis lupus	wild_canid
+gray wolf	Canis lupus	wild_canid
+canis lupus	Canis lupus	wild_canid
+wolf	Canis lupus	wild_canid
+coyote	Canis latrans	wild_canid
+canis latrans	Canis latrans	wild_canid
+red fox	Vulpes vulpes	wild_canid
+vulpes	Vulpes sp.	wild_canid
+arctic fox	Vulpes lagopus	wild_canid
+grey fox	Urocyon cinereoargenteus	wild_canid
+gray fox	Urocyon cinereoargenteus	wild_canid
+urocyon	Urocyon cinereoargenteus	wild_canid
+fox	Vulpes sp.	wild_canid
+jackal	Canis sp.	wild_canid
+dhole	Cuon alpinus	wild_canid
+cuon	Cuon alpinus	wild_canid
+maned wolf	Chrysocyon brachyurus	wild_canid
+crab-eating	Cerdocyon thous	wild_canid
+cerdocyon	Cerdocyon thous	wild_canid
+
+# --- wild felids ---
+# NOTE: subspecies patterns MUST precede the species pattern, or the binomial
+# match swallows them and you lose the Amur/Siberian distinction — which is the
+# whole point of this project.
+panthera tigris altaica	Panthera tigris altaica	wild_felid
+amur tiger	Panthera tigris altaica	wild_felid
+siberian tiger	Panthera tigris altaica	wild_felid
+panthera tigris	Panthera tigris	wild_felid
+tiger	Panthera tigris	wild_felid
+panthera pardus orientalis	Panthera pardus orientalis	wild_felid
+amur leopard	Panthera pardus orientalis	wild_felid
+panthera pardus	Panthera pardus	wild_felid
+leopard	Panthera pardus	wild_felid
+panthera leo	Panthera leo	wild_felid
+lion	Panthera leo	wild_felid
+jaguar	Panthera onca	wild_felid
+panthera onca	Panthera onca	wild_felid
+snow leopard	Panthera uncia	wild_felid
+uncia	Panthera uncia	wild_felid
+lynx	Lynx sp.	wild_felid
+bobcat	Lynx rufus	wild_felid
+puma	Puma concolor	wild_felid
+cougar	Puma concolor	wild_felid
+mountain lion	Puma concolor	wild_felid
+leopard cat	Prionailurus bengalensis	wild_felid
+prionailurus	Prionailurus sp.	wild_felid
+cheetah	Acinonyx jubatus	wild_felid
+acinonyx	Acinonyx jubatus	wild_felid
+serval	Leptailurus serval	wild_felid
+felis catus	Felis catus	other
+domestic cat	Felis catus	other
+
+# --- mustelids ---
+ferret	Mustela putorius furo	mustelid
+mustela	Mustela sp.	mustelid
+mink	Neovison vison	mustelid
+neovison	Neovison vison	mustelid
+badger	Meles meles	mustelid
+meles	Meles meles	mustelid
+otter	Lutra sp.	mustelid
+lutra	Lutra sp.	mustelid
+marten	Martes sp.	mustelid
+martes	Martes sp.	mustelid
+sable	Martes zibellina	mustelid
+wolverine	Gulo gulo	mustelid
+black-footed ferret	Mustela nigripes	mustelid
+skunk	Mephitis mephitis	mustelid
+
+# --- procyonids ---
+raccoon	Procyon lotor	procyonid
+procyon	Procyon lotor	procyonid
+coati	Nasua sp.	procyonid
+nasua	Nasua sp.	procyonid
+kinkajou	Potos flavus	procyonid
+
+# --- pinnipeds ---
+seal	Phoca sp.	pinniped
+phoca	Phoca sp.	pinniped
+sea lion	Zalophus sp.	pinniped
+zalophus	Zalophus sp.	pinniped
+
+# --- other carnivore families ---
+red panda	Ailurus fulgens	ailurid
+ailurus	Ailurus fulgens	ailurid
+giant panda	Ailuropoda melanoleuca	ursid
+ailuropoda	Ailuropoda melanoleuca	ursid
+bear	Ursus sp.	ursid
+ursus	Ursus sp.	ursid
+civet	Viverridae sp.	viverrid
+viverr	Viverridae sp.	viverrid
+mongoose	Herpestidae sp.	viverrid
+binturong	Arctictis binturong	viverrid
+hyena	Crocuta crocuta	other
+crocuta	Crocuta crocuta	other
+
+# --- primates & non-carnivores ---
+macaque	Macaca sp.	primate
+macaca	Macaca sp.	primate
+monkey	Primates sp.	primate
+peccary	Tayassuidae sp.	other
+javelina	Tayassuidae sp.	other
+
+# --- non-host / lab ---
+vero	CELL_CULTURE	unknown
+cell culture	CELL_CULTURE	unknown
+cell line	CELL_CULTURE	unknown

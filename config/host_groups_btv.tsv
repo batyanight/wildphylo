@@ -1,0 +1,118 @@
+# Host normalisation table for bluetongue virus (Orbivirus caerulinguae).
+# pattern <TAB> canonical_host <TAB> host_group
+#
+# Patterns match on WORD BOUNDARIES, case-insensitively. Wrap in /slashes/ for
+# a regex. The FIRST matching rule wins, so specific patterns must sit above
+# general ones -- `python -m scripts.lib.config` audits this and names any rule
+# that can never fire.
+#
+# Ordering hazards specific to this table, learned from the CDV 'sea lion'
+# bug where a general rule shadowed a specific one:
+#   - 'bighorn sheep' and 'barbary sheep' MUST precede 'sheep', or wild bovids
+#     become domestic sheep and the wildlife signal disappears entirely.
+#   - 'mountain goat' (Oreamnos, a bovid) MUST precede 'goat'.
+#   - 'water buffalo' (domestic) MUST precede 'buffalo' (African, wild).
+#   - 'white-tailed deer' and 'mule deer' precede 'deer' only for canonical
+#     naming; they share a group, so a mistake here is cosmetic.
+
+# --- wild bovids (specific first) -------------------------------------------
+bighorn sheep	Ovis canadensis	wild_bovid
+dall sheep	Ovis dalli	wild_bovid
+barbary sheep	Ammotragus lervia	wild_bovid
+aoudad	Ammotragus lervia	wild_bovid
+mouflon	Ovis gmelini	wild_bovid
+argali	Ovis ammon	wild_bovid
+mountain goat	Oreamnos americanus	wild_bovid
+ibex	Capra ibex	wild_bovid
+chamois	Rupicapra rupicapra	wild_bovid
+pronghorn	Antilocapra americana	wild_other_ruminant
+american bison	Bison bison	wild_bovid
+european bison	Bison bonasus	wild_bovid
+bison	Bison sp.	wild_bovid
+water buffalo	Bubalus bubalis	domestic_cattle
+bubalus bubalis	Bubalus bubalis	domestic_cattle
+african buffalo	Syncerus caffer	wild_bovid
+syncerus caffer	Syncerus caffer	wild_bovid
+buffalo	Syncerus caffer	wild_bovid
+blesbok	Damaliscus pygargus	wild_bovid
+springbok	Antidorcas marsupialis	wild_bovid
+kudu	Tragelaphus sp.	wild_bovid
+eland	Taurotragus oryx	wild_bovid
+gazelle	Gazella sp.	wild_bovid
+antelope	Antilopinae sp.	wild_bovid
+oryx	Oryx sp.	wild_bovid
+nyala	Tragelaphus angasii	wild_bovid
+
+# --- wild cervids -----------------------------------------------------------
+white-tailed deer	Odocoileus virginianus	wild_cervid
+white tailed deer	Odocoileus virginianus	wild_cervid
+odocoileus virginianus	Odocoileus virginianus	wild_cervid
+mule deer	Odocoileus hemionus	wild_cervid
+black-tailed deer	Odocoileus hemionus	wild_cervid
+odocoileus hemionus	Odocoileus hemionus	wild_cervid
+red deer	Cervus elaphus	wild_cervid
+cervus elaphus	Cervus elaphus	wild_cervid
+elk	Cervus canadensis	wild_cervid
+wapiti	Cervus canadensis	wild_cervid
+sika deer	Cervus nippon	wild_cervid
+fallow deer	Dama dama	wild_cervid
+roe deer	Capreolus capreolus	wild_cervid
+reindeer	Rangifer tarandus	wild_cervid
+caribou	Rangifer tarandus	wild_cervid
+moose	Alces alces	wild_cervid
+muntjac	Muntiacus sp.	wild_cervid
+deer	Cervidae sp.	wild_cervid
+
+# --- wild camelids ----------------------------------------------------------
+guanaco	Lama guanicoe	wild_camelid
+vicuna	Vicugna vicugna	wild_camelid
+
+# --- giraffids and other wild ruminants -------------------------------------
+giraffe	Giraffa camelopardalis	wild_other_ruminant
+okapi	Okapia johnstoni	wild_other_ruminant
+
+# --- domestic ruminants -----------------------------------------------------
+ovis aries	Ovis aries	domestic_sheep
+sheep	Ovis aries	domestic_sheep
+lamb	Ovis aries	domestic_sheep
+ewe	Ovis aries	domestic_sheep
+bos taurus	Bos taurus	domestic_cattle
+bos indicus	Bos indicus	domestic_cattle
+cattle	Bos taurus	domestic_cattle
+cow	Bos taurus	domestic_cattle
+calf	Bos taurus	domestic_cattle
+bovine	Bos taurus	domestic_cattle
+steer	Bos taurus	domestic_cattle
+heifer	Bos taurus	domestic_cattle
+yak	Bos grunniens	domestic_cattle
+capra hircus	Capra hircus	domestic_goat
+goat	Capra hircus	domestic_goat
+caprine	Capra hircus	domestic_goat
+
+# --- domestic camelids ------------------------------------------------------
+alpaca	Vicugna pacos	domestic_camelid
+llama	Lama glama	domestic_camelid
+dromedary	Camelus dromedarius	domestic_camelid
+bactrian camel	Camelus bactrianus	domestic_camelid
+camel	Camelus sp.	domestic_camelid
+
+# --- carnivores -------------------------------------------------------------
+# BTV has been reported in carnivores, usually via ingestion of infected
+# ruminant material or contaminated vaccine. These are dead-end and should not
+# be read as a transmission route.
+canis lupus familiaris	Canis lupus familiaris	carnivore
+dog	Canis lupus familiaris	carnivore
+eurasian lynx	Lynx lynx	carnivore
+lynx	Lynx sp.	carnivore
+
+# --- vector -----------------------------------------------------------------
+# Handled by hosts.vector_policy, NOT as a host state. A midge is where the
+# virus was sampled, not a host in which a lineage is maintained. See DR-006.
+culicoides	Culicoides sp.	vector
+midge	Culicoides sp.	vector
+ceratopogonid	Ceratopogonidae sp.	vector
+
+# --- non-host ---------------------------------------------------------------
+cell culture	cell culture	lab
+bhk	cell culture	lab
+vero	cell culture	lab

@@ -1,0 +1,127 @@
+name: Scheduled rebuild
+
+# Cron fires on schedule; the build proceeds only if GenBank actually has new
+# records. Re-analysing an unchanged dataset burns compute and produces a
+# second, confusingly-dated copy of the same result. See docs/DECISIONS.md
+# DR-004.
+
+on:
+  schedule:
+    # 03:00 UTC on the 1st of each month. Offset from midnight deliberately --
+    # NCBI's own indexing runs overnight and a query at 00:00 can return a
+    # partially-updated view.
+    - cron: "0 3 1 * *"
+  workflow_dispatch:
+    inputs:
+      pathogen:
+        description: "Pathogen id (must match config/pathogen/<id>.yaml)"
+        required: true
+        default: cdv
+      force:
+        description: "Rebuild even if no new accessions"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    name: check for new accessions
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.delta.outputs.proceed }}
+      pathogens: ${{ steps.delta.outputs.pathogens }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -e ".[dev]"
+
+      - name: Compare accession counts against the last build
+        id: delta
+        env:
+          NCBI_EMAIL: ${{ secrets.NCBI_EMAIL }}
+          NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
+          FORCE: ${{ inputs.force }}
+          ONLY: ${{ inputs.pathogen }}
+        run: python scripts/13_check_updates.py --github-output
+
+  rebuild:
+    name: rebuild ${{ matrix.pathogen }}
+    needs: check
+    if: needs.check.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pathogen: ${{ fromJson(needs.check.outputs.pathogens) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          environment-file: environment.yml
+          activate-environment: wildphylo
+          miniforge-version: latest
+
+      - name: Run pipeline through the temporal gate
+        shell: bash -el {0}
+        env:
+          NCBI_EMAIL: ${{ secrets.NCBI_EMAIL }}
+          NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
+        # BEAST is NOT run here. A 10^8-state chain does not belong in a GitHub
+        # runner: it exceeds the job time limit and the result would be
+        # unreproducible anyway. CI rebuilds the fast half of the pipeline --
+        # fetch, curate, align, ML tree, temporal gate -- and reports whether
+        # the Bayesian half needs rerunning on real hardware.
+        run: |
+          snakemake -s workflow/Snakefile \
+            --configfile config/pathogen/${{ matrix.pathogen }}.yaml \
+            --cores 4 \
+            builds/${{ matrix.pathogen }}/$(date +%Y%m%d)/temporal/temporal_signal.json
+
+      - name: Compare against the previous build
+        shell: bash -el {0}
+        run: |
+          python scripts/12_compare_builds.py \
+            --pathogen ${{ matrix.pathogen }} \
+            --builds-dir builds/${{ matrix.pathogen }} \
+            --out /tmp/comparison.md
+          cat /tmp/comparison.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open an issue if the dataset changed materially
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Rebuild flagged a change: ${{ matrix.pathogen }}`,
+              body: [
+                'The scheduled rebuild did not pass its comparison against the',
+                'previous build. This usually means one of:',
+                '',
+                '- the dataset lost sequences (a query bug, not a finding)',
+                '- the TMRCA moved beyond the configured tolerance',
+                '- the temporal-signal gate changed verdict',
+                '',
+                'Check the run summary before republishing anything.',
+                '',
+                `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+              ].join('\n'),
+              labels: ['rebuild', 'needs-review']
+            })
+
+      - name: Commit provenance and QC
+        shell: bash -el {0}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f builds/${{ matrix.pathogen }}/*/provenance.json \
+                     builds/${{ matrix.pathogen }}/*/temporal/ \
+                     builds/${{ matrix.pathogen }}/*/raw/*.acc || true
+          git diff --staged --quiet || \
+            git commit -m "Scheduled rebuild: ${{ matrix.pathogen }} $(date +%Y-%m-%d)"
+          git push

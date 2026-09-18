@@ -1,0 +1,33 @@
+name: wildphylo
+channels: [conda-forge, bioconda]
+dependencies:
+  - python=3.11
+  # core
+  - biopython>=1.83
+  - pandas>=2.2
+  - numpy
+  - matplotlib
+  - pyyaml
+  # workflow
+  - snakemake>=8
+  # alignment and ML trees
+  - mafft>=7.520
+  - iqtree>=2.2.2
+  - trimal
+  - seqkit
+  # Nextstrain
+  - augur>=24
+  - auspice
+  # testing
+  - pytest
+  - pytest-cov
+  # optional
+  - jupyterlab
+  - nbformat
+  # BEAST2, Tracer, TempEst and FigTree are Java GUI/CLI tools installed
+  # separately:
+  #   BEAST2  https://www.beast2.org/
+  #   Tracer  https://beast.community/tracer
+  # Version pins are intentionally loose. The suite runs on biopython 1.88 and
+  # pandas 3.0; tightening these without testing them is how an environment
+  # file becomes a lie.

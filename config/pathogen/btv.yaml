@@ -1,0 +1,295 @@
+# =============================================================================
+# BTV — bluetongue virus (Orbivirus caerulinguae)
+#
+# The second worked example, chosen to stress what CDV never exercised:
+# a segmented genome, a vector-borne transmission cycle, and serotype structure
+# that cuts across segment phylogeny.
+#
+# TAXONOMY NOTE: ICTV renamed this to *Orbivirus caerulinguae* in 2023, and
+# moved the family from Reoviridae to Sedoreoviridae. NCBI Taxonomy still keys
+# on taxid 40051 with the vernacular "Bluetongue virus", which is what the
+# fetch step uses. Do not "correct" the query to the new binomial -- Entrez
+# will not resolve it. There are now 29 recognised serotypes (24 classical,
+# plus BTV-25 onward, which are atypical and often vector-independent).
+# =============================================================================
+
+id: btv
+name: Bluetongue virus
+scientific_name: Orbivirus caerulinguae
+
+virus:
+  genome: dsRNA
+  segmented: true
+  n_segments: 10
+  # Reassortment is not an edge case in BTV, it is the dominant mode of
+  # generating diversity. This flag makes the segment-congruence screen a HARD
+  # GATE: concatenation is refused unless congruence is demonstrated, not
+  # assumed.
+  recombination_expected: true
+  reassortment_expected: true
+  # Published dsRNA rates: 0.5–7e-4 subs/site/yr across segments
+  # (Carpi et al. 2010; Kundlacz et al. 2019). Sanity-check bound only.
+  expected_rate_range: [1.0e-5, 1.0e-2]
+
+# --- what to fetch ----------------------------------------------------------
+fetch:
+  taxid: 40051
+  # Exclude reassortant-by-design laboratory constructs and reverse-genetics
+  # rescues: they have no meaningful collection date and their segment
+  # combinations are engineered, which is exactly what the congruence screen
+  # would otherwise flag as natural reassortment.
+  query_filter: >-
+    NOT patent[Title] NOT "reverse genetics"[Title] NOT "reassortant"[Title]
+  min_length: 300
+  max_length: 4500
+  batch_size: 200
+
+# --- loci -------------------------------------------------------------------
+# CDV had one locus. BTV has ten, each with its own length, its own clock and,
+# because of reassortment, its own topology. `loci` replaces `locus`; the
+# single-locus form is still accepted for unsegmented pathogens.
+#
+# `analyse: true` marks segments carried through the full pipeline. Starting
+# with Seg-2, Seg-6 and Seg-10 mirrors the published phylodynamic work and
+# gives the congruence screen three trees to compare, which is the minimum
+# for a pairwise RF matrix to say anything.
+loci:
+  - name: seg2
+    segment: 2
+    product: VP2
+    aliases: [VP2, "segment 2", "Seg-2", "S2", "outer capsid protein VP2"]
+    expected_length: 2926
+    min_usable_length: 600
+    analyse: true
+    # Seg-2 determines serotype. It is under strong host-immune selection,
+    # so its tree reflects serotype identity rather than strain ancestry --
+    # treat a Seg-2 clade as a serotype, not as a transmission lineage.
+    defines: serotype
+    clock_rate_prior: null       # measured per segment; see DR-005
+    clock_rate_source: "Carpi et al. 2010 report 0.5-7e-4 across segments; not used as a prior"
+    imprecise_date_policy: interval    # lambda ~1.46 subs/genome/yr
+
+  - name: seg6
+    segment: 6
+    product: VP5
+    aliases: [VP5, "segment 6", "Seg-6", "S6", "outer capsid protein VP5"]
+    expected_length: 1638
+    min_usable_length: 500
+    analyse: true
+    defines: serotype_secondary
+    clock_rate_prior: null
+    clock_rate_source: "Kundlacz et al. 2019: 5.02e-4 (HPD 4.42e-4-5.6e-4)"
+    imprecise_date_policy: interval    # lambda ~0.82; marginal, see DR-005
+
+  - name: seg10
+    segment: 10
+    product: NS3
+    aliases: [NS3, NS3A, "segment 10", "Seg-10", "S10"]
+    expected_length: 822
+    min_usable_length: 400
+    analyse: true
+    clock_rate_prior: null
+    clock_rate_source: "Kundlacz et al. 2019: 4.26e-4 (HPD 3.38e-4-5.09e-4)"
+    # lambda = 4.26e-4 x 822 = 0.35 subs/genome/yr. This sits just above the
+    # midpoint floor of 0.3: the shortest segment can barely resolve
+    # within-year timing. The recommender returns 'interval / marginal'.
+    # Worth checking whether the tip-date parameters actually mix here; if ESS
+    # on tip heights is poor, drop this segment to midpoint and say so.
+    imprecise_date_policy: interval
+
+  - name: seg7
+    segment: 7
+    product: VP7
+    aliases: [VP7, "segment 7", "Seg-7", "S7", "core protein VP7"]
+    expected_length: 1156
+    min_usable_length: 400
+    analyse: false
+    # Seg-7 defines serogroup, so it separates BTV from EHDV and other
+    # orbiviruses. Useful as a contamination and misidentification check
+    # rather than for phylodynamics.
+    defines: serogroup
+
+  - name: seg3
+    segment: 3
+    product: VP3
+    aliases: [VP3, "segment 3", "Seg-3", "S3"]
+    expected_length: 2772
+    min_usable_length: 700
+    analyse: false
+    # Conserved; often used as a topotype (geographic lineage) marker.
+    defines: topotype
+
+# --- segment handling -------------------------------------------------------
+segments:
+  # Refuse to concatenate unless topological congruence is demonstrated.
+  # For BTV the expected outcome is 'decoupled' and separate analysis; the
+  # gate exists so that the expected outcome is still checked rather than
+  # assumed, and so the pipeline notices if a subset IS congruent.
+  concatenate: never            # never | if_congruent | always
+  congruence_gate: true
+  collapse_support: 70          # ignore splits below this before comparing
+  congruent_max_rf: 0.15
+  decoupled_min_rf: 0.40
+  # Taxa whose placement shifts between segments generate host transitions
+  # that reflect reassortment, not transmission. Drop them from the discrete
+  # trait analysis by default.
+  reassortant_threshold: 0.6
+  exclude_reassortants_from_dta: true
+  # Require a taxon to have all analysed segments before it enters any
+  # cross-segment comparison. Without this the RF matrix is computed on a
+  # shifting taxon set and is not interpretable.
+  require_complete_isolates: true
+
+# --- dates ------------------------------------------------------------------
+dates:
+  # Earliest credible BTV sequence material. South African isolates from the
+  # 1950s exist; anything earlier is a data-entry error.
+  min_year: 1940
+  max_year: null
+  # Per-locus overrides above take precedence. This is the fallback.
+  imprecise_date_policy: interval
+
+# --- hosts ------------------------------------------------------------------
+hosts:
+  table: config/host_groups_btv.tsv
+  wild_groups: [wild_cervid, wild_bovid, wild_camelid, wild_other_ruminant]
+  reservoir_candidates: [wild_cervid, domestic_sheep, domestic_cattle]
+  min_group_size: 5
+
+  # Discrete-trait states. Deliberately coarse: BTV host records are dominated
+  # by domestic sheep and cattle, and the wildlife records are thin and
+  # geographically clustered. A fine-grained map would produce states with two
+  # or three tips and rates that cannot be identified.
+  dta_states:
+    domestic_sheep:       domestic_sheep
+    domestic_cattle:      domestic_cattle
+    domestic_goat:        domestic_small_ruminant
+    domestic_camelid:     domestic_other
+    wild_cervid:          wild_ruminant
+    wild_bovid:           wild_ruminant
+    wild_camelid:         wild_ruminant
+    wild_other_ruminant:  wild_ruminant
+    carnivore:            carnivore
+  dta_other: null
+
+  # THE VECTOR PROBLEM, recorded rather than silently resolved.
+  #
+  # BTV is Culicoides-transmitted, so every host-to-host transition physically
+  # passes through a midge. Sequences derived FROM midges are therefore not a
+  # host state in the same sense as a sheep or a deer -- a midge is a conduit,
+  # and its "host label" says where the virus was sampled, not where it was
+  # maintained.
+  #
+  # Three options, none free:
+  #   exclude  - drop vector-derived sequences. Loses real data, and vector
+  #              sequences are often the only evidence of local circulation.
+  #   state    - treat 'vector' as a discrete state. Simple, but then every
+  #              transition rate to and from it is a sampling artefact rather
+  #              than a transmission parameter.
+  #   annotate - keep the sequences, exclude them from the trait analysis,
+  #              retain them in the phylogeny and in the metadata.
+  #
+  # Default is 'annotate': the sequences inform the tree, but they do not
+  # contribute host transitions they cannot speak to. See DR-006.
+  vector_policy: annotate
+  vector_patterns: [culicoides, midge, ceratopogonid]
+
+exclude:
+  vaccine_patterns_file: config/vaccine_strains_btv.txt
+  lab_passaged: true
+  # BTV live-attenuated vaccines reassort with field strains, so a vaccine
+  # segment can appear inside an otherwise wild-type isolate. Segment-level
+  # vaccine screening is required, not isolate-level.
+  vaccine_check_per_segment: true
+
+# --- serotype / topotype assignment ----------------------------------------
+references:
+  table: config/btv_serotype_references.tsv
+  # 29 serotypes. BTV-25 onward are atypical: often vector-independent, and
+  # they do not slot cleanly into the classical serotype framework.
+  expected_lineages: [BTV-1, BTV-2, BTV-3, BTV-4, BTV-5, BTV-6, BTV-7, BTV-8,
+                      BTV-9, BTV-10, BTV-11, BTV-12, BTV-13, BTV-14, BTV-15,
+                      BTV-16, BTV-17, BTV-18, BTV-19, BTV-20, BTV-21, BTV-22,
+                      BTV-23, BTV-24, BTV-25, BTV-26, BTV-27, BTV-28, BTV-29]
+  # Serotype is assigned from Seg-2 only. Assigning it from a concatenate or
+  # from any other segment is wrong, and in a reassortant it is meaningless.
+  assign_from: seg2
+
+alignment:
+  aligner: mafft
+  mafft_args: "--auto --reorder"
+  trim: false
+  max_gap_fraction: 0.60
+  max_ambiguity_fraction: 0.05
+  # Serotypes are highly divergent in Seg-2 -- up to ~30% nt difference. A
+  # consensus-identity threshold tuned for a single CDV lineage would flag
+  # every non-matching serotype as an alignment failure.
+  min_identity_to_consensus: 0.60
+
+tree:
+  method: iqtree
+  model: MFP
+  ufboot: 1000
+  alrt: 1000
+  threads: AUTO
+  # Built per analysed segment. There is no concatenated tree unless the
+  # congruence gate permits one, which for BTV it is not expected to.
+  per_locus: true
+
+temporal_signal:
+  min_r_squared: 0.10
+  min_span_years: 5.0
+  permutations: 1000
+  max_concentration: 0.75
+  on_fail: stop
+  on_weak: warn
+  # Assessed per segment. Segments have different TMRCAs and different clock
+  # signal; one may pass while another fails, and that is a finding rather
+  # than an inconsistency.
+  per_locus: true
+
+beast:
+  clock_rate_prior: null       # per-locus; centred on each segment's own slope
+  clock_rate_source: null
+  clock_model: relaxed_lognormal
+  substitution_model: HKY+G4
+  tree_prior: coalescent_constant
+  chain_length: 100000000
+  n_chains: 2
+  seeds: [12345, 54321]
+  burnin_fraction: 0.10
+  min_ess: 200
+  discrete_trait:
+    enabled: true
+    trait: host_group
+    symmetric: true
+    bssvs: true
+  date_randomisation:
+    enabled: true
+    replicates: 20
+    chain_length: 20000000
+
+subsample:
+  target_tips: 400
+  year_bin: 5
+  seed: 12345
+  # Serotype is added to the strata: a stratified sample that ignores it will
+  # be dominated by BTV-8 and BTV-1 from the European incursions and will drop
+  # the rarer serotypes that carry most of the geographic signal.
+  strata: [serotype, host_group, year_bin, country]
+
+nextstrain:
+  title: "Bluetongue virus — segment phylogenies and host association"
+  maintainer: "Batya Nightingale"
+  build_name: btv-phylodynamics
+  colour_by: [host_group, serotype, country, segment]
+  geo_resolutions: [country]
+  # One Auspice dataset per analysed segment, since there is no single tree.
+  per_locus: true
+  update:
+    schedule: monthly
+    trigger: accession_delta
+    min_new_accessions: 10
+    max_new_accessions: 1000
+    alert_on_tmrca_shift_years: 5.0
+    alert_on_sequence_loss: true

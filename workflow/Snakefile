@@ -1,0 +1,534 @@
+# =============================================================================
+# Phylodynamics workflow — pathogen-agnostic.
+#
+#   snakemake --configfile config/pathogen/cdv.yaml --cores 8
+#   snakemake --configfile config/pathogen/myvirus.yaml --cores 8 -n   # dry run
+#
+# Why Snakemake rather than Nextflow: the existing scripts are Python and pass
+# state through pandas DataFrames and dataclasses. Snakemake keeps that in one
+# language and one process model, and its `checkpoint` mechanism expresses the
+# thing this pipeline most needs — a gate that decides at runtime whether the
+# expensive Bayesian branch runs at all. Nextflow would be the better call if
+# this had to run on a shared HPC scheduler or in multiple languages; it does
+# not, yet.
+#
+# The design principle throughout: every rule writes a provenance record, and
+# every rebuild is date-stamped rather than overwriting. A conclusion that
+# changes between builds must be traceable to the records that changed.
+# =============================================================================
+
+import datetime as dt
+import json
+import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(workflow.basedir).parent / "scripts"))
+from lib import config as cfgmod
+
+# --- configuration ----------------------------------------------------------
+
+if not config:
+    raise WorkflowError(
+        "No config given. Run with --configfile config/pathogen/<name>.yaml"
+    )
+
+# Snakemake's --configfile loads the YAML itself and bypasses lib.config.load(),
+# so the path it came from has to be recovered here. Scripts are passed this
+# path and re-validate independently, which keeps them runnable standalone.
+config["_path"] = str(Path(workflow.configfiles[0]).resolve())
+
+errors, warnings = cfgmod.validate(config)
+if errors:
+    raise WorkflowError(
+        "Config is not usable:\n" + "\n".join(f"  - {e}" for e in errors))
+for w in warnings:
+    logger.warning(f"config: {w}")
+
+PATHOGEN = config["id"]
+BUILD = config.get("build_date") or dt.date.today().strftime("%Y%m%d")
+
+# Every build is namespaced by date. Old builds are never overwritten, which is
+# what makes "the TMRCA moved" a debuggable event rather than a mystery.
+OUT = f"builds/{PATHOGEN}/{BUILD}"
+
+# Loci. An unsegmented pathogen declares `locus`; a segmented one declares
+# `loci` and every rule below fans out over the analysed ones. Treating the
+# single-locus case as a list of length one keeps one code path rather than two.
+if "loci" in config:
+    LOCI = [l["name"] for l in config["loci"] if l.get("analyse")]
+    LOCUS_CFG = {l["name"]: l for l in config["loci"]}
+else:
+    LOCI = [config["locus"]["name"]]
+    LOCUS_CFG = {config["locus"]["name"]: config["locus"]}
+
+_BUILD_NAME = config["nextstrain"]["build_name"]
+# With several loci there is one Auspice dataset per locus, and the filename
+# becomes the URL path (docs/NEXTSTRAIN.md). With one locus the bare name is
+# kept, so an existing published URL does not move.
+# With one locus every path in the auspice rule is concrete, so there is no
+# wildcard to resolve; with several, all of them carry {locus}. Mixing the two
+# is what Snakemake rejects ("not all output, log and benchmark files ...
+# contain the same wildcards"), so _L switches them together.
+_L = "{locus}" if len(LOCI) > 1 else LOCI[0]
+AUSPICE_JSON = (f"{OUT}/auspice/{_BUILD_NAME}_{_L}.json" if len(LOCI) > 1
+                else f"{OUT}/auspice/{_BUILD_NAME}.json")
+AUSPICE_LOG = f"{OUT}/logs/09_auspice_{_L}.log"
+
+SEGMENTED = (config.get("virus") or {}).get("segmented", False)
+CONGRUENCE = (SEGMENTED and len(LOCI) > 1
+              and (config.get("segments") or {}).get("congruence_gate", True))
+
+
+def locus_opt(wildcards, key, default=None):
+    """Per-locus setting, falling back to the pathogen-level one."""
+    lc = LOCUS_CFG.get(wildcards.locus, {})
+    if key in lc and lc[key] is not None:
+        return lc[key]
+    for section in ("dates", "beast"):
+        if key in config.get(section, {}):
+            return config[section][key]
+    return default
+
+
+wildcard_constraints:
+    seed = r"\d+",
+    rep = r"\d+",
+    locus = "|".join(re.escape(l) for l in LOCI) if LOCI else r"[A-Za-z0-9_-]+",
+
+
+# --- targets ----------------------------------------------------------------
+
+def final_targets(wildcards):
+    """
+    What gets built depends on the temporal-signal gate, which is resolved
+    after the gate runs rather than when the DAG is first drawn. With several
+    loci the verdict is per locus: one segment may pass while another fails,
+    and that is a finding rather than an inconsistency.
+    """
+    targets = []
+    verdicts = {}
+    for locus in LOCI:
+        gate = checkpoints.temporal_gate.get(locus=locus).output.report
+        verdicts[locus] = json.loads(Path(gate).read_text())["verdict"]
+
+    on_fail = config.get("temporal_signal", {}).get("on_fail", "stop")
+    passing = [l for l, v in verdicts.items()
+               if not (v == "fail" and on_fail == "stop")]
+    blocked = [l for l in LOCI if l not in passing]
+    if blocked:
+        logger.warning(
+            f"Temporal signal gate returned FAIL for: {', '.join(blocked)}. "
+            "The Bayesian and Nextstrain steps for those loci are being "
+            "skipped deliberately. Running BEAST on data with no clock signal "
+            "returns a confident posterior for a rate that is not "
+            "identifiable. To override, set temporal_signal.on_fail: warn."
+        )
+    if not passing:
+        return targets
+
+    build = config["nextstrain"]["build_name"]
+    if len(LOCI) > 1:
+        targets += expand(f"{OUT}/auspice/{build}_{{locus}}.json", locus=passing)
+    else:
+        targets.append(f"{OUT}/auspice/{build}.json")
+    targets += expand(f"{OUT}/beast/{{locus}}/convergence.json", locus=passing)
+    if config["beast"].get("date_randomisation", {}).get("enabled"):
+        targets += expand(f"{OUT}/drt/{{locus}}/drt_summary.json", locus=passing)
+    return targets
+
+
+def gate_targets(_wildcards=None):
+    """
+    Everything reachable WITHOUT consulting a checkpoint. Kept separate because
+    `checkpoints.x.get()` raises as soon as it hits an unfinished checkpoint,
+    abandoning the rest of the function -- so with several loci only the first
+    one's branch would get scheduled and the others would run serially for no
+    reason. Listing the gates statically lets all of them run at once.
+    """
+    t = [f"{OUT}/provenance.json"]
+    t += expand(f"{OUT}/qc/{{locus}}_alignment_qc.tsv", locus=LOCI)
+    t += expand(f"{OUT}/temporal/{{locus}}_temporal_signal.json", locus=LOCI)
+    t += expand(f"{OUT}/temporal/{{locus}}_root_to_tip.png", locus=LOCI)
+    if CONGRUENCE:
+        t.append(f"{OUT}/segments/congruence.json")
+    return t
+
+
+rule all:
+    input:
+        gates = gate_targets,
+        downstream = final_targets
+
+
+# --- 1. acquisition ---------------------------------------------------------
+
+rule fetch:
+    """
+    Pull records from GenBank. Date-stamped and cached: re-running does not
+    re-download, and an old pull is never silently replaced by a new one.
+    """
+    output:
+        gb  = f"{OUT}/raw/{PATHOGEN}.gb",
+        acc = f"{OUT}/raw/{PATHOGEN}.acc",
+    params:
+        taxid = config["fetch"]["taxid"],
+        filt  = config["fetch"].get("query_filter", ""),
+        email = config.get("ncbi_email", ""),
+    log: f"{OUT}/logs/01_fetch.log"
+    shell:
+        "python scripts/01_fetch_sequences.py"
+        " --taxid {params.taxid} --query-filter {params.filt:q}"
+        " --email {params.email} --out {output.gb} --acc {output.acc} 2>&1 | tee {log}"
+
+
+rule curate:
+    """
+    Normalise hosts, parse dates, extract the locus. Nothing is dropped
+    silently: exclusions carry a reason and ambiguities go to needs_review.
+    """
+    input:
+        gb = rules.fetch.output.gb,
+        hosts = config["hosts"]["table"],
+    output:
+        meta    = f"{OUT}/interim/metadata_clean.tsv",
+        fasta   = expand(f"{OUT}/interim/{{locus}}.fasta", locus=LOCI),
+        review  = f"{OUT}/interim/needs_review.tsv",
+        excl    = f"{OUT}/interim/exclusions.tsv",
+    params:
+        cfg = lambda w: config["_path"],
+    log: f"{OUT}/logs/02_curate.log"
+    shell:
+        "python scripts/02_curate_metadata.py --config {params.cfg}"
+        " --gb {input.gb} --out-dir {OUT}/interim 2>&1 | tee {log}"
+
+
+rule review_gate:
+    """
+    Hard stop if needs_review is non-empty and unacknowledged. Ambiguous host
+    labels are the input to the host-transition analysis; letting them through
+    unreviewed is how a result becomes a curation artefact.
+    """
+    input: review = rules.curate.output.review
+    output: touch(f"{OUT}/interim/.review_ok")
+    run:
+        import pandas as pd
+        df = pd.read_csv(input.review, sep="\t")
+        if len(df) and not config.get("accept_unreviewed", False):
+            raise WorkflowError(
+                f"{len(df)} records need manual review: {input.review}\n"
+                "Resolve them, or set accept_unreviewed: true to proceed "
+                "knowing these records carry unverified host or date labels.")
+
+
+# --- 2. alignment and ML tree ----------------------------------------------
+
+rule align:
+    input:
+        fasta = f"{OUT}/interim/{{locus}}.fasta",
+        ok    = rules.review_gate.output,
+    output: aln = f"{OUT}/aligned/{{locus}}_aligned.fasta"
+    params: args = config["alignment"]["mafft_args"]
+    threads: 4
+    log: f"{OUT}/logs/03_align_{{locus}}.log"
+    shell: "mafft {params.args} --thread {threads} {input.fasta} > {output.aln} 2> {log}"
+
+
+rule alignment_qc:
+    input: aln = rules.align.output.aln, meta = rules.curate.output.meta
+    output:
+        tsv = f"{OUT}/qc/{{locus}}_alignment_qc.tsv",
+        png = f"{OUT}/qc/{{locus}}_coverage.png",
+    log: f"{OUT}/logs/04_qc_{{locus}}.log"
+    shell:
+        "python scripts/04_alignment_qc.py --aln {input.aln}"
+        " --metadata {input.meta} --out-tsv {output.tsv} --out-png {output.png}"
+        " 2>&1 | tee {log}"
+
+
+rule ml_tree:
+    input: aln = rules.align.output.aln, qc = rules.alignment_qc.output.tsv
+    output: tree = f"{OUT}/tree/{{locus}}_ml.treefile"
+    params:
+        model = config["tree"]["model"],
+        ufboot = config["tree"]["ufboot"],
+        alrt = config["tree"]["alrt"],
+        pre = f"{OUT}/tree/{{locus}}_ml",
+    threads: 8
+    log: f"{OUT}/logs/03_tree_{{locus}}.log"
+    shell:
+        "iqtree2 -s {input.aln} -m {params.model} -B {params.ufboot}"
+        " -alrt {params.alrt} -T {threads} --prefix {params.pre} -redo 2>&1 | tee {log}"
+
+
+# --- 3. the gate ------------------------------------------------------------
+
+checkpoint temporal_gate:
+    """
+    Does this dataset support tip-dating?
+
+    This is the rule that did not exist before. Previously the clock prior was
+    written into a BEAST XML with no check that a clock was estimable, and the
+    root-to-tip regression was a manual TempEst step a user could skip. A
+    reversed time axis once survived 10^8 MCMC states in this project; a
+    negative slope here catches that in seconds.
+    """
+    input:
+        tree = rules.ml_tree.output.tree,
+        meta = rules.curate.output.meta,
+    output:
+        report = f"{OUT}/temporal/{{locus}}_temporal_signal.json",
+        plot   = f"{OUT}/temporal/{{locus}}_root_to_tip.png",
+        md     = f"{OUT}/temporal/{{locus}}_temporal_signal.md",
+    params:
+        perm = config["temporal_signal"]["permutations"],
+        min_r2 = config["temporal_signal"]["min_r_squared"],
+        min_span = config["temporal_signal"]["min_span_years"],
+    log: f"{OUT}/logs/04b_temporal_{{locus}}.log"
+    shell:
+        "python scripts/04b_temporal_signal.py --tree {input.tree}"
+        " --metadata {input.meta} --permutations {params.perm}"
+        " --min-r2 {params.min_r2} --min-span {params.min_span}"
+        " --out-json {output.report} --out-plot {output.plot}"
+        " --out-md {output.md} 2>&1 | tee {log}"
+
+
+# --- 3b. segment congruence (segmented pathogens only) ---------------------
+
+if CONGRUENCE:
+
+    rule congruence:
+        """
+        Compare segment topologies before anything downstream treats them as
+        one history.
+
+        Three failures follow from concatenating reassorting segments: the
+        joined tree matches no segment's real ancestry, one clock is fitted to
+        segments with genuinely different TMRCAs, and -- the one that matters
+        most here -- a reassortant taxon sits among different relatives
+        depending on the segment, so it manufactures a host transition that
+        reflects reassortment rather than transmission. Since host-jump
+        inference is the point of this pipeline, that is a false positive in
+        the primary result. See docs/DECISIONS.md DR-007.
+        """
+        input:
+            trees = expand(f"{OUT}/tree/{{locus}}_ml.treefile", locus=LOCI),
+        output:
+            json = f"{OUT}/segments/congruence.json",
+            md   = f"{OUT}/segments/congruence.md",
+            tsv  = f"{OUT}/segments/reassortant_candidates.tsv",
+        params:
+            names = " ".join(LOCI),
+            support = (config.get("segments") or {}).get("collapse_support", 70),
+            thresh = (config.get("segments") or {}).get("reassortant_threshold", 0.6),
+        log: f"{OUT}/logs/05b_congruence.log"
+        shell:
+            "python scripts/05b_segment_congruence.py --trees {input.trees}"
+            " --names {params.names} --collapse-support {params.support}"
+            " --reassortant-threshold {params.thresh}"
+            " --out-json {output.json} --out-md {output.md}"
+            " --out-tsv {output.tsv} 2>&1 | tee {log}"
+
+
+# --- 4. subsample and Bayesian inference -----------------------------------
+
+rule subsample:
+    input:
+        aln = rules.align.output.aln,
+        meta = rules.curate.output.meta,
+        gate = f"{OUT}/temporal/{{locus}}_temporal_signal.json",
+    output:
+        aln  = f"{OUT}/subsampled/{{locus}}_sub.fasta",
+        meta = f"{OUT}/subsampled/{{locus}}_sub_metadata.tsv",
+    params:
+        target = config["subsample"]["target_tips"],
+        seed = config["subsample"]["seed"],
+        bin = config["subsample"]["year_bin"],
+        cfg = lambda w: config["_path"],
+    log: f"{OUT}/logs/06_subsample_{{locus}}.log"
+    shell:
+        "python scripts/06_subsample.py --config {params.cfg} --mode global"
+        " --aln {input.aln} --metadata {input.meta} --target {params.target}"
+        " --year-bin {params.bin} --seed {params.seed}"
+        " --out-aln {output.aln} --out-meta {output.meta} 2>&1 | tee {log}"
+
+
+rule beast_xml:
+    """
+    Write the BEAST XML. If clock_rate_prior is null in the config, the prior
+    is centred on the root-to-tip slope measured from this dataset rather than
+    inherited from another pathogen.
+    """
+    input:
+        aln = rules.subsample.output.aln,
+        meta = rules.subsample.output.meta,
+        gate = f"{OUT}/temporal/{{locus}}_temporal_signal.json",
+    output:
+        xml = f"{OUT}/beast/{{locus}}/seed{{seed}}/{PATHOGEN}.xml",
+        traits = f"{OUT}/beast/{{locus}}/seed{{seed}}/traits.txt",
+    params:
+        cfg = lambda w: config["_path"],
+    log: f"{OUT}/logs/07_xml_{{locus}}_seed{{seed}}.log"
+    shell:
+        "python scripts/07_make_beast_xml.py --config {params.cfg}"
+        " --aln {input.aln} --metadata {input.meta}"
+        " --temporal-report {input.gate} --seed {wildcards.seed}"
+        " --out-xml {output.xml} --out-traits {output.traits} 2>&1 | tee {log}"
+
+
+rule beast_run:
+    input: xml = rules.beast_xml.output.xml
+    output:
+        log_ = f"{OUT}/beast/{{locus}}/seed{{seed}}/{PATHOGEN}.log",
+        trees = f"{OUT}/beast/{{locus}}/seed{{seed}}/{PATHOGEN}.trees",
+    threads: 4
+    resources: runtime = 10080   # minutes; these are multi-day runs
+    log: f"{OUT}/logs/08_beast_{{locus}}_seed{{seed}}.log"
+    shell:
+        "beast -seed {wildcards.seed} -threads {threads} -overwrite"
+        " -prefix {OUT}/beast/{wildcards.locus}/seed{wildcards.seed}/ {input.xml} 2>&1 | tee {log}"
+
+
+rule convergence:
+    """
+    ESS and between-chain agreement, checked automatically. A chain that has
+    not converged must not silently become a published number.
+    """
+    input:
+        logs = expand(f"{OUT}/beast/{{{{locus}}}}/seed{{seed}}/{PATHOGEN}.log",
+                      seed=config["beast"]["seeds"]),
+    output:
+        json = f"{OUT}/beast/{{locus}}/convergence.json",
+        combined = f"{OUT}/beast/{{locus}}/combined.log",
+    params:
+        burnin = config["beast"]["burnin_fraction"],
+        min_ess = config["beast"]["min_ess"],
+    log: f"{OUT}/logs/08b_convergence_{{locus}}.log"
+    shell:
+        "python scripts/08b_convergence.py --logs {input.logs}"
+        " --burnin {params.burnin} --min-ess {params.min_ess}"
+        " --out-json {output.json} --out-combined {output.combined} 2>&1 | tee {log}"
+
+
+rule mcc_tree:
+    input:
+        trees = expand(f"{OUT}/beast/{{{{locus}}}}/seed{{seed}}/{PATHOGEN}.trees",
+                       seed=config["beast"]["seeds"]),
+        conv = rules.convergence.output.json,
+    output: mcc = f"{OUT}/beast/{{locus}}/mcc.tree"
+    params: burnin = lambda w: int(config["beast"]["burnin_fraction"] * 100)
+    log: f"{OUT}/logs/08c_mcc_{{locus}}.log"
+    shell:
+        "logcombiner -trees -burnin {params.burnin} -log {input.trees}"
+        " -o {OUT}/beast/{wildcards.locus}/combined.trees && "
+        "treeannotator -burnin 0 -heights median"
+        " {OUT}/beast/{wildcards.locus}/combined.trees {output.mcc} 2>&1 | tee {log}"
+
+
+# --- 5. date-randomisation test --------------------------------------------
+
+rule drt_xml:
+    input: aln = rules.subsample.output.aln, meta = rules.subsample.output.meta
+    output: xml = f"{OUT}/drt/{{locus}}/rep{{rep}}/{PATHOGEN}_drt.xml"
+    params: cfg = lambda w: config["_path"]
+    shell:
+        "python scripts/07_make_beast_xml.py --config {params.cfg}"
+        " --aln {input.aln} --metadata {input.meta} --randomize-dates"
+        " --replicate {wildcards.rep} --out-xml {output.xml}"
+
+
+rule drt_run:
+    input: xml = rules.drt_xml.output.xml
+    output: log_ = f"{OUT}/drt/{{locus}}/rep{{rep}}/{PATHOGEN}_drt.log"
+    threads: 2
+    shell: "beast -seed 1{wildcards.rep} -threads {threads} -overwrite {input.xml}"
+
+
+rule drt_summary:
+    """
+    The formal temporal-signal test: the real clock-rate HPD must not overlap
+    the HPDs from date-randomised replicates. Overlap means the rate is being
+    driven by tree shape, not by time.
+    """
+    input:
+        real = rules.convergence.output.combined,
+        reps = expand(f"{OUT}/drt/{{{{locus}}}}/rep{{rep}}/{PATHOGEN}_drt.log",
+                      rep=range(1, config["beast"]["date_randomisation"]["replicates"] + 1)),
+    output:
+        json = f"{OUT}/drt/{{locus}}/drt_summary.json",
+        png  = f"{OUT}/drt/{{locus}}/drt.png"
+    shell:
+        "python scripts/08d_drt_summary.py --real {input.real} --reps {input.reps}"
+        " --out-json {output.json} --out-plot {output.png}"
+
+
+# --- 6. Nextstrain build ----------------------------------------------------
+
+rule auspice:
+    input:
+        mcc  = f"{OUT}/beast/{_L}/mcc.tree",
+        meta = f"{OUT}/subsampled/{_L}_sub_metadata.tsv",
+        aln  = f"{OUT}/subsampled/{_L}_sub.fasta",
+        conv = f"{OUT}/beast/{_L}/convergence.json",
+        full_meta = rules.curate.output.meta,
+    output: json = AUSPICE_JSON
+    params: cfg = lambda w: config["_path"]
+    log: AUSPICE_LOG
+    shell:
+        "python scripts/09_make_auspice.py --config {params.cfg}"
+        " --mcc {input.mcc} --metadata {input.meta}"
+        " --full-metadata {input.full_meta} --alignment {input.aln}"
+        " --output {output.json} 2>&1 | tee {log}"
+
+
+rule publish:
+    """
+    Compare against the previous build before publishing. A TMRCA that has
+    moved several years, or a dataset that has lost sequences, is a curation
+    regression until proven otherwise -- not a new finding.
+    """
+    input: json = rules.auspice.output.json
+    output: report = f"{OUT}/build_comparison.md"
+    params:
+        prev = f"builds/{PATHOGEN}",
+        shift = config["nextstrain"]["update"]["alert_on_tmrca_shift_years"],
+    shell:
+        "python scripts/12_compare_builds.py --current {input.json}"
+        " --builds-dir {params.prev} --max-tmrca-shift {params.shift}"
+        " --out {output.report}"
+
+
+# --- provenance -------------------------------------------------------------
+
+rule provenance:
+    """
+    One record per build: config hash, tool versions, accession list, git
+    commit. Without this, a rebuilt tree that disagrees with the last one is
+    unresolvable.
+    """
+    input: acc = rules.fetch.output.acc
+    output: json = f"{OUT}/provenance.json"
+    run:
+        import hashlib, subprocess, platform
+        cfg_bytes = Path(config["_path"]).read_bytes()
+        def ver(cmd):
+            try:
+                return subprocess.run(cmd, capture_output=True, text=True,
+                                      timeout=20).stdout.split("\n")[0]
+            except Exception:
+                return "unavailable"
+        rec = {
+            "pathogen": PATHOGEN,
+            "build_date": BUILD,
+            "config_path": config["_path"],
+            "config_sha256": hashlib.sha256(cfg_bytes).hexdigest(),
+            "config_warnings": warnings,
+            "n_accessions": sum(1 for _ in open(input.acc)),
+            "platform": platform.platform(),
+            "python": platform.python_version(),
+            "tools": {"mafft": ver(["mafft", "--version"]),
+                      "iqtree2": ver(["iqtree2", "--version"]),
+                      "beast": ver(["beast", "-version"])},
+            "git_commit": ver(["git", "rev-parse", "HEAD"]),
+        }
+        Path(output.json).write_text(json.dumps(rec, indent=2))
