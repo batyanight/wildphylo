@@ -17,6 +17,25 @@ runs `preflight.check_fetch` against the previous build's accession count before
 downloading; a short download is now an error rather than a warning. Email and
 API key are read from `NCBI_EMAIL`/`NCBI_API_KEY`, never from the config.
 
+**`04_alignment_qc.py`** — ported. Takes `--out-tsv`/`--out-png` and creates
+missing parent directories; reads QC thresholds from `alignment.*` when not
+given on the command line. Verified to read `02`'s output correctly — the
+label/metadata cross-check reports 0 disagreements.
+
+**`06_subsample.py`** — ported. Takes `--out-aln`/`--out-meta`, and the
+wild-group set now comes from `hosts.wild_groups` instead of a module-level
+constant. That constant was CDV's carnivore range; applied to BTV it would have
+classified every wild ruminant as not wild and silently broken the
+wild/domestic balance in subsampling. CDV resolves to
+`procyonid, mustelid, wild_canid, wild_felid, ailurid, ursid, viverrid`;
+BTV to `wild_bovid, wild_camelid, wild_cervid, wild_other_ruminant`.
+
+Both scripts previously wrote to a hardcoded `data/processed/`. `06` also
+emitted a `*_dates.tsv` there regardless of `--out-meta`, and created the
+directory on every run whether or not it was used. A file written outside a
+rule's declared outputs cannot be tracked, re-run or cleaned by Snakemake, and
+goes stale without anyone noticing.
+
 **`02_curate_metadata.py`** — ported, and now multi-locus. Host table, locus
 aliases, date plausibility bounds and vaccine patterns all come from config.
 Uses `lib.dates` (never raises on malformed input) and `lib.hosts` (word-boundary
@@ -35,8 +54,6 @@ than one record.
 
 | Script | Snakefile passes | Script accepts | Work |
 |---|---|---|---|
-| `04_alignment_qc.py` | `--aln --metadata --out-tsv --out-png` | `--aln --metadata --outdir --plot --trim-to` | Explicit output paths so Snakemake can track them. Verified to read `02`'s output correctly: label/metadata cross-check reports 0 disagreements |
-| `06_subsample.py` | `--config --out-aln --out-meta` | `--outdir --prefix --clades` | Explicit outputs; read strata from `subsample.strata` rather than the hardcoded clade × host × time; drop the hardcoded `WILD` set in favour of `hosts.wild_groups` |
 | `07_make_beast_xml.py` | `--config --metadata --temporal-report --out-xml --out-traits --replicate` | `--out --prefix --rate` | Centre the clock prior on the measured root-to-tip slope from `--temporal-report` when `clock_rate_prior` is null; honour `imprecise_date_policy: interval` by emitting sampled tip dates; read model choices from `beast.*` |
 | `09_make_auspice.py` | `--config --alignment --output` | `--title --maintainer --most-recent --trait-key` | Read title/maintainer/colourings from `nextstrain.*`; generate the dataset description from the gate verdicts (see `docs/NEXTSTRAIN.md` §3) |
 
@@ -66,8 +83,7 @@ another pathogen.
 ## Suggested order
 
 1. ~~`01` and `02`~~ — done.
-2. `04` and `06` — mechanical argument changes; `04` already consumes `02`'s
-   output correctly.
+2. ~~`04` and `06`~~ — done.
 3. `13_check_updates.py` — small, and it unblocks the scheduled rebuild.
 4. `08b` — the convergence gate is already specified by its tests.
 5. `07` — the largest piece, because of the clock-prior and tip-date work.

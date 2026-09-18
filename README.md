@@ -126,7 +126,7 @@ scripts/
   datepolicy.py              midpoint vs interval, decided per dataset
   segments.py                congruence screening and reassortment localisation
   preflight.py               per-step verification
-tests/                       170 tests
+tests/                       185 tests
 docs/DECISIONS.md            why each default is what it is
 docs/NEXTSTRAIN.md           organising many builds without chaos
 docs/PORTING.md              what is not wired up yet, and exactly why
@@ -164,7 +164,8 @@ four scripts are referenced but unwritten. Every gap is enumerated with its exac
 mismatch in **[docs/PORTING.md](docs/PORTING.md)**.
 
 - [x] Port `01_fetch` and `02_curate` onto the config and the new libraries
-- [ ] Port `04`, `06`, `07`, `09`
+- [x] Port `04_alignment_qc` and `06_subsample`
+- [ ] Port `07_make_beast_xml` and `09_make_auspice`
 - [ ] Write `08b_convergence.py`, `08d_drt_summary.py`, `12_compare_builds.py`,
       `13_check_updates.py`
 - [ ] End-to-end run on CDV, then BTV

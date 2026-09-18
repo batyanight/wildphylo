@@ -240,9 +240,11 @@ rule alignment_qc:
     output:
         tsv = f"{OUT}/qc/{{locus}}_alignment_qc.tsv",
         png = f"{OUT}/qc/{{locus}}_coverage.png",
+    params:
+        cfg = lambda w: config["_path"],
     log: f"{OUT}/logs/04_qc_{{locus}}.log"
     shell:
-        "python scripts/04_alignment_qc.py --aln {input.aln}"
+        "python scripts/04_alignment_qc.py --config {params.cfg} --aln {input.aln}"
         " --metadata {input.meta} --out-tsv {output.tsv} --out-png {output.png}"
         " 2>&1 | tee {log}"
 

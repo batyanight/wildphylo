@@ -53,6 +53,9 @@ except ImportError as exc:
         "  notebook: %pip install pandas   (then restart the kernel)"
     ) from exc
 
+# Default wild groups. Overridden per pathogen by hosts.wild_groups in the
+# config — this set is CDV's carnivore range and means nothing for a pathogen
+# of ruminants or rodents. Kept only as a fallback when no config is given.
 WILD = {"wild_felid", "wild_canid", "mustelid", "procyonid",
         "pinniped", "ursid", "ailurid", "viverrid"}
 GAP = set("-.")
@@ -244,6 +247,14 @@ def main() -> int:
                          "invisible when you look at the alignment.")
     ap.add_argument("--outdir", type=Path, default=Path("data/processed"))
     ap.add_argument("--prefix", default=None)
+    # Explicit outputs, so Snakemake can track what this rule produces.
+    ap.add_argument("--out-aln", type=Path, default=None,
+                    help="Subsampled alignment. Overrides --outdir/--prefix.")
+    ap.add_argument("--out-meta", type=Path, default=None,
+                    help="Subsampled metadata. Overrides --outdir/--prefix.")
+    ap.add_argument("--config", type=Path, default=None,
+                    help="Pathogen config: supplies hosts.wild_groups, "
+                         "subsample.target_tips, year_bin and seed.")
     args = ap.parse_args()
 
     if args.mode == "clade" and not args.clade:
@@ -254,6 +265,30 @@ def main() -> int:
         return 1
 
     seqs = read_fasta(args.aln)
+    # Config first, command line wins. The wild-group set in particular MUST
+    # come from config: the module default is CDV's carnivore range and is
+    # simply wrong for a pathogen of ruminants or rodents, where it would
+    # silently classify every wild host as domestic.
+    global WILD
+    if args.config:
+        try:
+            from lib.config import load as _load_cfg
+            _cfg = _load_cfg(args.config)
+            _wg = (_cfg.get("hosts") or {}).get("wild_groups")
+            if _wg:
+                WILD = set(_wg)
+            _sub = _cfg.get("subsample", {})
+            if args.target is None and "target_tips" in _sub:
+                args.target = int(_sub["target_tips"])
+            if args.year_bin == 5 and "year_bin" in _sub:
+                args.year_bin = int(_sub["year_bin"])
+            if args.seed == 20260819 and "seed" in _sub:
+                args.seed = int(_sub["seed"])
+        except Exception as exc:                       # noqa: BLE001
+            print(f"NOTE: could not read settings from {args.config}: {exc}",
+                  file=sys.stderr)
+    print(f"wild host groups: {', '.join(sorted(WILD)) or '(none)'}")
+
     clades_df = pd.read_csv(args.clades, sep="\t") if args.clades and args.clades.is_file() else None
     meta_df = pd.read_csv(args.metadata, sep="\t") if args.metadata and args.metadata.is_file() else None
     if clades_df is None and args.mode == "clade":
@@ -314,7 +349,10 @@ def main() -> int:
               "weak clock signal likely.")
 
     # ---- write -------------------------------------------------------------
-    args.outdir.mkdir(parents=True, exist_ok=True)
+    # Only create the fallback directory when it will actually be used;
+    # otherwise every run leaves an empty data/processed/ behind.
+    if not (args.out_aln and args.out_meta):
+        args.outdir.mkdir(parents=True, exist_ok=True)
     prefix = args.prefix or (f"H_{args.clade}" if args.mode == "clade" else f"H_global{len(pool)}")
 
     keep_labels = list(pool["label"])
@@ -326,13 +364,20 @@ def main() -> int:
             print(f"\nStripped {n_stripped} all-gap columns "
                   f"({L_before} -> {L_before - n_stripped}); they held only bases from "
                   "sequences this subset dropped")
-    out_fasta = args.outdir / f"{prefix}.fasta"
+    out_fasta = args.out_aln or args.outdir / f"{prefix}.fasta"
+    out_fasta.parent.mkdir(parents=True, exist_ok=True)
     write_fasta(out_fasta, subset)
 
-    out_meta = args.outdir / f"{prefix}_metadata.tsv"
+    out_meta = args.out_meta or args.outdir / f"{prefix}_metadata.tsv"
+    out_meta.parent.mkdir(parents=True, exist_ok=True)
     pool.drop(columns=["seq_key"]).to_csv(out_meta, sep="\t", index=False)
 
-    out_dates = args.outdir / f"{prefix}_dates.tsv"
+    # Follow --out-meta when it is given, so no file escapes the build
+    # directory. A rule that writes outside its declared outputs cannot be
+    # tracked or cleaned, and the stray file silently goes stale.
+    out_dates = (out_meta.with_name(out_meta.stem.replace("_metadata", "") + "_dates.tsv")
+                 if args.out_meta else args.outdir / f"{prefix}_dates.tsv")
+    out_dates.parent.mkdir(parents=True, exist_ok=True)
     with out_dates.open("w") as fh:
         fh.write("taxon\tdate\n")
         for lbl in keep_labels:

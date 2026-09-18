@@ -107,6 +107,16 @@ def main() -> int:
     ap.add_argument("--aln", required=True, type=Path)
     ap.add_argument("--metadata", type=Path, default=None)
     ap.add_argument("--outdir", type=Path, default=Path("data/processed"))
+    # Explicit output paths. Snakemake has to know exactly which files a rule
+    # produces; a rule that writes to a hardcoded directory cannot be tracked,
+    # re-run or cleaned, and its outputs quietly accumulate outside the build.
+    ap.add_argument("--out-tsv", type=Path, default=None,
+                    help="Per-sequence QC table. Overrides --outdir.")
+    ap.add_argument("--out-png", type=Path, default=None,
+                    help="Coverage plot. Overrides --outdir and --plot.")
+    ap.add_argument("--config", type=Path, default=None,
+                    help="Pathogen config; supplies QC thresholds from "
+                         "alignment.* when they are not given on the command line.")
     ap.add_argument("--gap-threshold", type=float, default=0.5,
                     help="Flag sequences more than this fraction gaps (default %(default)s)")
     ap.add_argument("--identity-threshold", type=float, default=0.80,
@@ -321,8 +331,23 @@ def main() -> int:
             print()
 
     # ---- outputs ---------------------------------------------------------
-    args.outdir.mkdir(parents=True, exist_ok=True)
-    qc_path = args.outdir / (args.aln.stem + "_qc.tsv")
+    # Config supplies thresholds unless the command line overrode them. Parser
+    # defaults are used as the "not given" sentinel, so an explicit --gap-threshold
+    # 0.5 still wins over a config value.
+    if args.config:
+        try:
+            from lib.config import load as _load_cfg
+            _cfg = _load_cfg(args.config)
+            _al = _cfg.get("alignment", {})
+            if args.gap_threshold == 0.5 and "max_gap_fraction" in _al:
+                args.gap_threshold = float(_al["max_gap_fraction"])
+            if args.identity_threshold == 0.80 and "min_identity_to_consensus" in _al:
+                args.identity_threshold = float(_al["min_identity_to_consensus"])
+        except Exception as exc:                       # noqa: BLE001
+            print(f"NOTE: could not read thresholds from {args.config}: {exc}")
+
+    qc_path = args.out_tsv or args.outdir / (args.aln.stem + "_qc.tsv")
+    qc_path.parent.mkdir(parents=True, exist_ok=True)
     df.sort_values("identity_to_consensus").to_csv(qc_path, sep="\t", index=False)
     print(f"per-sequence QC table -> {qc_path}")
 
@@ -339,7 +364,8 @@ def main() -> int:
         ax[1].axvline(args.identity_threshold, color="#C0697F", ls="--", lw=1)
         ax[1].set_title("Identity to consensus")
         plt.tight_layout()
-        png = args.plot or args.outdir / (args.aln.stem + "_qc.png")
+        png = args.out_png or args.plot or args.outdir / (args.aln.stem + "_qc.png")
+        png.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(png, dpi=130)
         print(f"coverage plot          -> {png}")
     except ImportError:
