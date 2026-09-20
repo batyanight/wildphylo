@@ -232,3 +232,149 @@ def tip_date_blocks(policy: str, prefix: str, uncertainties: dict[str, float],
         "log": "\n".join(logs),
         "n_sampled": len(priors),
     }
+
+
+# --- discrete trait (ancestral state reconstruction) ------------------------
+#
+# CLASS PATHS ARE THE FRAGILE PART. BEAST_CLASSIC moved its packages from
+# `beast.evolution.*` to `beastclassic.evolution.*` for BEAST 2.7, so every
+# tutorial and forum post written before 2022 gives paths that fail to load on
+# 2.7.x with "Class could not be found". These constants isolate that: if the
+# XML will not parse, the fix is here and nowhere else.
+#
+# Verified against beast-classic version.xml for BEAST_CLASSIC 1.6.4, which
+# declares beastclassic.evolution.alignment.AlignmentFromTrait and
+# beastclassic.evolution.likelihood.AncestralStateTreeLikelihood as providers.
+# All five verified against the BEAST_CLASSIC 1.6.4 installation itself:
+# examples/testDiscreteSmall.xml for the four XML specs, and the source jar for
+# RobustEigenSystem. Both the substitution model and the eigen system live in
+# beastclassic, NOT in BEAST.base -- an earlier draft of this module assumed
+# otherwise and would have failed at load with a class-not-found.
+
+ALIGNMENT_FROM_TRAIT = "beastclassic.evolution.alignment.AlignmentFromTrait"
+ANCESTRAL_LIKELIHOOD = "beastclassic.evolution.likelihood.AncestralStateTreeLikelihood"
+TREE_WITH_TRAIT_LOGGER = "beastclassic.evolution.tree.TreeWithTraitLogger"
+SVS_SPEC = "beastclassic.evolution.substitutionmodel.SVSGeneralSubstitutionModel"
+ROBUST_EIGEN = "beastclassic.evolution.substitutionmodel.RobustEigenSystem"
+
+
+def n_trait_rates(n_states: int, symmetric: bool) -> int:
+    """Transition rates implied by a trait model. The number that matters."""
+    if n_states < 2:
+        raise ValueError(f"a discrete trait needs at least 2 states, got {n_states}")
+    pairs = n_states * (n_states - 1) // 2
+    return pairs if symmetric else 2 * pairs
+
+
+def trait_blocks(prefix: str, trait: str, states: list[str],
+                 tip_states: dict[str, str], *,
+                 symmetric: bool = True, bssvs: bool = True,
+                 poisson_lambda: float | None = None) -> dict[str, str]:
+    """
+    XML for a discrete trait analysis (BEAST_CLASSIC), with optional BSSVS.
+
+    WHY ASYMMETRIC IS NOT FREE. A symmetric model asserts that the rate from
+    state A to state B equals the rate from B to A. For a dead-end host — a
+    tiger that catches CDV and dies without onward transmission — that is not a
+    simplification but a false constraint: the model cannot set one direction
+    near zero, so it splits the difference, depressing the true incoming rate
+    and inventing an outgoing one. Those phantom rates then propagate into
+    ancestral state reconstruction. Asymmetric doubles the rate count, which is
+    why BSSVS matters: unsupported rates are switched off rather than fitted.
+
+    TWO DOCUMENTED FAILURE MODES, both handled here.
+
+    1. Asymmetric matrices destabilise the default eigen-decomposition and the
+       run dies at startup with "Start likelihood: -Infinity". The BEAST
+       developers' fix is RobustEigenSystem, set automatically when
+       symmetric=False.
+
+    2. The Poisson prior on non-zero rates can itself return -Infinity at the
+       start state when lambda is small relative to the number of states. The
+       offset is therefore n_states - 1 — the minimum number of rates needed to
+       connect every state — and lambda defaults to ln(2), which places most
+       prior mass on the sparsest connected matrix. Raising lambda is the
+       documented escape if a run still will not start.
+    """
+    states = list(states)
+    n = len(states)
+    n_rates = n_trait_rates(n, symmetric)
+    lam = poisson_lambda if poisson_lambda is not None else 0.693
+    idx = {s: i for i, s in enumerate(states)}
+
+    # '?' is a declared value, not a missing one: it means the tip's state is
+    # unknown and BEAST should treat it as ambiguous across all states.
+    missing = sorted({v for v in tip_states.values()} - set(states) - {"?"})
+    if missing:
+        raise ValueError(
+            f"tips carry trait values absent from the declared states: "
+            f"{missing}. Add them to the config's trait state map or exclude "
+            "those tips; BEAST will not infer a state it was never given.")
+
+    # '?' must map to every state, so a tip with an unknown value is treated as
+    # ambiguous rather than silently assigned state 0.
+    codes = ",".join(f"{s}={idx[s]}" for s in states)
+    codemap = f"{codes},?={' '.join(str(i) for i in range(n))}"
+    values = ",".join(f"{lbl}={tip_states[lbl]}" for lbl in sorted(tip_states))
+    eigen = f' eigenSystem="{ROBUST_EIGEN}"' if not symmetric else ""
+    freq = f"{1.0 / n:.10f}"
+
+    indicator_state = (
+        f'''            <stateNode id="rateIndicator.s:{trait}" spec="parameter.BooleanParameter" dimension="{n_rates}">true</stateNode>'''
+        if bssvs else "")
+    indicator_attr = f' rateIndicator="@rateIndicator.s:{trait}"' if bssvs else ""
+
+    bssvs_prior = (f'''                <prior id="nonZeroRatePrior.s:{trait}" name="distribution">
+                    <x id="nonZeroRates.s:{trait}" spec="beast.base.inference.util.Sum" arg="@rateIndicator.s:{trait}"/>
+                    <distr id="Poisson.bssvs.{trait}" spec="Poisson" lambda="{lam:g}" offset="{n - 1}"/>
+                </prior>''' if bssvs else "")
+
+    bssvs_operators = (f'''        <operator id="indicatorFlip.s:{trait}" spec="BitFlipOperator" parameter="@rateIndicator.s:{trait}" weight="30.0"/>'''
+        if bssvs else "")
+
+    bssvs_log = (f'''            <log idref="rateIndicator.s:{trait}"/>
+            <log idref="nonZeroRates.s:{trait}"/>''' if bssvs else "")
+
+    return {
+        "tag": trait,
+        "n_states": n,
+        "n_rates": n_rates,
+        "data": f'''    <data id="{trait}" spec="{ALIGNMENT_FROM_TRAIT}">
+        <userDataType id="traitDataType.{trait}" spec="beast.base.evolution.datatype.UserDataType" codeMap="{codemap}" codelength="-1" states="{n}"/>
+        <traitSet id="traitSet.{trait}" spec="beast.base.evolution.tree.TraitSet" taxa="@TaxonSet.{prefix}" traitname="discrete" value="{values}"/>
+    </data>''',
+        "state": f'''            <parameter id="traitClockRate.c:{trait}" spec="parameter.RealParameter" lower="0.0" name="stateNode">1.0</parameter>
+            <parameter id="relativeGeoRates.s:{trait}" spec="parameter.RealParameter" dimension="{n_rates}" lower="0.0" name="stateNode">1.0</parameter>
+{indicator_state}'''.rstrip(),
+        "prior": f'''                <prior id="traitClockPrior.c:{trait}" name="distribution" x="@traitClockRate.c:{trait}">
+                    <Gamma id="Gamma.traitclock.{trait}" name="distr" alpha="0.001" beta="1000.0"/>
+                </prior>
+                <prior id="relativeGeoRatesPrior.s:{trait}" name="distribution" x="@relativeGeoRates.s:{trait}">
+                    <Gamma id="Gamma.georates.{trait}" name="distr" alpha="1.0" beta="1.0"/>
+                </prior>
+{bssvs_prior}'''.rstrip(),
+        "likelihood": f'''                <distribution id="traitedtreeLikelihood.{trait}" spec="{ANCESTRAL_LIKELIHOOD}" data="@{trait}" tree="@Tree.t:{prefix}" tag="{trait}">
+                    <siteModel id="geoSiteModel.s:{trait}" spec="SiteModel" gammaCategoryCount="1">
+                        <parameter id="traitMutationRate.s:{trait}" spec="parameter.RealParameter" estimate="false" name="mutationRate">1.0</parameter>
+                        <parameter id="traitProportionInvariant.s:{trait}" spec="parameter.RealParameter" estimate="false" lower="0.0" name="proportionInvariant" upper="1.0">0.0</parameter>
+                        <substModel id="svs.s:{trait}" spec="{SVS_SPEC}" rates="@relativeGeoRates.s:{trait}" symmetric="{str(symmetric).lower()}"{indicator_attr}{eigen}>
+                            <frequencies id="traitFreqs.s:{trait}" spec="Frequencies">
+                                <frequencies id="traitFrequency.s:{trait}" spec="parameter.RealParameter" dimension="{n}" estimate="false">{freq}</frequencies>
+                            </frequencies>
+                        </substModel>
+                    </siteModel>
+                    <branchRateModel id="StrictClockTrait.c:{trait}" spec="beast.base.evolution.branchratemodel.StrictClockModel" clock.rate="@traitClockRate.c:{trait}"/>
+                </distribution>''',
+        "operators": f'''        <operator id="traitClockScaler.c:{trait}" spec="ScaleOperator" parameter="@traitClockRate.c:{trait}" scaleFactor="0.75" weight="3.0"/>
+        <operator id="geoRatesScaler.s:{trait}" spec="ScaleOperator" parameter="@relativeGeoRates.s:{trait}" scaleFactor="0.75" weight="15.0"/>
+{bssvs_operators}'''.rstrip(),
+        "log": f'''            <log idref="traitClockRate.c:{trait}"/>
+            <log idref="relativeGeoRates.s:{trait}"/>
+            <log idref="traitedtreeLikelihood.{trait}"/>
+{bssvs_log}'''.rstrip(),
+        "treelog": f'''        <logger id="traitTreeLog.{trait}" spec="Logger" fileName="{prefix}_{trait}.trees" logEvery="__LOGEVERY__" mode="tree">
+            <log id="TreeWithTraitLogger.{trait}" spec="{TREE_WITH_TRAIT_LOGGER}" tree="@Tree.t:{prefix}">
+                <metadata idref="traitedtreeLikelihood.{trait}"/>
+            </log>
+        </logger>''',
+    }

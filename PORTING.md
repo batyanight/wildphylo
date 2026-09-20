@@ -17,6 +17,39 @@ runs `preflight.check_fetch` against the previous build's accession count before
 downloading; a short download is now an error rather than a warning. Email and
 API key are read from `NCBI_EMAIL`/`NCBI_API_KEY`, never from the config.
 
+**`07_make_beast_xml.py`** — ported. The original baked one model into a single
+f-string (HKY+G4, relaxed lognormal clock, constant-size coalescent) and
+defaulted the clock rate to 7.46e-4 — a CDV H-gene value applied to whatever
+pathogen was running.
+
+Now: `beast.tree_prior` selects coalescent_constant, coalescent_skyline or
+birth_death; `beast.clock_model` selects relaxed_lognormal or strict;
+`imprecise_date_policy: interval` adds a tip-date operator so imprecise dates
+are sampled within their window rather than fixed at the midpoint. Model blocks
+live in `scripts/lib/beastxml.py`.
+
+The clock prior resolves in order: `--rate`, then the per-locus config value,
+then the pathogen config value, then the root-to-tip slope measured from THIS
+dataset via `--temporal-report`. A slope of ~1.0 is rejected, because that comes
+from a time-scaled tree and is a units check rather than a rate. The XML header
+records which source was used.
+
+`preflight.check_clock_prior` runs before writing: a prior disagreeing with the
+measured slope by more than 10x is a hard refusal, because that is what a rate
+copied from the wrong pathogen looks like and the XML would otherwise consume
+days of compute producing an answer determined by the prior.
+
+Why tree priors had to become configurable: a constant-size coalescent assumes a
+stable, randomly sampled population. The CDV clade containing the 1994 Serengeti
+epidemic has 29 of 82 tips from a single outbreak year. That is not a detail —
+it is the wrong model, and it biases both the population size and the dates that
+depend on it.
+
+STILL MISSING: the discrete trait (DTA) block. `07` writes a traits file for
+BEAUti but does not yet emit the trait partition, transition-rate matrix or
+BSSVS in the XML, so the host-transition analysis is still a manual BEAUti step.
+That is the next piece.
+
 **`04_alignment_qc.py`** — ported. Takes `--out-tsv`/`--out-png` and creates
 missing parent directories; reads QC thresholds from `alignment.*` when not
 given on the command line. Verified to read `02`'s output correctly — the
@@ -54,8 +87,65 @@ than one record.
 
 | Script | Snakefile passes | Script accepts | Work |
 |---|---|---|---|
-| `07_make_beast_xml.py` | `--config --metadata --temporal-report --out-xml --out-traits --replicate` | `--out --prefix --rate` | Centre the clock prior on the measured root-to-tip slope from `--temporal-report` when `clock_rate_prior` is null; honour `imprecise_date_policy: interval` by emitting sampled tip dates; read model choices from `beast.*` |
 | `09_make_auspice.py` | `--config --alignment --output` | `--title --maintainer --most-recent --trait-key` | Read title/maintainer/colourings from `nextstrain.*`; generate the dataset description from the gate verdicts (see `docs/NEXTSTRAIN.md` §3) |
+
+## Reference anchors
+
+Reference sequences NAME clades; they are not dated tips. All eight usable CDV
+nucleotide references lack `/collection_date` and `/host` — five were dropped as
+`no_parseable_collection_date`, three as `vaccine_or_vaccine_derived` — so the
+ten clades recovered from the first real run could not be named at all.
+
+`references.include_as_anchors: true` admits them as anchors. They are exempt
+from every exclusion except failing to carry the locus, and are labelled
+`ACC|ref_<lineage>|NA`. The non-numeric date field is load-bearing: every
+downstream parser reads it as "no date" and drops the tip from the regression,
+the subsample and the trait analysis, while it stays in the alignment and the
+tree. `align` concatenates the anchors file, which is always written even when
+empty so the rule input is fixed.
+
+Protein accessions are skipped with a warning — 16 of the 24 CDV reference rows
+are protein, and nothing resolves them to nucleotide records. References named
+in the table but absent from the data are also reported, because a silently
+missing reference means a silently unnameable lineage.
+
+## Added, not yet in the workflow
+
+**`05c_cut_clades.py`** — splits a tree into clades and tests each for temporal
+signal. Written because the first real CDV run showed that a global tree across
+all lineages is not a tip-dating dataset: root-to-tip on 2,008 tips gave
+R² = 0.0003 with a negative slope, and after filtering to ≥1,700 nt it reached
+only R² = 0.024 with an implied root of 1656. The tree is saturated (16.5
+subs/site total length; IQ-TREE warns about long pairwise distances). Clock
+signal lives within lineages.
+
+Clades are cut from the tree rather than assigned from a reference panel,
+because `config/lineage_references.tsv` has usable nucleotide references for
+only three lineages (America-2, America-1/vaccine, Arctic-like) — the other 16
+of 24 entries are protein accessions that nothing resolves, and several
+lineages present in a global dataset have no reference at all. Name the clades
+afterwards by seeing which references fall where.
+
+Not yet wired into the Snakefile. Doing so needs a `clade` wildcard alongside
+`locus`, resolved by a checkpoint, so each clade gets its own subsample, BEAST
+run and temporal gate.
+
+**`07_make_beast_xml.py`** — the discrete trait is now generated from
+`beast.discrete_trait` rather than added by hand in BEAUti (DR-008).
+`lib/beastxml.trait_blocks` emits the trait alignment, SVS substitution model,
+BSSVS indicators, operators and the ancestral-state tree logger. `--no-trait`
+forces a sequence-only XML, which is what the DRT replicates use.
+
+The BEAST_CLASSIC class paths were verified against the installed package —
+`examples/testDiscreteSmall.xml` and the source jar — not from documentation.
+Both `SVSGeneralSubstitutionModel` and `RobustEigenSystem` live in
+`beastclassic`, not `BEAST.base`; every tutorial written before the BEAST 2.7
+package rename gives paths that fail to load.
+
+Still unverified: whether the generated XML *runs*. It is well formed, every
+idref resolves, and the class paths match the installed package, but no chain
+has been started from it. The 1M smoke test in the printed NEXT STEPS is that
+check, and it is the last step before the 100M pair.
 
 ## Not yet written at all
 
@@ -86,8 +176,9 @@ another pathogen.
 2. ~~`04` and `06`~~ — done.
 3. `13_check_updates.py` — small, and it unblocks the scheduled rebuild.
 4. `08b` — the convergence gate is already specified by its tests.
-5. `07` — the largest piece, because of the clock-prior and tip-date work.
-6. `09`, `12` — the publishing end.
+5. ~~`07`~~ — done except the discrete-trait block.
+6. `07` DTA block — trait partition, rate matrix, BSSVS.
+7. `09`, `12` — the publishing end.
 
 ## Testing without NCBI
 

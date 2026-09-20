@@ -1,4 +1,17 @@
-id: cdv-1200
+# cdv-1200-dogwild — two-state companion to cdv-1200.yaml (DR-008).
+#
+# The five-state asymmetric run fits 20 rates from 65 tips. Most will not be
+# identified, which is honest but underpowered for the headline question: is
+# the domestic dog a source for this clade, a sink, or neither?
+#
+# This config collapses every wild group onto a single 'wild' state, leaving
+# 2 rates from 65 tips (9 dog, 56 wild). BSSVS is off because there is nothing
+# to select between two rates. Run it alongside cdv-1200, not instead of it.
+#
+# Derived from cdv-1200.yaml. Everything except hosts.dta_states and
+# beast.discrete_trait is inherited unchanged.
+
+id: cdv-1200-dogwild
 name: Canine distemper virus
 scientific_name: Morbillivirus canis
 virus:
@@ -56,11 +69,13 @@ hosts:
   - procyonid
   min_group_size: 5
   dta_states:
-    procyonid: procyonid
-    wild_canid: wild_canid
-    mustelid: mustelid
-    wild_felid: felid
-    domestic_cat: felid
+    wild_felid: wild
+    wild_canid: wild
+    mustelid: wild
+    procyonid: wild
+    ailurid: wild
+    ursid: wild
+    viverrid: wild
     domestic_dog: domestic_dog
   dta_other: null
 exclude:
@@ -117,14 +132,10 @@ beast:
   discrete_trait:
     enabled: true
     trait: host_group
-    # Asymmetric: CDV host roles are not reciprocal. Felids are near-pure dead
-    # ends; a symmetric matrix cannot express that and invents an outgoing rate
-    # to match the incoming one. See DR-006. Cost is 20 rates instead of 10,
-    # which is what bssvs is for.
     symmetric: false
-    bssvs: true
+    bssvs: false
   date_randomisation:
-    enabled: true
+    enabled: false
     replicates: 20
     chain_length: 20000000
 subsample:
@@ -138,7 +149,7 @@ subsample:
 nextstrain:
   title: CDV America-2 lineage in North American carnivores
   maintainer: Batya Nightingale
-  build_name: cdv-phylodynamics
+  build_name: cdv-phylodynamics-dogwild
   colour_by:
   - host_group
   - country

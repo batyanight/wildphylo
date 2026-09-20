@@ -409,3 +409,91 @@ the fixtures been left small, the fix would have been to lower the threshold,
 which would have been wrong for real data. Worth remembering: a failing test on
 a toy fixture is sometimes telling you the fixture is unrealistic, not that the
 threshold is.
+
+---
+
+## DR-008 — Asymmetric trait rates for CDV, and the trait block is generated, not clicked
+
+**Status:** accepted
+**Applies to:** `beast.discrete_trait.symmetric`, `lib/beastxml.trait_blocks`
+
+### Decision
+
+`symmetric: false` for the CDV host-group trait, with BSSVS on. The trait block
+is emitted by `07_make_beast_xml.py` from the config, not added by hand in
+BEAUti.
+
+### Why asymmetric
+
+CDV host roles in the America-2 lineage are not reciprocal. Procyonids are the
+plausible maintenance population in North America — dense, peridomestic,
+continuously infected. Large felids are close to pure dead ends: they are
+infected, frequently die, and sustained felid-to-felid transmission is not
+evidenced. Mustelids differ by setting, dead-end in the wild but capable of
+sustained chains in farmed mink. Domestic dogs are historically a source and,
+in a well-vaccinated population, increasingly a sink.
+
+A symmetric matrix asserts rate(felid→procyonid) = rate(procyonid→felid). For a
+dead-end host that is not a simplification but a false constraint: the model
+cannot set one direction near zero, so it splits the difference — depressing the
+true incoming rate and inventing an outgoing one. Those phantom rates propagate
+into ancestral state reconstruction, and the result is inferred transmission out
+of tigers.
+
+Directionality is also the question the symmetric CDV analysis left open. A
+symmetric model can establish that a clade is wildlife-associated; it cannot
+say which way anything flows.
+
+### What it costs
+
+20 rates instead of 10, from 65 tips — 3.2 tips per rate. `07` prints that
+ratio as a warning whenever it falls below 10. Most rates will not be
+identified. Two mitigations, both decided before seeing results:
+
+1. **BSSVS is mandatory here.** Unsupported rates are switched off rather than
+   fitted. `bssvs: false` with `symmetric: false` is a combination to avoid.
+2. **Reporting rule, pre-committed:** only rates with decisive Bayes factor
+   support (BF > 3) are reported as supported. Everything else is stated as
+   unidentified, not as absent. With roughly two felid introduction events in
+   this alignment, no felid rate is expected to reach support in either
+   direction — and "no information" is the correct finding, not a failed run.
+3. **A two-state companion** (`cdv-1200-dogwild.yaml`): domestic dog vs wild,
+   asymmetric, BSSVS off. Two rates from 65 tips answers the headline question
+   with power the five-state model does not have. The five-state run supplies
+   finer structure with honest uncertainty.
+
+### Why generated rather than clicked
+
+The trait was previously added in BEAUti by hand. That left the model actually
+run recorded in neither the config nor git — and the config said `symmetric:
+true` while the instructions printed by `07` said to select asymmetric, with no
+way to tell afterwards which had been clicked. A manual step that silently
+determines the primary result is exactly what the gate architecture exists to
+remove.
+
+### Pitfalls
+
+- **Class paths.** BEAST_CLASSIC moved from `beast.evolution.*` to
+  `beastclassic.evolution.*` for BEAST 2.7, so every tutorial written before
+  2022 gives paths that fail to load. `SVSGeneralSubstitutionModel` and
+  `RobustEigenSystem` are both in `beastclassic`, not `BEAST.base` — verified
+  against the installed package's own `examples/testDiscreteSmall.xml` and
+  source jar, not from documentation. They are isolated as constants at the top
+  of the trait section of `lib/beastxml.py`.
+- **Asymmetric destabilises the eigen-decomposition** and the run dies at
+  startup with `Start likelihood: -Infinity`. `RobustEigenSystem` is applied
+  automatically whenever `symmetric: false`.
+- **The Poisson prior on non-zero rates can itself return -Infinity** at the
+  start state. `offset = n_states - 1` is the minimum number of rates that can
+  connect every state; lambda defaults to ln(2). If a run still refuses to
+  start, raise `poisson_lambda`, or substitute `TransitionMatrixPrior`, which
+  is what the BEAST_CLASSIC example uses in place of a Poisson.
+- **Unmapped host groups become `?`,** ambiguous across all states, rather than
+  being assigned to a state. `hosts.dta_states` maps host group to trait state,
+  so several groups may collapse onto one (`wild_felid` and `domestic_cat` both
+  to `felid`); a group absent from the map has no declared state and inventing
+  one would invent an observation.
+- **Trait parameters mix worse than anything in a sequence-only run.** The
+  50M sequence-only chains on this dataset bottomed at ESS 211 on the
+  coalescent block. `chain_length: 100000000` is the floor for the trait run,
+  not a generous default.

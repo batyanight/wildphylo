@@ -130,6 +130,23 @@ Not yet wired into the Snakefile. Doing so needs a `clade` wildcard alongside
 `locus`, resolved by a checkpoint, so each clade gets its own subsample, BEAST
 run and temporal gate.
 
+**`07_make_beast_xml.py`** — the discrete trait is now generated from
+`beast.discrete_trait` rather than added by hand in BEAUti (DR-008).
+`lib/beastxml.trait_blocks` emits the trait alignment, SVS substitution model,
+BSSVS indicators, operators and the ancestral-state tree logger. `--no-trait`
+forces a sequence-only XML, which is what the DRT replicates use.
+
+The BEAST_CLASSIC class paths were verified against the installed package —
+`examples/testDiscreteSmall.xml` and the source jar — not from documentation.
+Both `SVSGeneralSubstitutionModel` and `RobustEigenSystem` live in
+`beastclassic`, not `BEAST.base`; every tutorial written before the BEAST 2.7
+package rename gives paths that fail to load.
+
+Still unverified: whether the generated XML *runs*. It is well formed, every
+idref resolves, and the class paths match the installed package, but no chain
+has been started from it. The 1M smoke test in the printed NEXT STEPS is that
+check, and it is the last step before the 100M pair.
+
 ## Not yet written at all
 
 Referenced by the workflow, no implementation:
