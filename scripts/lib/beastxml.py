@@ -256,6 +256,11 @@ ANCESTRAL_LIKELIHOOD = "beastclassic.evolution.likelihood.AncestralStateTreeLike
 TREE_WITH_TRAIT_LOGGER = "beastclassic.evolution.tree.TreeWithTraitLogger"
 SVS_SPEC = "beastclassic.evolution.substitutionmodel.SVSGeneralSubstitutionModel"
 ROBUST_EIGEN = "beastclassic.evolution.substitutionmodel.RobustEigenSystem"
+# Sum is in beast.base.evolution, NOT beast.base.inference.util -- BEAST names
+# the right class in its own error when this is wrong, which is how it was
+# found. It is the only path here that does not appear in the BEAST_CLASSIC
+# example, so it was the one guessed rather than verified.
+SUM_SPEC = "beast.base.evolution.Sum"
 
 
 def n_trait_rates(n_states: int, symmetric: bool) -> int:
@@ -325,7 +330,7 @@ def trait_blocks(prefix: str, trait: str, states: list[str],
     indicator_attr = f' rateIndicator="@rateIndicator.s:{trait}"' if bssvs else ""
 
     bssvs_prior = (f'''                <prior id="nonZeroRatePrior.s:{trait}" name="distribution">
-                    <x id="nonZeroRates.s:{trait}" spec="beast.base.inference.util.Sum" arg="@rateIndicator.s:{trait}"/>
+                    <x id="nonZeroRates.s:{trait}" spec="{SUM_SPEC}" arg="@rateIndicator.s:{trait}"/>
                     <distr id="Poisson.bssvs.{trait}" spec="Poisson" lambda="{lam:g}" offset="{n - 1}"/>
                 </prior>''' if bssvs else "")
 

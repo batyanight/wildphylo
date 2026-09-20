@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from lib.beastxml import (  # noqa: E402
-    ROBUST_EIGEN, n_trait_rates, trait_blocks,
+    ROBUST_EIGEN, SUM_SPEC, n_trait_rates, trait_blocks,
 )
 
 STATES = ["domestic_dog", "mustelid", "procyonid", "wild_canid", "wild_felid"]
@@ -83,6 +83,10 @@ def test_bssvs_adds_indicators_and_they_are_logged():
     assert "nonZeroRates.s:host" in b["prior"]
     assert "BitFlipOperator" in b["operators"]
     assert 'spec="Poisson"' in b["prior"]
+    # beast.base.inference.util.Sum does not exist; BEAST rejects the XML at
+    # parse time with "Class could not be found".
+    assert f'spec="{SUM_SPEC}"' in b["prior"]
+    assert "beast.base.inference.util.Sum" not in b["prior"]
     assert "rateIndicator.s:host" in b["log"]
 
 
