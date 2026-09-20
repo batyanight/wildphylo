@@ -55,6 +55,14 @@ def main() -> int:
     ap.add_argument("--no-midpoint-root", action="store_true")
     ap.add_argument("--out-json", required=True)
     ap.add_argument("--out-md")
+    # A FAIL verdict is a result, not a crash. Exiting non-zero made Snakemake
+    # treat the rule as failed and DELETE the report -- which is the single
+    # most valuable artefact precisely when the gate fails. The workflow reads
+    # the verdict from the JSON and decides what to schedule; it does not need
+    # the exit code. Standalone shell use can opt back in.
+    ap.add_argument("--exit-nonzero-on-fail", action="store_true",
+                    help="Return exit code 1 when the verdict is 'fail'. Off by "
+                         "default so the report always survives.")
     ap.add_argument("--out-plot")
     a = ap.parse_args()
 
@@ -144,7 +152,13 @@ def main() -> int:
         except Exception as e:                        # noqa: BLE001
             print(f"NOTE: plot skipped ({e})")
 
-    return 1 if rep.verdict == "fail" else 0
+    if rep.verdict == "fail":
+        print("\nVerdict is FAIL. The report above has still been written — read "
+              "it rather than re-running. A failed gate is a finding about the "
+              "data, not a broken step.")
+        if a.exit_nonzero_on_fail:
+            return 1
+    return 0
 
 
 if __name__ == "__main__":

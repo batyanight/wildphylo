@@ -18,7 +18,7 @@ fetch:
   taxid: 00000                    # NCBI Taxonomy ID. Find it at
                                   # https://www.ncbi.nlm.nih.gov/taxonomy
   query_filter: >-
-    NOT patent[Properties]
+    NOT patent[Title]
   min_length: 300
   max_length: 50000
   batch_size: 200
@@ -33,6 +33,10 @@ locus:
   expected_length: 1500
   min_usable_length: 300
   length_tolerance: 0.15
+  # How far OVER expected_length an annotated feature may run before being
+  # flagged. Shorter is normal (partial annotation); longer means a gene span
+  # including UTR, or mis-annotation.
+  annotation_overlength_tolerance: 0.02
   # Pick one well-annotated, published sequence as the coordinate origin.
   # Every reported position will be in ITS numbering. Without this, positions
   # are alignment columns, which move whenever the dataset changes.
@@ -79,6 +83,11 @@ exclude:
 
 references:
   table: null                     # optional; for lineage assignment
+  # Admit reference sequences as unnameable-date anchors: present in the
+  # alignment and tree so clades can be named, excluded from the clock and the
+  # trait analysis. Older reference records usually lack a collection date and
+  # host, so without this they are filtered out and nothing can be named.
+  include_as_anchors: false
   expected_lineages: []
 
 alignment:

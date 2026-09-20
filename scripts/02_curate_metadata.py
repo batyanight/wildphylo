@@ -86,6 +86,10 @@ def extract_by_annotation(record, aliases: set[str]) -> tuple[str, str]:
     """
     First CDS/gene/mat_peptide whose gene, product or note matches an alias.
     Returns (sequence, how_found).
+
+    NOTE: this returns whatever the feature spans. Length is validated by the
+    caller — an annotation saying "H" is a claim, not a guarantee, and a `gene`
+    feature legitimately includes UTR that a `CDS` feature does not.
     """
     for feat in record.features:
         if feat.type not in ("CDS", "gene", "mat_peptide"):
@@ -118,6 +122,32 @@ def extract_locus(record, locus: dict, meta: dict) -> tuple[str, str]:
 
     seq, how = extract_by_annotation(record, aliases)
     if seq:
+        # Annotation-based extraction used to be trusted unconditionally, so a
+        # feature labelled with the locus name was accepted at any length. On
+        # real CDV data that admitted sequences of 1,946 and 1,947 nt against an
+        # 1,824 nt H CDS — a `gene` feature spanning UTR, or a mis-annotation.
+        # Flag it rather than dropping it: the sequence is usually fine, but the
+        # length is a claim worth checking.
+        expected = locus.get("expected_length")
+        if expected:
+            # Only OVER-length features are suspicious.
+            #
+            # A feature SHORTER than the CDS is a partial annotation: a real
+            # sequence covering part of the gene, which is most of what GenBank
+            # holds. On the CDV dataset 1006 of 1024 off-length features were
+            # short, median 907 nt short, and the single commonest was the
+            # 1338 nt amplicon that dominates the published clade 3. Flagging
+            # those put 1209 records into needs_review — a pile nobody can
+            # adjudicate, which makes the review gate useless.
+            #
+            # A feature LONGER than the CDS cannot be a partial anything. It is
+            # a `gene` span including UTR, or a mis-annotation. That is worth a
+            # human look: 1946 and 1947 nt against an 1824 nt CDS.
+            tol = float(locus.get("annotation_overlength_tolerance", 0.02))
+            if len(seq) > expected * (1 + tol):
+                how = f"{how}_overlength"
+            elif len(seq) < locus.get("min_usable_length", 0):
+                how = f"{how}_too_short"
         return seq, how
 
     # Segment number is decisive when GenBank provides it.
@@ -162,6 +192,49 @@ def load_vaccine_patterns(path: Path | None) -> list[str]:
         line = line.strip()
         if line and not line.startswith("#"):
             out.append(line.lower())
+    return out
+
+
+def load_reference_anchors(cfg: dict) -> dict[str, str]:
+    """
+    Accession -> lineage, for nucleotide references only.
+
+    Reference sequences exist to NAME clades, not to be dated tips. They are
+    routinely 1990s submissions with no /collection_date and no /host — all
+    eight usable CDV references lack both — so requiring them to pass the same
+    filters as analysis sequences guarantees they are filtered out, and clades
+    can then never be named. They are therefore admitted as anchors: present in
+    the alignment and the tree, excluded from the temporal regression, the
+    subsample and the trait analysis.
+
+    Protein accessions are skipped: nothing here resolves them to a coding
+    nucleotide record, so they would silently match nothing.
+    """
+    refs_cfg = cfg.get("references") or {}
+    if not refs_cfg.get("include_as_anchors"):
+        return {}
+    table = refs_cfg.get("table")
+    if not table or not Path(table).is_file():
+        logging.warning("references.include_as_anchors is set but "
+                        "references.table is missing: %s", table)
+        return {}
+    out, skipped = {}, 0
+    for line in Path(table).read_text().splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        parts = [p.strip() for p in line.split("\t")]
+        if len(parts) < 4:
+            continue
+        acc, lineage, kind = parts[0], parts[1], parts[3]
+        if kind.lower() != "nuc":
+            skipped += 1
+            continue
+        out[acc.split(".")[0]] = lineage
+    if skipped:
+        logging.warning(
+            "%d reference rows are protein accessions and were skipped; nothing "
+            "resolves them to nucleotide records, so they cannot anchor a clade",
+            skipped)
     return out
 
 
@@ -226,6 +299,11 @@ def main() -> int:
         # tree as Panthera leo. Surface it every run, not just at config load.
         logging.warning("host table: %s", w)
 
+    anchors = load_reference_anchors(cfg)
+    if anchors:
+        logging.info("%d nucleotide reference anchors: %s", len(anchors),
+                     ", ".join(sorted(anchors)))
+
     vac_path = cfg.get("exclude", {}).get("vaccine_patterns_file")
     vaccine_patterns = load_vaccine_patterns(Path(vac_path) if vac_path else None)
 
@@ -272,6 +350,9 @@ def main() -> int:
         vac, hit = is_vaccine(record, meta, vaccine_patterns)
         row["is_vaccine"] = vac
         row["vaccine_pattern"] = hit
+        bare = str(record.id).split(".")[0]
+        row["is_reference"] = bare in anchors
+        row["reference_lineage"] = anchors.get(bare, "")
 
         for locus in loci:
             name = locus["name"]
@@ -279,6 +360,11 @@ def main() -> int:
             row[f"has_{name}"] = bool(seq)
             row[f"{name}_length"] = len(seq)
             row[f"{name}_source"] = how
+            # A coding sequence whose length is not a multiple of 3 cannot be
+            # translated in frame. It may still be usable for a nucleotide
+            # phylogeny, but it is not a clean CDS and any codon-partitioned or
+            # amino-acid analysis downstream will be wrong.
+            row[f"{name}_in_frame"] = bool(seq) and len(seq) % 3 == 0
             if seq:
                 seqs[name][record.id] = seq
         rows.append(row)
@@ -295,8 +381,12 @@ def main() -> int:
     # --- exclusions ---------------------------------------------------------
     df["exclude_reason"] = ""
 
+    # Reference anchors are exempt from every exclusion except failing to carry
+    # the locus at all — an anchor with no sequence anchors nothing.
+    is_ref = df["is_reference"] if "is_reference" in df else pd.Series(False, index=df.index)
+
     def mark(mask, reason) -> int:
-        newly = mask & (df["exclude_reason"] == "")
+        newly = mask & (df["exclude_reason"] == "") & ~is_ref
         df.loc[newly, "exclude_reason"] = reason
         n = int(newly.sum())
         if n:
@@ -310,7 +400,17 @@ def main() -> int:
 
     # A record is usable if it carries at least one analysed locus.
     has_any = df[[f"has_{l['name']}" for l in loci]].any(axis=1)
-    mark(~has_any, "no_analysed_locus_found")
+    # This one applies to anchors too, so it bypasses `mark`'s exemption.
+    lost = ~has_any & (df["exclude_reason"] == "")
+    df.loc[lost, "exclude_reason"] = "no_analysed_locus_found"
+    if int(lost.sum()):
+        logging.info("excluded %5d  no_analysed_locus_found", int(lost.sum()))
+    dropped_refs = int((lost & is_ref).sum())
+    if dropped_refs:
+        logging.warning(
+            "%d reference anchors carry no usable %s sequence and were dropped; "
+            "the lineages they represent cannot be named",
+            dropped_refs, "/".join(l["name"] for l in loci))
 
     for locus in loci:
         name = locus["name"]
@@ -335,23 +435,47 @@ def main() -> int:
     clean = df[df["exclude_reason"] == ""].copy()
     excluded.to_csv(a.out_dir / "exclusions.tsv", sep="\t", index=False)
 
-    # --- needs review -------------------------------------------------------
-    # An unrecognised host or an unparseable date that was actually PRESENT in
-    # the record is a curation gap, not missing data. Those must be seen.
-    review_mask = (
+    # --- needs review vs flagged --------------------------------------------
+    #
+    # Two different things were being conflated, and the pile grew to 1209
+    # records on the real CDV dataset — a volume nobody adjudicates, which
+    # makes the review gate worthless.
+    #
+    # NEEDS REVIEW is for records where a HUMAN DECISION changes the outcome:
+    # an unrecognised host (add a pattern, or confirm the drop) or a date that
+    # was present but unparseable (read the record, fix or exclude). Both are
+    # curation gaps.
+    #
+    # FLAGGED is for properties of the sequence that are simply true and need
+    # no decision: partial coverage, a length not divisible by 3, a feature
+    # longer than the CDS. Worth knowing, worth reporting, but there is nothing
+    # to adjudicate — and burying 40 actionable records among 600 of these is
+    # how a gate stops being read.
+    actionable = (
         (df["host_ambiguous"] & (df["host_raw"].fillna("").str.strip() != ""))
         | (df["decimal_year"].isna()
            & (df["collection_date_raw"].fillna("").str.strip() != "")
            & (df["date_reason"] != "explicitly_unknown"))
     )
+    informational = pd.Series(False, index=df.index)
     for locus in loci:
         name = locus["name"]
-        review_mask |= (df[f"{name}_source"] == "length_heuristic_partial")
-        expected = locus.get("expected_length")
-        if expected:
-            review_mask |= (df[f"{name}_length"] > expected * 1.15)
-    review = df[review_mask]
+        informational |= (df[f"{name}_source"] == "length_heuristic_partial")
+        informational |= df[f"{name}_source"].astype(str).str.endswith("_overlength")
+        informational |= (df[f"has_{name}"] & ~df[f"{name}_in_frame"])
+
+    df["review_reason"] = ""
+    df.loc[df["host_ambiguous"] & (df["host_raw"].fillna("").str.strip() != ""),
+           "review_reason"] = "host_unrecognised"
+    date_gap = (df["decimal_year"].isna()
+                & (df["collection_date_raw"].fillna("").str.strip() != "")
+                & (df["date_reason"] != "explicitly_unknown"))
+    df.loc[date_gap & (df["review_reason"] == ""), "review_reason"] = "date_unparseable"
+
+    review = df[actionable]
     review.to_csv(a.out_dir / "needs_review.tsv", sep="\t", index=False)
+    flagged = df[informational & ~actionable]
+    flagged.to_csv(a.out_dir / "flagged.tsv", sep="\t", index=False)
 
     clean.to_csv(a.out_dir / "metadata_clean.tsv", sep="\t", index=False)
 
@@ -377,8 +501,17 @@ def main() -> int:
                     return re.sub(r"[|\s]+", "_", v.strip())
         return str(row["accession"]).split(".")[0]
 
-    label_of, key_counts = {}, {}
+    label_of, key_counts, anchor_labels = {}, {}, {}
     for _, r in clean.iterrows():
+        if r.get("is_reference"):
+            # Third field is deliberately non-numeric. Every downstream parser
+            # treats an unparseable date as "no date" and drops the tip from the
+            # regression, which is exactly the required behaviour: present in
+            # the tree, absent from the clock.
+            lin = re.sub(r"[|\s]+", "_", str(r.get("reference_lineage") or "unknown"))
+            anchor_labels[r["accession"]] = "{}|ref_{}|NA".format(
+                str(r["accession"]).split(".")[0], lin)
+            continue
         if pd.isna(r["decimal_year"]):
             continue
         k = label_key(r)
@@ -405,40 +538,98 @@ def main() -> int:
         n = write_fasta(a.out_dir / f"{name}.fasta", entries)
         logging.info("wrote %s (%d sequences)", a.out_dir / f"{name}.fasta", n)
 
+        anc = [(anchor_labels[acc], s) for acc, s in seqs[name].items()
+               if acc in anchor_labels]
+        # Always write the file, even empty, so the workflow has a fixed input.
+        na = write_fasta(a.out_dir / f"{name}_anchors.fasta", anc)
+        if anchors:
+            logging.info("wrote %s (%d reference anchors)",
+                         a.out_dir / f"{name}_anchors.fasta", na)
+            missing = sorted(set(anchors) - {l.split("|")[0] for l in
+                                             (x[0] for x in anc)})
+            if missing:
+                logging.warning(
+                    "reference anchors not present in %s: %s", name,
+                    ", ".join(missing))
+
     # --- checks -------------------------------------------------------------
     reasons = excluded["exclude_reason"].value_counts().to_dict()
     checks = check_curation(cfg, len(df), len(clean), len(review), reasons)
     print()
     print(checks.render())
 
+    # Anchors are in `clean` so they reach the alignment, but they are not
+    # analysis sequences — counting them under host_group "unknown" and date
+    # precision "none" misdescribes the dataset in the one summary a reader
+    # actually looks at.
+    n_anchor = int(clean["is_reference"].sum()) if "is_reference" in clean else 0
+    analysis = clean[~clean["is_reference"]] if n_anchor else clean
+
     logging.info("-" * 62)
-    logging.info("RETAINED: %d of %d records", len(clean), len(df))
-    if not clean.empty:
+    logging.info("RETAINED: %d analysis sequences of %d records",
+                 len(analysis), len(df))
+    if n_anchor:
+        logging.info("  plus %d reference anchors (undated, excluded from the "
+                     "clock and the trait analysis)", n_anchor)
+    if not analysis.empty:
         logging.info("")
         logging.info("By host group:")
-        for grp, cnt in clean["host_group"].value_counts().items():
+        for grp, cnt in analysis["host_group"].value_counts().items():
             logging.info("    %-18s %5d", grp, cnt)
         logging.info("")
         logging.info("By date precision:")
-        for prec, cnt in clean["date_precision"].value_counts().items():
+        for prec, cnt in analysis["date_precision"].value_counts().items():
             logging.info("    %-18s %5d", prec, cnt)
         logging.info("")
+        for locus in loci:
+            name = locus["name"]
+            have = analysis[analysis[f"has_{name}"]]
+            if have.empty:
+                continue
+            off = int((~have[f"{name}_in_frame"]).sum())
+            over = int(have[f"{name}_source"].astype(str)
+                       .str.endswith("_overlength").sum())
+            exp_len = locus.get("expected_length") or 0
+            partial = int((have[f"{name}_length"] < exp_len).sum()) if exp_len else 0
+            exp = locus.get("expected_length")
+            logging.info("")
+            logging.info("%s length checks (expected CDS %s nt):", name, exp)
+            logging.info("    median extracted length : %d",
+                         int(have[f"{name}_length"].median()))
+            logging.info("    partial (< expected)    : %d  (normal — most "
+                         "GenBank records cover part of the gene)", partial)
+            logging.info("    not a multiple of 3     : %d  (cannot translate "
+                         "in frame; codon partitions and any amino-acid "
+                         "analysis would be wrong)", off)
+            logging.info("    LONGER than expected    : %d  (flagged: a feature "
+                         "cannot be a partial CDS and also exceed it — likely "
+                         "a gene span including UTR, or mis-annotation)", over)
+
+        logging.info("")
         logging.info("Date range: %.2f – %.2f",
-                     clean["decimal_year"].min(), clean["decimal_year"].max())
-        logging.info("Countries represented: %d", clean["country"].nunique())
+                     analysis["decimal_year"].min(), analysis["decimal_year"].max())
+        logging.info("Countries represented: %d", analysis["country"].nunique())
     logging.info("")
     logging.info("NEEDS HUMAN REVIEW: %d records -> %s",
                  len(review), a.out_dir / "needs_review.tsv")
+    if len(review):
+        for reason, n in review["review_reason"].value_counts().items():
+            logging.info("    %-20s %5d", reason, n)
+    logging.info("FLAGGED (no decision needed): %d records -> %s",
+                 len(flagged), a.out_dir / "flagged.tsv")
     logging.info("-" * 62)
 
     if not checks.ok:
         return 1
     if len(review) and not a.accept_unreviewed:
         logging.warning(
-            "%d records need review. Open needs_review.tsv: for each ambiguous "
-            "host, either add a pattern to %s or confirm the record should be "
-            "dropped, then re-run. Ambiguous host labels are the input to the "
-            "host-transition analysis, so guessing here becomes a result.",
+            "%d records need review. Open needs_review.tsv: for each "
+            "unrecognised host, either add a pattern to %s or confirm the "
+            "record should be dropped; for each unparseable date, read the "
+            "record and fix or exclude it. Ambiguous host labels are the input "
+            "to the host-transition analysis, so guessing here becomes a "
+            "result. (Sequence-property flags are in flagged.tsv and need no "
+            "decision.)",
             len(review), cfg["hosts"]["table"])
     return 0
 

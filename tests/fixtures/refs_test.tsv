@@ -1,0 +1,6 @@
+# test reference panel
+# accession	lineage	strain	type	source
+AF164967	America-2	A75/17	nuc	test
+Z47762	America-2	(reference)	nuc	test
+ACD92997	Asia-1	16407	prot	test protein — must be skipped
+NOTFETCHED	Europe	x	nuc	test, absent from the data

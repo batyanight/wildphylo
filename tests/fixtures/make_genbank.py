@@ -92,6 +92,23 @@ def cdv_records():
     # 11. no date at all -> excluded, NOT needs_review (nothing to adjudicate)
     r.append(record("AF100011.1", "Canine distemper virus H gene", 1824, 11,
                     host="Procyon lotor", gene="H", gene_span=(0, 1824)))
+    # 15. Annotated as H but 1946 nt against an 1824 nt CDS — the real case
+    # (KU666057, MH810099). A `gene` feature spanning UTR, or a mis-annotation.
+    # Trusted unconditionally before length validation existed.
+    r.append(record("AF100015.1", "Canine distemper virus H gene", 1946, 66,
+                    host="Procyon lotor", date="2012-11-23",
+                    gene="H", gene_span=(0, 1946)))
+    # 16. Annotated H, length not a multiple of 3: cannot translate in frame.
+    r.append(record("AF100016.1", "Canine distemper virus H gene", 1823, 67,
+                    host="Procyon lotor", date="2014-02-10",
+                    gene="H", gene_span=(0, 1823)))
+    # 13-14. REFERENCE-STYLE records: no /host, no /collection_date. This is
+    # what real 1990s reference genomes look like, and why they were all being
+    # filtered out before anchors existed.
+    r.append(record("AF164967.1", "Canine distemper virus strain A75/17 complete genome",
+                    1824, 64, gene="H", gene_span=(0, 1824)))
+    r.append(record("Z47762.1", "Canine distemper virus H gene", 1824, 65,
+                    gene="H", gene_span=(0, 1824)))
     # 12. the shadowing case: a pinniped
     r.append(record("AF100012.1", "Canine distemper virus H gene", 1824, 12,
                     host="Pusa caspica (Caspian seal)", date="2000-04-02",

@@ -118,7 +118,9 @@ config/host_groups_*.tsv     host normalisation tables
 scripts/
   04b_temporal_signal.py     the temporal gate, runnable standalone
   05b_segment_congruence.py  the congruence gate, runnable standalone
+  05c_cut_clades.py          split a tree into clades, test each for clock signal
   lib/
+  beastxml.py                BEAST model blocks: tree priors, clocks, tip dates
   config.py                  config loading and validation
   dates.py                   date parsing; never raises on malformed input
   hosts.py                   word-boundary matching + shadowing audit
@@ -126,7 +128,7 @@ scripts/
   datepolicy.py              midpoint vs interval, decided per dataset
   segments.py                congruence screening and reassortment localisation
   preflight.py               per-step verification
-tests/                       185 tests
+tests/                       209 tests
 docs/DECISIONS.md            why each default is what it is
 docs/NEXTSTRAIN.md           organising many builds without chaos
 docs/PORTING.md              what is not wired up yet, and exactly why
@@ -165,7 +167,8 @@ mismatch in **[docs/PORTING.md](docs/PORTING.md)**.
 
 - [x] Port `01_fetch` and `02_curate` onto the config and the new libraries
 - [x] Port `04_alignment_qc` and `06_subsample`
-- [ ] Port `07_make_beast_xml` and `09_make_auspice`
+- [x] Port `07_make_beast_xml` (except the discrete-trait block)
+- [ ] Discrete-trait block in `07`; port `09_make_auspice`
 - [ ] Write `08b_convergence.py`, `08d_drt_summary.py`, `12_compare_builds.py`,
       `13_check_updates.py`
 - [ ] End-to-end run on CDV, then BTV

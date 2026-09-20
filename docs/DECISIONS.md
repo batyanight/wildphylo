@@ -148,6 +148,49 @@ the data disagrees with it, not to quietly win the argument.
 
 ---
 
+## DR-001a — sampled tip dates must be BOUNDED, not merely sampled
+
+**Status:** accepted, after a bug
+**Applies to:** `imprecise_date_policy: interval`
+
+The first implementation emitted a bare BEAST `TipDatesRandomWalker` with a
+fixed `windowSize` and a taxon set, and nothing else. That operator moves a
+tip's date by up to the window size on every proposal, with **no bound** — over
+a long chain a year-only date can drift years away from the year actually
+recorded. That is worse than a midpoint, because a midpoint is at least wrong
+in a known, bounded way.
+
+It was caught by BEAST's own operator tuning on a real run. After 10^6 states
+the operator reported:
+
+```
+TipDatesRandomWalker   windowSize 1.0   Pr(acc) 0.619
+    Try setting window size to about 24.177
+```
+
+A 24-year proposal window for tips whose recorded uncertainty is half a year is
+only sensible if the parameter is unconstrained. Nothing in the likelihood was
+holding those dates near their records.
+
+**The fix.** Each sampled tip now gets its own `MRCAPrior` over a single-taxon
+set with a `Uniform` distribution bounded by that tip's window. Heights are
+measured back from the most recent sample, so a date *d* with uncertainty *u*
+becomes a height in [mrsd − (d+u), mrsd − (d−u)], clamped at zero. The proposal
+window tracks the uncertainty rather than being left to the tuner, since a
+proposal much larger than the bound just wastes steps being rejected at the
+boundary.
+
+Verified on a 30-tip fixture with half year-only and half day-precision dates:
+15 bounded priors, each spanning exactly 1.0 year, window 0.5, and the
+day-precision tips untouched.
+
+**Lesson worth keeping.** "Sampled within its uncertainty window" is a claim
+about a constraint, and emitting an operator is not the same as imposing one.
+The generated XML was well-formed, parsed in BEAST, and ran — it simply did not
+do what the config said. Only the operator-tuning report gave it away.
+
+---
+
 ## DR-002 — Discrete-trait states are declared, not emergent
 
 **Status:** accepted

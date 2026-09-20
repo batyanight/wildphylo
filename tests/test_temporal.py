@@ -150,3 +150,42 @@ def test_inverted_time_scaled_tree_is_fatal():
     rep = assess(dates, dist, n_perm=200)
     assert rep.verdict == "fail"
     assert any("TIME AXIS INVERTED" in n for n in rep.notes)
+
+
+def test_a_failing_gate_still_writes_its_report(tmp_path):
+    """
+    REGRESSION. The gate exited 1 on a FAIL verdict, so Snakemake treated the
+    rule as failed and deleted the report — the one artefact that matters most
+    when the data turns out not to support tip-dating. Exit 0 by default; the
+    workflow reads the verdict from the JSON.
+    """
+    import json, subprocess, sys
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    # A tree whose branch lengths carry no relation to the dates in the labels.
+    nwk = "((A|x|2001.0:0.9,B|x|2002.0:0.1):0.5,(C|x|2003.0:0.8,D|x|2004.0:0.2):0.4,(E|x|2005.0:0.7,F|x|2006.0:0.3):0.6);"
+    tree = tmp_path / "t.nwk"; tree.write_text(nwk)
+    out = tmp_path / "r.json"
+    r = subprocess.run(
+        [sys.executable, "scripts/04b_temporal_signal.py", "--tree", str(tree),
+         "--permutations", "50", "--out-json", str(out)],
+        capture_output=True, text=True, cwd=root)
+    assert r.returncode == 0, f"gate exited {r.returncode}; report would be deleted"
+    assert out.is_file(), "the report was not written"
+    json.loads(out.read_text())
+
+
+def test_exit_code_can_be_opted_into_for_shell_use(tmp_path):
+    import subprocess, sys
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    nwk = "((A|x|2001.0:0.9,B|x|2002.0:0.1):0.5,(C|x|2003.0:0.8,D|x|2004.0:0.2):0.4,(E|x|2005.0:0.7,F|x|2006.0:0.3):0.6);"
+    tree = tmp_path / "t.nwk"; tree.write_text(nwk)
+    out = tmp_path / "r.json"
+    r = subprocess.run(
+        [sys.executable, "scripts/04b_temporal_signal.py", "--tree", str(tree),
+         "--permutations", "50", "--out-json", str(out),
+         "--exit-nonzero-on-fail"],
+        capture_output=True, text=True, cwd=root)
+    assert r.returncode == 1
+    assert out.is_file(), "the report must survive even when exiting non-zero"

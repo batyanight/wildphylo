@@ -160,3 +160,61 @@ def test_subsample_output_labels_keep_the_contract(curated, tmp_path):
             parts = line[1:].split("|")
             assert len(parts) == 3
             float(parts[2])
+
+
+# --- reference anchors in QC ------------------------------------------------
+
+@pytest.fixture(scope="module")
+def curated_with_anchors(tmp_path_factory):
+    """Curate with anchors on, then pad to a fake alignment including them."""
+    import subprocess, yaml
+    out = tmp_path_factory.mktemp("anc")
+    subprocess.run([sys.executable, str(ROOT / "tests/fixtures/make_genbank.py")],
+                   capture_output=True, cwd=ROOT, check=True)
+    cfg = yaml.safe_load((ROOT / "config/pathogen/cdv.yaml").read_text())
+    cfg["references"]["table"] = "tests/fixtures/refs_test.tsv"
+    cfg["references"]["include_as_anchors"] = True
+    cfgp = out / "cfg.yaml"; cfgp.write_text(yaml.safe_dump(cfg, sort_keys=False))
+    r = subprocess.run(
+        [sys.executable, "scripts/02_curate_metadata.py", "--config", str(cfgp),
+         "--gb", "tests/fixtures/cdv_test.gb", "--out-dir", str(out)],
+        capture_output=True, text=True, cwd=ROOT)
+    assert r.returncode == 0, r.stderr[-1500:]
+
+    from Bio import SeqIO
+    recs = list(SeqIO.parse(str(out / "H.fasta"), "fasta")) + \
+           list(SeqIO.parse(str(out / "H_anchors.fasta"), "fasta"))
+    w = max(len(x.seq) for x in recs)
+    aln = out / "aln.fasta"
+    aln.write_text("".join(f">{x.id}\n{str(x.seq).ljust(w, '-')}\n" for x in recs))
+    return {"aln": aln, "meta": out / "metadata_clean.tsv"}
+
+
+def test_qc_survives_empty_metadata_cells(curated_with_anchors, tmp_path):
+    """
+    REGRESSION. `dtype=str` does not make missing cells strings — pandas leaves
+    them as float NaN, so `.strip()` raised AttributeError. Anchors were the
+    first records with an empty decimal_year, and the whole run died at QC
+    after the alignment had already been built.
+    """
+    r = run("04_alignment_qc.py", "--aln", curated_with_anchors["aln"],
+            "--metadata", curated_with_anchors["meta"],
+            "--out-tsv", tmp_path / "q.tsv", "--out-png", tmp_path / "q.png")
+    assert r.returncode == 0, r.stderr[-1500:]
+
+
+def test_anchors_are_not_reported_as_disagreements(curated_with_anchors, tmp_path):
+    """
+    An anchor carries its LINEAGE in the host field and a non-numeric date, by
+    design. Flagging that as a mismatch would teach the reader to ignore the
+    one section that catches real tip-label bugs.
+    """
+    r = run("04_alignment_qc.py", "--aln", curated_with_anchors["aln"],
+            "--metadata", curated_with_anchors["meta"],
+            "--out-tsv", tmp_path / "q.tsv", "--out-png", tmp_path / "q.png")
+    assert r.returncode == 0
+    out = r.stdout
+    assert "reference anchors (not cross-checked): 2" in out
+    for line in out.splitlines():
+        if "disagrees with metadata" in line:
+            assert line.rstrip().endswith("0"), line

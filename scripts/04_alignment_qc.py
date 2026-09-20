@@ -280,23 +280,35 @@ def main() -> int:
     # table is a real error: it will silently propagate into the tree, the BEAST
     # run and every figure, and nothing downstream re-derives it.
     if args.metadata and args.metadata.is_file():
-        meta_df = pd.read_csv(args.metadata, sep="\t", dtype=str)
+        # dtype=str does NOT make missing cells strings — pandas leaves them as
+        # float NaN, so any downstream .strip() raises AttributeError. Reference
+        # anchors are the first records to carry an empty decimal_year, which is
+        # how this surfaced. Fill so every cell really is a string.
+        meta_df = pd.read_csv(args.metadata, sep="\t", dtype=str).fillna("")
         if "accession" in meta_df.columns:
             by_acc = {str(a).split(".")[0]: r
                       for a, r in zip(meta_df["accession"], meta_df.to_dict("records"))}
             unknown, host_bad, date_bad = [], [], []
+            anchors_seen = []
             for name in seqs:
                 parts = name.split("|")
                 if len(parts) < 3:
                     continue
                 acc, host, year = parts[0].split(".")[0], parts[1], parts[-1]
+                # Reference anchors carry their LINEAGE in the host field and a
+                # non-numeric date, by design. Cross-checking them against the
+                # host and date columns reports a disagreement that is not one,
+                # which would train the reader to ignore this whole section.
+                if host.startswith("ref_"):
+                    anchors_seen.append(name)
+                    continue
                 row = by_acc.get(acc)
                 if row is None:
                     unknown.append(name); continue
-                m_host = (row.get("host_group") or "").strip()
+                m_host = str(row.get("host_group") or "").strip()
                 if m_host and m_host != host:
                     host_bad.append((name, host, m_host))
-                m_year = (row.get("decimal_year") or "").strip()
+                m_year = str(row.get("decimal_year") or "").strip()
                 try:
                     if m_year and abs(float(m_year) - float(year)) > 0.01:
                         date_bad.append((name, year, m_year))
@@ -304,6 +316,8 @@ def main() -> int:
                     pass
 
             print("Labels vs metadata")
+            if anchors_seen:
+                print(f"  reference anchors (not cross-checked): {len(anchors_seen)}")
             print(f"  accession not in metadata          : {len(unknown)}")
             print(f"  host group disagrees with metadata : {len(host_bad)}")
             print(f"  date disagrees with metadata       : {len(date_bad)}")

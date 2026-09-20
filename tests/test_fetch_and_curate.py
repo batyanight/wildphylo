@@ -191,8 +191,9 @@ def test_length_heuristic_fallback_and_review_flag(cdv_out):
     assert full["H_source"] == "length_heuristic_full"
     part = clean[clean["accession"] == "AF100005.1"].iloc[0]
     assert part["H_source"] == "length_heuristic_partial"
-    # A partial hit is a guess and must be reviewable.
-    assert "AF100005.1" in set(_tsv(cdv_out, "needs_review.tsv")["accession"])
+    # A partial hit is a guess, so it must be visible — but it needs no
+    # decision, so it belongs in flagged.tsv rather than the review pile.
+    assert "AF100005.1" in set(_tsv(cdv_out, "flagged.tsv")["accession"])
 
 
 def test_year_only_date_uses_midpoint(cdv_out):
@@ -303,3 +304,234 @@ def test_wild_and_domestic_ruminants_separated(btv_out):
     meta = pd.read_csv(btv_out / "metadata_clean.tsv", sep="\t")
     groups = set(meta["host_group"])
     assert {"domestic_sheep", "wild_bovid", "wild_cervid"} <= groups
+
+
+# =============================================================================
+# Reference anchors
+# =============================================================================
+#
+# Reference sequences NAME clades; they are not dated tips. All eight usable
+# CDV nucleotide references lack /collection_date and /host, so requiring them
+# to pass the analysis filters removed every one of them — and the ten clades
+# recovered from the first real run were therefore unnameable.
+
+REFS = "tests/fixtures/refs_test.tsv"
+
+
+@pytest.fixture(scope="session")
+def anchor_cfg(tmp_path_factory):
+    import yaml
+    cfg = yaml.safe_load((ROOT / "config/pathogen/cdv.yaml").read_text())
+    cfg["references"]["table"] = REFS
+    cfg["references"]["include_as_anchors"] = True
+    p = tmp_path_factory.mktemp("cfg") / "anchor.yaml"
+    p.write_text(yaml.safe_dump(cfg, sort_keys=False))
+    return p
+
+
+@pytest.fixture(scope="session")
+def anchored(fixtures, anchor_cfg, tmp_path_factory):
+    out = tmp_path_factory.mktemp("anchored")
+    r = run_curate(str(anchor_cfg), fixtures["cdv"], out)
+    assert r.returncode == 0, r.stderr[-2000:]
+    return {"dir": out, "stderr": r.stderr, "stdout": r.stdout}
+
+
+def _labels(path: Path) -> set[str]:
+    return {l[1:].strip() for l in path.read_text().splitlines() if l.startswith(">")}
+
+
+def test_undated_references_survive_as_anchors(anchored):
+    """
+    The regression. AF164967 and Z47762 have no /host and no /collection_date,
+    exactly like the real references, and were being dropped as
+    no_parseable_collection_date.
+    """
+    labels = _labels(anchored["dir"] / "H_anchors.fasta")
+    accs = {l.split("|")[0] for l in labels}
+    assert {"AF164967", "Z47762"} <= accs
+
+
+def test_anchor_labels_carry_a_non_numeric_date(anchored):
+    """
+    Every downstream parser reads an unparseable date as "no date" and drops
+    the tip from the regression. That is how an anchor stays in the tree while
+    staying out of the clock.
+    """
+    for lab in _labels(anchored["dir"] / "H_anchors.fasta"):
+        parts = lab.split("|")
+        assert len(parts) == 3
+        with pytest.raises(ValueError):
+            float(parts[2])
+
+
+def test_anchor_labels_carry_the_lineage(anchored):
+    for lab in _labels(anchored["dir"] / "H_anchors.fasta"):
+        assert lab.split("|")[1].startswith("ref_")
+    assert any("America-2" in l for l in _labels(anchored["dir"] / "H_anchors.fasta"))
+
+
+def test_anchors_are_not_in_the_analysis_fasta(anchored):
+    """An anchor must not become a dated tip in the clock analysis."""
+    accs = {l.split("|")[0] for l in _labels(anchored["dir"] / "H.fasta")}
+    assert not ({"AF164967", "Z47762"} & accs)
+
+
+def test_protein_accessions_are_skipped_with_a_warning(anchored):
+    out = anchored["stdout"] + anchored["stderr"]
+    assert "protein accessions" in out
+
+
+def test_absent_references_are_reported(anchored):
+    """
+    A reference in the table but not in the data means that lineage cannot be
+    named. Silence there would be worse than the missing reference.
+    """
+    out = anchored["stdout"] + anchored["stderr"]
+    assert "NOTFETCHED" in out
+
+
+def test_anchor_file_is_written_even_when_disabled(fixtures, tmp_path):
+    """The workflow declares it as a fixed input, so it must always exist."""
+    r = run_curate("config/pathogen/btv.yaml", fixtures["btv"], tmp_path)
+    assert r.returncode == 0
+    for seg in ("seg2", "seg6", "seg10"):
+        assert (tmp_path / f"{seg}_anchors.fasta").is_file()
+
+
+def test_an_anchor_without_the_locus_is_still_dropped(anchored):
+    """An anchor with no sequence anchors nothing; that exemption has a limit."""
+    meta = pd.read_csv(anchored["dir"] / "metadata_clean.tsv", sep="\t")
+    refs = meta[meta["is_reference"]]
+    assert len(refs) == 2
+    assert refs["H_length"].min() > 0
+
+
+# =============================================================================
+# Locus length validation
+# =============================================================================
+#
+# Annotation-based extraction used to be trusted unconditionally: a feature
+# labelled with the locus name was accepted at any length. On real CDV data
+# that admitted sequences of 1946 and 1947 nt against an 1824 nt H CDS, and
+# 29 of 162 published clade-3 sequences have lengths that are not multiples
+# of 3 and therefore cannot be translated in frame.
+
+def test_overlong_annotated_feature_is_flagged(cdv_out):
+    """
+    1946 nt against an 1824 nt CDS — a `gene` feature spanning UTR, or a
+    mis-annotation. It is 6.7% over, so the 15% heuristic tolerance let it
+    through; annotation needs a tighter one.
+    """
+    fl = _tsv(cdv_out, "flagged.tsv")
+    row = fl[fl["accession"] == "AF100015.1"]
+    assert len(row) == 1, "an over-length annotated feature was not flagged"
+    assert row.iloc[0]["H_source"].endswith("_overlength")
+
+
+def test_out_of_frame_length_is_flagged(cdv_out):
+    """1823 nt is not a multiple of 3, so it cannot be translated in frame."""
+    assert "AF100016.1" in set(_tsv(cdv_out, "flagged.tsv")["accession"])
+    allr = _tsv(cdv_out, "metadata_all.tsv")
+    row = allr[allr["accession"] == "AF100016.1"].iloc[0]
+    assert row["H_in_frame"] == False        # noqa: E712 — pandas bool column
+
+
+def test_partial_annotations_are_not_flagged(cdv_out):
+    """
+    A feature SHORTER than the CDS is a partial annotation — a real sequence
+    covering part of the gene, which is most of what GenBank holds. Flagging
+    those put 1209 of 1390 CDV records into needs_review, a pile nobody can
+    adjudicate, and the commonest of them was the 1338 nt amplicon that
+    dominates the published clade 3.
+    """
+    allr = _tsv(cdv_out, "metadata_all.tsv")
+    partial = allr[allr["has_H"] & (allr["H_length"] < 1824)
+                   & (allr["H_length"] >= 400)]
+    assert len(partial), "fixture has no partial-H record to test with"
+    flagged = partial["H_source"].astype(str).str.endswith("_overlength")
+    assert not flagged.any(), "a partial annotation was flagged as suspicious"
+
+
+def test_correct_length_is_not_flagged(cdv_out):
+    """The check must not fire on a clean full-length CDS."""
+    allr = _tsv(cdv_out, "metadata_all.tsv")
+    row = allr[allr["accession"] == "AF100001.1"].iloc[0]
+    assert row["H_length"] == 1824
+    assert row["H_in_frame"] == True         # noqa: E712
+    assert row["H_source"] == "annotation"
+
+
+def test_in_frame_column_exists_for_every_locus(btv_out):
+    meta = pd.read_csv(btv_out / "metadata_all.tsv", sep="\t")
+    for seg in ("seg2", "seg6", "seg10"):
+        assert f"{seg}_in_frame" in meta.columns
+
+
+def test_cds_span_must_be_a_multiple_of_three():
+    """
+    `cds: [21, 1836]` spans 1816 nt = 605.33 codons — arithmetically impossible
+    for a coding sequence, and it shipped in the CDV config feeding the
+    annotation scripts.
+    """
+    import yaml
+    from lib.config import validate
+    cfg = yaml.safe_load((ROOT / "config/pathogen/cdv.yaml").read_text())
+    cfg["_path"] = "x"
+    errors, _ = validate(cfg)
+    assert not any("multiple of 3" in e for e in errors), \
+        "the shipped CDV cds span is not a multiple of 3"
+
+    cfg["locus"]["coordinate_reference"]["cds"] = [21, 1836]
+    errors, _ = validate(cfg)
+    assert any("multiple of 3" in e for e in errors)
+
+
+def test_cds_span_disagreeing_with_expected_length_warns():
+    import yaml
+    from lib.config import validate
+    cfg = yaml.safe_load((ROOT / "config/pathogen/cdv.yaml").read_text())
+    cfg["_path"] = "x"
+    cfg["locus"]["coordinate_reference"]["cds"] = [1, 1200]
+    _e, warnings = validate(cfg)
+    assert any("expected_length" in w and "wrong" in w for w in warnings)
+
+
+# =============================================================================
+# needs_review vs flagged
+# =============================================================================
+#
+# The two were conflated and the pile reached 1209 records on the real CDV
+# dataset — a volume nobody adjudicates, which makes the gate worthless.
+
+def test_review_holds_only_records_needing_a_decision(cdv_out):
+    rv = _tsv(cdv_out, "needs_review.tsv")
+    assert len(rv), "fixture produced no actionable records"
+    assert set(rv["review_reason"]) <= {"host_unrecognised", "date_unparseable"}
+
+
+def test_sequence_property_flags_go_to_flagged_not_review(cdv_out):
+    """
+    'This sequence is partial' needs no decision. Burying the actionable
+    records among hundreds of these is how a gate stops being read.
+    """
+    rv = _tsv(cdv_out, "needs_review.tsv")
+    fl = _tsv(cdv_out, "flagged.tsv")
+    assert (cdv_out / "flagged.tsv").is_file()
+    # the over-length record is informational, not actionable
+    assert "AF100015.1" in set(fl["accession"])
+    assert "AF100015.1" not in set(rv["accession"])
+
+
+def test_review_and_flagged_do_not_overlap(cdv_out):
+    rv = set(_tsv(cdv_out, "needs_review.tsv")["accession"])
+    fl = set(_tsv(cdv_out, "flagged.tsv")["accession"])
+    assert not (rv & fl)
+
+
+def test_unrecognised_host_is_still_actionable(cdv_out):
+    """The grey squirrel: a human adds a pattern or confirms the drop."""
+    rv = _tsv(cdv_out, "needs_review.tsv")
+    row = rv[rv["accession"] == "AF100009.1"]
+    assert len(row) == 1
+    assert row.iloc[0]["review_reason"] == "host_unrecognised"

@@ -29,7 +29,7 @@ fetch:
   # Appended to the taxid clause. Keep exclusions here rather than in code so
   # the provenance record shows exactly what was asked for.
   query_filter: >-
-    NOT patent[Properties]
+    NOT patent[Title]
   min_length: 400
   max_length: 20000
   batch_size: 200
@@ -46,6 +46,11 @@ locus:
   expected_length: 1824
   min_usable_length: 400
   length_tolerance: 0.15
+  # How far OVER expected_length an annotated feature may run before it is
+  # flagged. Only over-length is suspicious: shorter features are partial
+  # annotations, which is most of GenBank. Real CDV records annotated "H"
+  # came in at 1946 and 1947 nt against an 1824 nt CDS.
+  annotation_overlength_tolerance: 0.02
   # Coordinate reference. Every annotation position is expressed in this
   # sequence's numbering, not in alignment columns — alignment columns shift
   # whenever the dataset changes.
@@ -53,7 +58,12 @@ locus:
     accession: AF164967
     strain: A75/17
     lineage: America-2
-    cds: [21, 1836]
+    # 1-based inclusive, in the reference's own numbering. MUST span a
+    # multiple of 3 — a CDS that does not is arithmetically impossible, and
+    # the previous value [21, 1836] spanned 1816 nt = 605.33 codons. 1824 nt
+    # is 608 codons, so a CDS starting at 21 ends at 1844.
+    # VERIFY against AF164967 before relying on this for annotation.
+    cds: [21, 1844]
 
 # --- date handling ----------------------------------------------------------
 dates:
@@ -101,6 +111,14 @@ exclude:
 # --- reference sequences for lineage assignment -----------------------------
 references:
   table: config/lineage_references.tsv
+  # Reference sequences NAME clades; they are not dated tips. All eight usable
+  # CDV nucleotide references lack /collection_date and /host, so requiring them
+  # to pass the analysis filters removed every one of them and left the clades
+  # unnameable. As anchors they enter the alignment and the tree but are
+  # excluded from the temporal regression, the subsample and the trait
+  # analysis. Protein accessions in the table are skipped: nothing resolves
+  # them to nucleotide records.
+  include_as_anchors: true
   expected_lineages:
     - America-1
     - America-2

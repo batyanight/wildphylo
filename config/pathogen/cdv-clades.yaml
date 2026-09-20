@@ -1,0 +1,151 @@
+id: cdv-clades
+name: Canine distemper virus
+scientific_name: Morbillivirus canis
+virus:
+  genome: ssRNA-negative
+  segmented: false
+  n_segments: 1
+  recombination_expected: false
+  expected_rate_range:
+  - 0.0001
+  - 0.01
+fetch:
+  taxid: 11232
+  query_filter: NOT patent[Title]
+  min_length: 400
+  max_length: 20000
+  batch_size: 200
+locus:
+  name: H
+  product: hemagglutinin
+  aliases:
+  - H
+  - HA
+  - hemagglutinin
+  - haemagglutinin
+  - hemaglutinin
+  - H protein
+  - HA gene
+  expected_length: 1824
+  min_usable_length: 1500
+  length_tolerance: 0.15
+  coordinate_reference:
+    accession: AF164967
+    strain: A75/17
+    lineage: America-2
+    cds:
+    - 21
+    - 1844
+  annotation_overlength_tolerance: 0.02
+dates:
+  min_year: 1970
+  max_year: null
+  imprecise_date_policy: interval
+hosts:
+  table: config/host_groups.tsv
+  wild_groups:
+  - wild_felid
+  - wild_canid
+  - mustelid
+  - procyonid
+  - ailurid
+  - ursid
+  - viverrid
+  reservoir_candidates:
+  - procyonid
+  min_group_size: 5
+  dta_states:
+    procyonid: procyonid
+    wild_canid: wild_canid
+    mustelid: mustelid
+    wild_felid: felid
+    domestic_cat: felid
+    domestic_dog: domestic_dog
+  dta_other: null
+exclude:
+  vaccine_patterns_file: config/vaccine_strains.txt
+  lab_passaged: true
+references:
+  table: config/lineage_references.tsv
+  include_as_anchors: true
+  expected_lineages:
+  - America-1
+  - America-2
+  - Asia-1
+  - Asia-2
+  - Asia-3
+  - Asia-4
+  - Europe
+  - Europe-Wildlife
+  - Arctic-like
+  - Africa-1
+  - South-America-1
+alignment:
+  aligner: mafft
+  mafft_args: --auto --reorder
+  trim: false
+  max_gap_fraction: 0.6
+  max_ambiguity_fraction: 0.05
+  min_identity_to_consensus: 0.8
+tree:
+  method: iqtree
+  model: GTR+F+I+G4
+  ufboot: 1000
+  alrt: 0
+  threads: AUTO
+temporal_signal:
+  min_r_squared: 0.1
+  min_span_years: 5.0
+  permutations: 1000
+  max_concentration: 0.75
+  on_fail: stop
+  on_weak: warn
+beast:
+  clock_rate_prior: 0.000746
+  clock_rate_source: Panzera et al., CDV H gene; corroborated by root-to-tip
+  clock_model: relaxed_lognormal
+  substitution_model: HKY+G4
+  tree_prior: coalescent_constant
+  chain_length: 100000000
+  n_chains: 2
+  seeds:
+  - 12345
+  - 54321
+  burnin_fraction: 0.1
+  min_ess: 200
+  discrete_trait:
+    enabled: true
+    trait: host_group
+    symmetric: true
+    bssvs: true
+  date_randomisation:
+    enabled: true
+    replicates: 20
+    chain_length: 20000000
+subsample:
+  target_tips: 400
+  year_bin: 5
+  seed: 12345
+  strata:
+  - clade
+  - host_group
+  - year_bin
+nextstrain:
+  title: CDV America-2 lineage in North American carnivores
+  maintainer: Batya Nightingale
+  build_name: cdv-phylodynamics
+  colour_by:
+  - host_group
+  - country
+  - lineage
+  geo_resolutions:
+  - country
+  update:
+    schedule: monthly
+    trigger: accession_delta
+    min_new_accessions: 5
+    max_new_accessions: 500
+    keep_builds: 12
+    alert_on_tmrca_shift_years: 5.0
+    alert_on_sequence_loss: true
+accept_unreviewed: true

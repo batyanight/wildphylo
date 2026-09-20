@@ -193,6 +193,24 @@ def validate(cfg: dict) -> tuple[list[str], list[str]]:
         errors.append("locus.aliases must list at least one name; GenBank "
                       "annotates the same gene inconsistently")
     ref = loc.get("coordinate_reference") or {}
+    cds = ref.get("cds")
+    if cds and len(cds) == 2:
+        try:
+            span = int(cds[1]) - int(cds[0]) + 1
+            if span % 3:
+                errors.append(
+                    f"locus.coordinate_reference.cds {cds} spans {span} nt = "
+                    f"{span/3:.2f} codons. A CDS must be a multiple of 3; this "
+                    "one cannot be translated and would silently break any "
+                    "codon-aware annotation downstream")
+            exp = loc.get("expected_length")
+            if exp and span != exp:
+                warnings.append(
+                    f"locus.coordinate_reference.cds spans {span} nt but "
+                    f"locus.expected_length is {exp}; one of them is wrong")
+        except (TypeError, ValueError):
+            errors.append(f"locus.coordinate_reference.cds is not a pair of "
+                          f"integers: {cds!r}")
     if not ref.get("accession"):
         warnings.append(
             "locus.coordinate_reference.accession is unset. Annotation "

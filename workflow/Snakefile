@@ -46,7 +46,25 @@ for w in warnings:
     logger.warning(f"config: {w}")
 
 PATHOGEN = config["id"]
-BUILD = config.get("build_date") or dt.date.today().strftime("%Y%m%d")
+# The build date is computed fresh on every invocation unless pinned. That bit
+# once: a run started before midnight could not be resumed after it, because
+# the output directory had moved and every completed step looked missing.
+# Pin it on the command line to resume, or in the config to make a build
+# reproducible rather than dependent on when it was typed:
+#     snakemake ... --config build_date=20260919
+BUILD = str(config.get("build_date") or dt.date.today().strftime("%Y%m%d"))
+
+# Warn if a build for a DIFFERENT date already exists and this one is unpinned:
+# almost always someone resuming across midnight.
+if not config.get("build_date"):
+    _existing = sorted(
+        d.name for d in Path(f"builds/{config['id']}").glob("2*")
+        if d.is_dir() and d.name != BUILD) if Path(f"builds/{config['id']}").is_dir() else []
+    if _existing:
+        logger.warning(
+            f"builds/{config['id']}/ already contains {', '.join(_existing[-3:])} "
+            f"but this run will write to {BUILD}. To resume an earlier build "
+            f"instead, add:  --config build_date={_existing[-1]}")
 
 # Every build is namespaced by date. Old builds are never overwritten, which is
 # what makes "the TMRCA moved" a debuggable event rather than a mystery.
@@ -214,7 +232,9 @@ rule curate:
     output:
         meta    = f"{OUT}/interim/metadata_clean.tsv",
         fasta   = expand(f"{OUT}/interim/{{locus}}.fasta", locus=LOCI),
+        anchors = expand(f"{OUT}/interim/{{locus}}_anchors.fasta", locus=LOCI),
         review  = f"{OUT}/interim/needs_review.tsv",
+        flagged = f"{OUT}/interim/flagged.tsv",
         excl    = f"{OUT}/interim/exclusions.tsv",
     params:
         cfg = lambda w: config["_path"],
@@ -246,14 +266,27 @@ rule review_gate:
 # --- 2. alignment and ML tree ----------------------------------------------
 
 rule align:
+    """
+    Align the analysis sequences together with the reference anchors.
+
+    Anchors carry a non-numeric date field, so every downstream parser treats
+    them as undated and drops them from the clock, the subsample and the trait
+    analysis — while they stay in the alignment and the tree, which is the only
+    way a clade can be named. The anchors file is always written, possibly
+    empty, so this input is fixed.
+    """
     input:
-        fasta = f"{OUT}/interim/{{locus}}.fasta",
-        ok    = rules.review_gate.output,
+        fasta   = f"{OUT}/interim/{{locus}}.fasta",
+        anchors = f"{OUT}/interim/{{locus}}_anchors.fasta",
+        ok      = rules.review_gate.output,
     output: aln = f"{OUT}/aligned/{{locus}}_aligned.fasta"
     params: args = config["alignment"]["mafft_args"]
     threads: 4
     log: f"{OUT}/logs/03_align_{{locus}}.log"
-    shell: "mafft {params.args} --thread {threads} {input.fasta} > {output.aln} 2> {log}"
+    shell:
+        "cat {input.fasta} {input.anchors} > {output.aln}.tmp && "
+        "mafft {params.args} --thread {threads} {output.aln}.tmp > {output.aln}"
+        " 2> {log} && rm -f {output.aln}.tmp"
 
 
 rule alignment_qc:
@@ -275,15 +308,23 @@ rule ml_tree:
     output: tree = f"{OUT}/tree/{{locus}}_ml.treefile"
     params:
         model = config["tree"]["model"],
-        ufboot = config["tree"]["ufboot"],
-        alrt = config["tree"]["alrt"],
+        # -B and -alrt are each roughly a doubling of runtime on a large
+        # alignment. Setting either to 0 or null omits the flag entirely, which
+        # is how you get a cheap first pass to prove the chain works before
+        # committing a night of compute to the real thing.
+        ufboot = (f"-B {config['tree']['ufboot']}"
+                  if config["tree"].get("ufboot") else ""),
+        alrt = (f"-alrt {config['tree']['alrt']}"
+                if config["tree"].get("alrt") else ""),
+        extra = config["tree"].get("extra_args", ""),
         pre = f"{OUT}/tree/{{locus}}_ml",
         iqtree = IQTREE,
     threads: 8
     log: f"{OUT}/logs/03_tree_{{locus}}.log"
     shell:
-        "{params.iqtree} -s {input.aln} -m {params.model} -B {params.ufboot}"
-        " -alrt {params.alrt} -T {threads} --prefix {params.pre} -redo 2>&1 | tee {log}"
+        "{params.iqtree} -s {input.aln} -m {params.model} {params.ufboot}"
+        " {params.alrt} {params.extra} -T {threads} --prefix {params.pre}"
+        " -redo 2>&1 | tee {log}"
 
 
 # --- 3. the gate ------------------------------------------------------------
@@ -316,6 +357,9 @@ checkpoint temporal_gate:
         " --min-r2 {params.min_r2} --min-span {params.min_span}"
         " --out-json {output.report} --out-plot {output.plot}"
         " --out-md {output.md} 2>&1 | tee {log}"
+        # No --exit-nonzero-on-fail: a FAIL verdict must still leave its report
+        # on disk. final_targets reads the verdict and declines to schedule the
+        # Bayesian branch.
 
 
 # --- 3b. segment congruence (segmented pathogens only) ---------------------
