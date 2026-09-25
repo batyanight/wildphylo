@@ -488,9 +488,11 @@ rule mcc_tree:
     params: burnin = lambda w: int(config["beast"]["burnin_fraction"] * 100)
     log: f"{OUT}/logs/08c_mcc_{{locus}}.log"
     shell:
-        "logcombiner -trees -burnin {params.burnin} -log {input.trees}"
+        # BEAST2 syntax: logcombiner detects tree files itself (no -trees flag),
+        # and treeannotator takes -height, not BEAST1's -heights.
+        "logcombiner -burnin {params.burnin} -log {input.trees}"
         " -o {OUT}/beast/{wildcards.locus}/combined.trees && "
-        "treeannotator -burnin 0 -heights median"
+        "treeannotator -burnin 0 -height median"
         " {OUT}/beast/{wildcards.locus}/combined.trees {output.mcc} 2>&1 | tee {log}"
 
 

@@ -61,7 +61,8 @@ def cfg_variant(tmp_path, **beast):
 def run(aln, out, *extra):
     return subprocess.run(
         [sys.executable, "scripts/07_make_beast_xml.py", "--aln", str(aln),
-         "--out-xml", str(out), "--chain", "100000", *map(str, extra)],
+         "--out-xml", str(out), "--out-traits", str(out.with_suffix(".traits.txt")),
+         "--chain", "100000", *map(str, extra)],
         capture_output=True, text=True, cwd=ROOT)
 
 
