@@ -392,6 +392,31 @@ def _finish(cfg: dict, errors: list, warnings: list) -> tuple[list, list]:
                 "published, and its transition table will look no different "
                 "from a supported one")
 
+    # --- date-randomisation test ---
+    dr = b.get("date_randomisation") or {}
+    if dr.get("enabled"):
+        if dr.get("on_fail") not in {"stop", "warn", None}:
+            errors.append("beast.date_randomisation.on_fail must be stop|warn")
+        n_rep = dr.get("replicates", 0)
+        if n_rep and n_rep < 10:
+            warnings.append(
+                f"beast.date_randomisation.replicates = {n_rep}: with fewer "
+                "than about ten, the envelope of randomised rates is too "
+                "poorly estimated for a non-overlap result to mean much")
+        # Replicate chains are routinely set far shorter than the real one, and
+        # a replicate that has not mixed has a wide posterior that overlaps
+        # everything -- which makes the test fail for reasons unrelated to the
+        # data. Flag the ratio rather than the absolute length.
+        real_len = b.get("chain_length")
+        rep_len = dr.get("chain_length")
+        if real_len and rep_len and rep_len < real_len / 10:
+            warnings.append(
+                f"beast.date_randomisation.chain_length ({rep_len:,}) is less "
+                f"than a tenth of the real chain ({real_len:,}). Replicates "
+                "that have not mixed have wide posteriors that overlap "
+                "everything, so the date-randomisation test can fail on poor "
+                "sampling rather than on absent temporal signal")
+
     # --- temporal gate ---
     ts = cfg.get("temporal_signal", {})
     if ts.get("on_fail") not in {"stop", "warn", None}:

@@ -603,9 +603,16 @@ rule drt_summary:
     output:
         json = f"{OUT}/drt/{{locus}}/drt_summary.json",
         png  = f"{OUT}/drt/{{locus}}/drt.png"
+    params:
+        burnin = config["beast"]["burnin_fraction"],
+        on_fail = ("--exit-nonzero-on-fail"
+                   if (config.get("beast", {}).get("date_randomisation", {})
+                       .get("on_fail", "stop") == "stop") else ""),
+    log: f"{OUT}/logs/08d_drt_{{locus}}.log"
     shell:
         "python scripts/08d_drt_summary.py --real {input.real} --reps {input.reps}"
-        " --out-json {output.json} --out-plot {output.png}"
+        " --burnin {params.burnin} {params.on_fail}"
+        " --out-json {output.json} --out-plot {output.png} 2>&1 | tee {log}"
 
 
 # --- 6. Nextstrain build ----------------------------------------------------

@@ -142,6 +142,7 @@ beast:
   date_randomisation:
     enabled: false
     replicates: 20
+    on_fail: stop            # stop | warn
     chain_length: 20000000
 subsample:
   target_tips: 400

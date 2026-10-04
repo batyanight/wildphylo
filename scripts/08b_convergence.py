@@ -52,119 +52,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lib.config import load, ConfigError            # noqa: E402
 from lib.preflight import check_convergence         # noqa: E402
 
-# Tracer stops accumulating autocovariance at this lag. Kept identical to
-# BEAST's ESS.java so the ESS reported here is the ESS the user sees in Tracer.
-MAX_LAG = 2000
-
-# Columns that are bookkeeping rather than parameters. An ESS for the sample
-# index is meaningless, and posterior/likelihood/prior are diagnostics whose
-# ESS is genuinely informative, so those stay.
-NON_PARAMETERS = {"Sample", "state", "STATE"}
-
-
-def read_beast_log(path: Path) -> tuple[list[str], np.ndarray]:
-    """
-    Parse a BEAST .log: '#' comment lines, then a tab-separated header whose
-    first column is Sample, then numeric rows.
-
-    A truncated final line is dropped rather than raising: a log from a chain
-    still running, or killed mid-write, is a normal thing to look at, and
-    failing on it would mean the only way to check progress is to wait.
-    """
-    header: list[str] | None = None
-    rows: list[list[float]] = []
-    with open(path) as fh:
-        for line in fh:
-            s = line.rstrip("\n")
-            if not s.strip() or s.lstrip().startswith("#"):
-                continue
-            parts = s.split("\t")
-            if header is None:
-                header = [p.strip() for p in parts]
-                continue
-            if len(parts) != len(header):
-                continue                      # truncated or interleaved line
-            try:
-                rows.append([float(p) for p in parts])
-            except ValueError:
-                continue                      # a non-numeric column; skip row
-    if header is None or not rows:
-        raise ValueError(f"{path}: no usable samples found")
-    return header, np.asarray(rows, dtype=np.float64)
-
-
-def ess(x: np.ndarray) -> float:
-    """
-    Effective sample size, by Tracer's algorithm.
-
-    Tracer accumulates the autocovariance gamma[lag], adding lag pairs to the
-    variance estimate until a consecutive pair sums to a negative value, which
-    is Geyer's initial-positive-sequence stopping rule. ESS is then
-    N * gamma[0] / varStat.
-
-    The autocovariance itself is computed by FFT rather than by Tracer's nested
-    loop. The values are identical to floating point; the difference is that a
-    10,000-sample log with thirty parameters takes under a second instead of
-    several minutes, which decides whether this runs every build or gets
-    skipped.
-    """
-    n = len(x)
-    if n < 10:
-        return float(n)
-    v = x - x.mean()
-    if not np.any(v):
-        return float(n)                        # constant: every sample identical
-
-    max_lag = min(n, MAX_LAG)
-    # Linear (not circular) autocovariance via zero-padded FFT.
-    size = 1 << (2 * n - 1).bit_length()
-    f = np.fft.rfft(v, size)
-    acov = np.fft.irfft(f * np.conjugate(f), size)[:max_lag]
-    acov /= (n - np.arange(max_lag))            # Tracer divides by n - lag
-
-    var_stat = acov[0]
-    if var_stat == 0:
-        return float(n)
-    for lag in range(2, max_lag, 2):
-        pair = acov[lag - 1] + acov[lag]
-        if pair <= 0:
-            break
-        var_stat += 2.0 * pair
-    if var_stat <= 0:
-        return float(n)
-    return float(min(n, n * acov[0] / var_stat))
-
-
-def hpd(x: np.ndarray, level: float = 0.95) -> tuple[float, float]:
-    """Highest posterior density interval: the shortest interval holding `level`."""
-    s = np.sort(x)
-    n = len(s)
-    k = max(1, int(np.floor(level * n)))
-    if k >= n:
-        return float(s[0]), float(s[-1])
-    widths = s[k:] - s[:n - k]
-    i = int(np.argmin(widths))
-    return float(s[i]), float(s[i + k])
-
-
-def overlap(a: np.ndarray, b: np.ndarray, bins: int = 100) -> float:
-    """
-    Overlapping coefficient of two samples: sum of min(p, q) over a shared
-    histogram grid. 1.0 identical, 0.0 disjoint.
-
-    The grid spans both samples, so two chains that explored different regions
-    get a low value by construction rather than by a tuning choice.
-    """
-    lo = min(a.min(), b.min())
-    hi = max(a.max(), b.max())
-    if hi == lo:
-        return 1.0
-    edges = np.linspace(lo, hi, bins + 1)
-    pa, _ = np.histogram(a, bins=edges, density=False)
-    pb, _ = np.histogram(b, bins=edges, density=False)
-    pa = pa / pa.sum()
-    pb = pb / pb.sum()
-    return float(np.minimum(pa, pb).sum())
+# The log reader, ESS, HPD and overlap live in lib/beastlog.py, shared with
+# 08d_drt_summary. One parser and one HPD, so a convergence verdict and a
+# date-randomisation verdict describe the same chain.
+from lib.beastlog import (                               # noqa: E402
+    MAX_LAG, NON_PARAMETERS, read_beast_log, ess, hpd, overlap,
+)
 
 
 def analyse(paths: list[Path], burnin: float, min_ess: int) -> dict:

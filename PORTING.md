@@ -207,12 +207,36 @@ previous download, and rebuilding would replace a larger dataset with a smaller
 one. An Entrez failure is reported as an error rather than as "no new records",
 so an outage cannot silently stop the rebuild from ever happening again.
 
+**`08d_drt_summary.py`** — written. The formal temporal-signal test: shuffle the
+sampling dates among the tips, re-estimate the clock rate, and ask whether the
+real rate is distinguishable from rates fitted to randomised dates. Root-to-tip
+(04b) is a screen that a structured dataset can pass with no clock signal at
+all; this is the question asked properly.
+
+Two criteria are in use and they disagree, so both are reported. The verdict
+uses the strict one (Duan et al. 2016): the real HPD must overlap NO replicate
+HPD. The permissive one (Ramsden et al. 2008) compares the real estimate
+against the ENVELOPE of the replicate posteriors — not against the range of
+their point estimates, which shrinks toward the standard error as replicates
+are added and makes almost any real rate look "outside", rescuing genuine
+failures.
+
+The pitfall it exists to catch: replicates run on short chains have wide
+posteriors, and a wide posterior overlaps everything, so poor mixing looks
+exactly like absent temporal signal. Replicate ESS is computed and a verdict
+resting on low-ESS replicates is downgraded to `inconclusive` rather than
+reading as `fail`. The opposite failure is checked too — replicates whose
+spread is smaller than the Monte Carlo error of one of them were not
+independent permutations, and a test whose replicates are one replicate passes
+trivially.
+
+Shares `lib/beastlog.py` with 08b: one log reader, one HPD, one ESS, so a
+convergence verdict and a DRT verdict describe the same chain.
+
 ## Not yet written at all
 
 Referenced by the workflow, no implementation:
 
-- `08d_drt_summary.py` — date-randomisation summary: the real clock-rate HPD
-  must not overlap the randomised replicates'.
 - `12_compare_builds.py` — build-to-build comparison gate.
 
 ## Not used by the workflow
