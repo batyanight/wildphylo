@@ -1,0 +1,19 @@
+{
+  "pathogen": "cdv-1200",
+  "build_date": "20260919",
+  "config_path": "/Users/batyanightingale/projects/wildphylo/config/pathogen/cdv-1200.yaml",
+  "config_sha256": "2e4cc5db43a943de8d12146b2bf7ddd03ceeffcef0a336db4cc4207459781c76",
+  "config_warnings": [
+    "host groups absent from hosts.dta_states and excluded from the trait analysis: ailurid, other, pinniped, primate, unknown, ursid, viverrid",
+    "discrete trait has 5 states -> 10 transition rates to estimate. Rates far outnumbering informative transitions is the usual cause of an unresolved root"
+  ],
+  "n_accessions": 3200,
+  "platform": "macOS-10.15.7-x86_64-i386-64bit",
+  "python": "3.11.14",
+  "tools": {
+    "mafft": "",
+    "iqtree3": "IQ-TREE version 3.1.3 for MacOS Intel 64-bit built Jul 26 2026",
+    "beast": "unavailable"
+  },
+  "git_commit": "bd46c2fafb7775b2e70f5e79f5d58c3cacef9fc2"
+}

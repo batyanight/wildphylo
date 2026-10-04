@@ -1,0 +1,30 @@
+{
+  "n_tips": 1390,
+  "span_years": 43.59700000000021,
+  "earliest": 1982.11,
+  "latest": 2025.707,
+  "precision_counts": {
+    "unknown": 1390
+  },
+  "frac_year_only": 0.0,
+  "occupancy": 0.75,
+  "concentration": 0.6553956834532374,
+  "regressions": [
+    {
+      "rooting": "given",
+      "n": 1390,
+      "slope": 0.0022674846856454486,
+      "intercept": -4.140904271671449,
+      "r_squared": 0.0012599787645088908,
+      "correlation": 0.035496179576243,
+      "x_intercept": 1826.2104691978213
+    }
+  ],
+  "permutation_p": 0.09090909090909091,
+  "permutation_n": 1000,
+  "verdict": "fail",
+  "notes": [
+    "R^2 = 0.001 is below 0.1; the clock signal is weak",
+    "date-shuffling p = 0.091: the observed slope is not distinguishable from randomly assigned dates"
+  ]
+}
