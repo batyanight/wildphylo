@@ -94,6 +94,11 @@ builds/*/*/clades/*/*
 # derived from a posterior that is not itself tracked — so if they are dropped,
 # the conclusions cannot be checked against anything.
 !builds/*/*/clades/*/*.tsv
+# ...except the raw per-jump record, which is one row per jump per posterior
+# tree: half a million rows and 50 MB for a single clade. The summary derived
+# from it is what anyone checking the work needs; the dump is regenerable from
+# the posterior and belongs with it, untracked.
+builds/*/*/clades/*/jumps.tsv
 # The tip-to-state mapping the trait model was fitted with. Part of the model
 # specification in the same way the XML is.
 !builds/*/*/clades/*/*_traits.txt
