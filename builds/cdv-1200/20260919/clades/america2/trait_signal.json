@@ -1,0 +1,91 @@
+{
+  "n_trees": 948,
+  "n_tips": 65,
+  "n_pruned": 0,
+  "states": [
+    "domestic_dog",
+    "felid",
+    "mustelid",
+    "procyonid",
+    "wild_canid"
+  ],
+  "state_counts": {
+    "domestic_dog": 9,
+    "felid": 10,
+    "mustelid": 14,
+    "procyonid": 25,
+    "wild_canid": 7
+  },
+  "n_permutations": 1000,
+  "ai": {
+    "name": "AI",
+    "observed": 1.5971559175737364,
+    "null_mean": 5.602526275712361,
+    "null_lo": 4.643189822067284,
+    "null_hi": 6.367442893333555,
+    "p": 0.000999000999000999,
+    "direction": "lower"
+  },
+  "ps": {
+    "name": "PS",
+    "observed": 18.335443037974684,
+    "null_mean": 35.46410443037975,
+    "null_lo": 31.883597046413502,
+    "null_hi": 38.45200421940928,
+    "p": 0.000999000999000999,
+    "direction": "lower"
+  },
+  "mc": {
+    "domestic_dog": {
+      "name": "MC[domestic_dog]",
+      "observed": 2.0,
+      "null_mean": 1.3295601265822783,
+      "null_lo": 1.0,
+      "null_hi": 2.04332805907173,
+      "p": 0.14485514485514486,
+      "direction": "higher"
+    },
+    "felid": {
+      "name": "MC[felid]",
+      "observed": 7.710970464135021,
+      "null_mean": 1.4216782700421942,
+      "null_lo": 1.0,
+      "null_hi": 2.2141350210970465,
+      "p": 0.000999000999000999,
+      "direction": "higher"
+    },
+    "mustelid": {
+      "name": "MC[mustelid]",
+      "observed": 4.0,
+      "null_mean": 1.711139240506329,
+      "null_lo": 1.0158227848101267,
+      "null_hi": 2.9947257383966246,
+      "p": 0.005994005994005994,
+      "direction": "higher"
+    },
+    "procyonid": {
+      "name": "MC[procyonid]",
+      "observed": 5.543248945147679,
+      "null_mean": 2.6042225738396625,
+      "null_lo": 1.8880801687763713,
+      "null_hi": 5.0,
+      "p": 0.013986013986013986,
+      "direction": "higher"
+    },
+    "wild_canid": {
+      "name": "MC[wild_canid]",
+      "observed": 2.5063291139240507,
+      "null_mean": 1.2074820675105484,
+      "null_lo": 1.0,
+      "null_hi": 2.0,
+      "p": 0.002997002997002997,
+      "direction": "higher"
+    }
+  },
+  "verdict": "pass",
+  "reasons": [
+    "AI p=0.0010 and PS p=0.0010: tip states are more clustered than random relabelling of the same states.",
+    "MC significant for: felid, mustelid, procyonid, wild_canid. Only these states cluster more than chance; a transition involving a state not in this list has no demonstrated structure behind it."
+  ],
+  "polytomies": 0
+}
