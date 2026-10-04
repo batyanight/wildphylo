@@ -118,6 +118,16 @@ SEGMENTED = (config.get("virus") or {}).get("segmented", False)
 CONGRUENCE = (SEGMENTED and len(LOCI) > 1
               and (config.get("segments") or {}).get("congruence_gate", True))
 
+# Discrete-trait analysis. When it is on, BEAST writes a SECOND tree file
+# carrying the reconstructed ancestral states, and a second gate applies: the
+# tip-label randomisation test. A DTA always produces a transition table, so
+# without that gate an unsupported table reaches publication looking identical
+# to a supported one.
+_DT = (config.get("beast") or {}).get("discrete_trait") or {}
+DTA = bool(_DT.get("enabled"))
+TRAIT = _DT.get("trait", "host_group")
+TRAIT_SIGNAL = DTA and (_DT.get("signal_gate", True))
+
 
 def locus_opt(wildcards, key, default=None):
     """Per-locus setting, falling back to the pathogen-level one."""
@@ -172,6 +182,8 @@ def final_targets(wildcards):
     else:
         targets.append(f"{OUT}/auspice/{build}.json")
     targets += expand(f"{OUT}/beast/{{locus}}/convergence.json", locus=passing)
+    if TRAIT_SIGNAL:
+        targets += expand(f"{OUT}/beast/{{locus}}/trait_signal.json", locus=passing)
     if config["beast"].get("date_randomisation", {}).get("enabled"):
         targets += expand(f"{OUT}/drt/{{locus}}/drt_summary.json", locus=passing)
     return targets
@@ -445,17 +457,38 @@ rule beast_xml:
         " --out-xml {output.xml} --out-traits {output.traits} 2>&1 | tee {log}"
 
 
-rule beast_run:
-    input: xml = rules.beast_xml.output.xml
-    output:
-        log_ = f"{OUT}/beast/{{locus}}/seed{{seed}}/{PATHOGEN}.log",
-        trees = f"{OUT}/beast/{{locus}}/seed{{seed}}/{PATHOGEN}.trees",
-    threads: 4
-    resources: runtime = 10080   # minutes; these are multi-day runs
-    log: f"{OUT}/logs/08_beast_{{locus}}_seed{{seed}}.log"
-    shell:
-        "beast -seed {wildcards.seed} -threads {threads} -overwrite"
-        " -prefix {OUT}/beast/{wildcards.locus}/seed{wildcards.seed}/ {input.xml} 2>&1 | tee {log}"
+# The ancestral-state tree file is a real output and is declared as one. A file
+# BEAST writes but the workflow does not know about cannot be re-run, cleaned or
+# invalidated, and goes stale without anyone noticing -- which for a trait file
+# means the signal gate silently tests a previous run's reconstruction.
+# The rule is written twice because Snakemake output lists are static; the shell
+# command is shared so the two cannot drift.
+_BEAST_SHELL = (
+    "beast -seed {wildcards.seed} -threads {threads} -overwrite"
+    " -prefix " + OUT + "/beast/{wildcards.locus}/seed{wildcards.seed}/"
+    " {input.xml} 2>&1 | tee {log}")
+
+if DTA:
+    rule beast_run:
+        input: xml = rules.beast_xml.output.xml
+        output:
+            log_ = f"{OUT}/beast/{{locus}}/seed{{seed}}/{PATHOGEN}.log",
+            trees = f"{OUT}/beast/{{locus}}/seed{{seed}}/{PATHOGEN}.trees",
+            trait_trees = f"{OUT}/beast/{{locus}}/seed{{seed}}/{PATHOGEN}_{TRAIT}.trees",
+        threads: 4
+        resources: runtime = 10080   # minutes; these are multi-day runs
+        log: f"{OUT}/logs/08_beast_{{locus}}_seed{{seed}}.log"
+        shell: _BEAST_SHELL
+else:
+    rule beast_run:
+        input: xml = rules.beast_xml.output.xml
+        output:
+            log_ = f"{OUT}/beast/{{locus}}/seed{{seed}}/{PATHOGEN}.log",
+            trees = f"{OUT}/beast/{{locus}}/seed{{seed}}/{PATHOGEN}.trees",
+        threads: 4
+        resources: runtime = 10080   # minutes; these are multi-day runs
+        log: f"{OUT}/logs/08_beast_{{locus}}_seed{{seed}}.log"
+        shell: _BEAST_SHELL
 
 
 rule convergence:
@@ -477,6 +510,48 @@ rule convergence:
         "python scripts/08b_convergence.py --logs {input.logs}"
         " --burnin {params.burnin} --min-ess {params.min_ess}"
         " --out-json {output.json} --out-combined {output.combined} 2>&1 | tee {log}"
+
+
+if TRAIT_SIGNAL:
+    rule trait_signal:
+        """
+        Tip-label randomisation (Parker, Rambaut & Pybus 2008).
+
+        A discrete-trait analysis always returns a transition table. This asks
+        the prior question -- whether the tip states are associated with the
+        phylogeny at all -- by shuffling the host labels across the tips of the
+        posterior trees already sampled and recomputing the association
+        statistics. If the real labelling is no more clustered than a shuffled
+        one, the transition table describes the label distribution rather than
+        transmission, and nothing in it should be reported.
+
+        Uses topology and tip labels only, never BEAST's reconstructed
+        ancestral states: those are the thing under test.
+
+        Cheap. Minutes on files that already exist, not another chain.
+        """
+        input:
+            trees = expand(
+                f"{OUT}/beast/{{{{locus}}}}/seed{{seed}}/{PATHOGEN}_{TRAIT}.trees",
+                seed=config["beast"]["seeds"]),
+            conv = rules.convergence.output.json,
+        output:
+            json = f"{OUT}/beast/{{locus}}/trait_signal.json",
+            md   = f"{OUT}/beast/{{locus}}/trait_signal.md",
+        params:
+            cfg = lambda w: config["_path"],
+            burnin = config["beast"]["burnin_fraction"],
+            perms = (config.get("beast", {}).get("discrete_trait", {})
+                     .get("signal_permutations", 1000)),
+            on_fail = ("--exit-nonzero-on-fail"
+                       if (config.get("beast", {}).get("discrete_trait", {})
+                           .get("on_no_signal", "stop") == "stop") else ""),
+        log: f"{OUT}/logs/08e_trait_signal_{{locus}}.log"
+        shell:
+            "python scripts/08e_trait_signal.py --trees {input.trees}"
+            " --config {params.cfg} --burnin {params.burnin}"
+            " --permutations {params.perms} {params.on_fail}"
+            " --out-json {output.json} --out-md {output.md} 2>&1 | tee {log}"
 
 
 rule mcc_tree:
@@ -542,6 +617,11 @@ rule auspice:
         aln  = f"{OUT}/subsampled/{_L}_sub.fasta",
         conv = f"{OUT}/beast/{_L}/convergence.json",
         full_meta = rules.curate.output.meta,
+        # Listed as an input so a build cannot be published without the trait
+        # having been tested. The gate's own exit code stops the run on a
+        # failure; this makes the dependency visible in the DAG as well.
+        **({"trait_signal": f"{OUT}/beast/{_L}/trait_signal.json"}
+           if TRAIT_SIGNAL else {}),
     output: json = AUSPICE_JSON
     params: cfg = lambda w: config["_path"]
     log: AUSPICE_LOG

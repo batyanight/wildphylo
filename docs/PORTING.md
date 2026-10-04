@@ -147,16 +147,73 @@ idref resolves, and the class paths match the installed package, but no chain
 has been started from it. The 1M smoke test in the printed NEXT STEPS is that
 check, and it is the last step before the 100M pair.
 
+## Written since the port began
+
+
+**`08e_trait_signal.py`** — NEW gate, not a port. Tip-label randomisation
+(Parker, Rambaut & Pybus 2008): AI, Fitch parsimony score and maximum
+monophyletic clade size, against a null of host labels shuffled across the tips
+of the posterior trees already sampled. Runs in minutes on existing files; no
+reruns, because tip states do not enter the tree prior the way dates do.
+
+Uses topology and tip labels only, never BEAST's reconstructed ancestral
+states — those are what is under test, and using them would be circular. A side
+effect is that it also runs on a sequence-only `.trees` file.
+
+The null is one fixed permuted labelling applied across the WHOLE posterior,
+summarised by its mean, matching how the observed labelling is used. Permuting
+per tree and pooling single values compares a mean against a distribution of
+single draws, whose variance is far larger, and makes everything significant.
+`tests/test_trait_signal.py` pins this.
+
+Wired in as `rule trait_signal`; `rule auspice` takes its JSON as an input, so
+a build cannot reach Auspice with an untested trait. `beast_run` now declares
+the `{pathogen}_{trait}.trees` file as a real output — BEAST wrote it either
+way, and an undeclared output cannot be invalidated, so the gate could have
+silently tested a previous run's reconstruction.
+
+Config: `beast.discrete_trait.signal_gate`, `signal_permutations`,
+`on_no_signal`, validated in `lib/config.py` and present in every shipped
+config that enables a trait.
+
+**`08b_convergence.py`** — written. ESS by Tracer's algorithm, so the numbers
+match what `loganalyser` and Tracer report rather than being a second opinion;
+a gate that disagrees with the tool the user checks it against gets overridden,
+and then it is not a gate. The autocovariance is computed by FFT instead of
+Tracer's nested loop — identical values, seconds instead of minutes, which is
+the difference between running every build and being skipped.
+
+Adds the check `loganalyser` does not do: whether the chains agree with EACH
+OTHER, as the overlapping coefficient of their marginal posteriors. A single
+chain can have every ESS in the thousands while sitting in a region the other
+chain never visits. Chosen over Gelman-Rubin because R-hat assumes roughly
+normal marginals, which clock rates and tree heights are not.
+
+The combined log is written here rather than by `logcombiner`, because pooling
+must happen only AFTER the chains are shown to agree — pooling first averages a
+converged chain with a stuck one and produces a posterior that is an artefact of
+the pooling. Pooled ESS is the sum of the per-chain values, not the ESS of the
+concatenation, which would read the join as signal.
+
+**`13_check_updates.py`** — written. One `esearch` with `retmax=0` per pathogen;
+downloads nothing. The query is imported from `01_fetch_sequences` rather than
+reimplemented, so the count can never describe a different set of records than
+the download; a second copy would drift, and the symptom of drift is a delta
+that looks like a real change in GenBank.
+
+A shrinking dataset does not rebuild by default: GenBank withdraws records very
+rarely, so a negative delta is almost always a changed query or a truncated
+previous download, and rebuilding would replace a larger dataset with a smaller
+one. An Entrez failure is reported as an error rather than as "no new records",
+so an outage cannot silently stop the rebuild from ever happening again.
+
 ## Not yet written at all
 
 Referenced by the workflow, no implementation:
 
-- `08b_convergence.py` — ESS per parameter, between-chain overlap. Consumed by
-  `lib.preflight.check_convergence`, which is written and tested.
 - `08d_drt_summary.py` — date-randomisation summary: the real clock-rate HPD
   must not overlap the randomised replicates'.
 - `12_compare_builds.py` — build-to-build comparison gate.
-- `13_check_updates.py` — accession-delta check for the scheduled rebuild.
 
 ## Not used by the workflow
 

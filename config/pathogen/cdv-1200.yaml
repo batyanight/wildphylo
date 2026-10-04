@@ -123,6 +123,14 @@ beast:
     # which is what bssvs is for.
     symmetric: false
     bssvs: true
+    # This config is asymmetric on 5 states = 20 rates from 65 tips. The gate
+    # matters more here than anywhere: with that many rates, BSSVS will select
+    # some regardless of whether host structure exists.
+    # Tip-label randomisation: does host associate with the tree at all?
+    # Minutes on the existing posterior. See DECISIONS.md DR-009.
+    signal_gate: true
+    signal_permutations: 1000   # smallest obtainable p is 1/(this + 1)
+    on_no_signal: stop          # stop | warn
   date_randomisation:
     enabled: true
     replicates: 20

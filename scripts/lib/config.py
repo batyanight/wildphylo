@@ -46,6 +46,43 @@ def load(path: str | Path) -> dict:
     return cfg
 
 
+def resolve_path(cfg: dict, value) -> Path:
+    """
+    Turn a path in a config into one that resolves from ANY working directory.
+
+    Paths in the shipped configs are written relative to the repository root
+    ("config/host_groups.tsv"), which only resolves when the command is run
+    from there. That is a trap rather than a convention: running 07 from inside
+    a build directory -- the natural thing to do when working on one clade --
+    made hosts.table unresolvable and sent an output file to the wrong place,
+    with no error, because the failure was a missing file rather than a wrong
+    one.
+
+    Resolution order:
+      1. absolute paths are returned unchanged
+      2. relative to the current working directory (preserves old behaviour,
+         so nothing that worked before stops working)
+      3. relative to each ancestor directory of the config file, nearest first
+         -- which finds the repository root regardless of how deeply the
+         config is nested, and without hardcoding how deep that is
+
+    The first candidate that exists wins. If none exists the cwd-relative form
+    is returned, so the error message names the path the user would expect.
+    """
+    p = Path(value)
+    if p.is_absolute():
+        return p
+    if p.exists():
+        return p
+    cfg_path = cfg.get("_path")
+    if cfg_path:
+        for parent in Path(cfg_path).resolve().parents:
+            candidate = parent / p
+            if candidate.exists():
+                return candidate
+    return p
+
+
 def validate(cfg: dict) -> tuple[list[str], list[str]]:
     """Return (errors, warnings). Errors block the run; warnings do not."""
     errors: list[str] = []
@@ -224,7 +261,7 @@ def _finish(cfg: dict, errors: list, warnings: list) -> tuple[list, list]:
     """Checks that apply to segmented and unsegmented configs alike."""
     # --- hosts ---
     h = cfg["hosts"]
-    table_path = Path(h.get("table", ""))
+    table_path = resolve_path(cfg, h.get("table", ""))
     declared_groups: set[str] = set()
     if table_path.is_file():
         try:
@@ -322,6 +359,38 @@ def _finish(cfg: dict, errors: list, warnings: list) -> tuple[list, list]:
             f"discrete trait has {n_states} states -> {n_rates} transition "
             "rates to estimate. Rates far outnumbering informative transitions "
             "is the usual cause of an unresolved root")
+
+    # --- trait-signal gate (tip-label randomisation) ---
+    # Validated whenever the trait block exists, not only when dta_states is
+    # declared, so a typo in these keys is caught rather than silently
+    # defaulting the gate back on or off.
+    if dt_cfg.get("enabled"):
+        if dt_cfg.get("on_no_signal") not in {"stop", "warn", None}:
+            errors.append("beast.discrete_trait.on_no_signal must be stop|warn")
+        perms = dt_cfg.get("signal_permutations")
+        if perms is not None:
+            if not isinstance(perms, int) or perms < 1:
+                errors.append(
+                    "beast.discrete_trait.signal_permutations must be a "
+                    "positive integer")
+            elif perms < 99:
+                warnings.append(
+                    f"beast.discrete_trait.signal_permutations = {perms}: the "
+                    f"smallest p obtainable is 1/{perms + 1} = "
+                    f"{1 / (perms + 1):.3f}, so the gate cannot return a "
+                    "conventionally significant result")
+        if dt_cfg.get("signal_gate") is False:
+            warnings.append(
+                "beast.discrete_trait.signal_gate = false: the tip-label "
+                "randomisation test is disabled. The analysis will still "
+                "produce a transition table; nothing will check whether the "
+                "host labels are associated with the tree at all")
+        elif dt_cfg.get("on_no_signal") == "warn":
+            warnings.append(
+                "beast.discrete_trait.on_no_signal = warn: a trait with no "
+                "demonstrated association with the phylogeny will still be "
+                "published, and its transition table will look no different "
+                "from a supported one")
 
     # --- temporal gate ---
     ts = cfg.get("temporal_signal", {})

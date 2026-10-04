@@ -34,6 +34,7 @@ fetch → curate → [REVIEW GATE] → align → QC → ML tree → [TEMPORAL GA
                                                               └─ pass ↓
               [CONGRUENCE GATE, segmented pathogens only] → subsample
                             → BEAST ×N seeds → [CONVERGENCE GATE]
+                     → [TRAIT SIGNAL GATE, discrete-trait analyses only]
                             → MCC → Auspice → [COMPARISON GATE] → publish
 ```
 
@@ -51,7 +52,16 @@ than generating host transitions that reflect reassortment instead of
 transmission.
 
 **Convergence gate** — ESS and between-chain agreement, checked automatically
-before any number is reported.
+before any number is reported. A single chain can have every ESS in the
+thousands while sitting in a region of parameter space the other chain never
+visits; ESS alone cannot see that.
+
+**Trait signal gate** — a discrete-trait analysis always returns a transition
+table, whether or not host is associated with the phylogeny at all. This
+shuffles the host labels across the tips of the posterior trees already sampled
+and asks whether the real labelling is more clustered than chance. Minutes on
+existing files. Without it, an unsupported transition table reaches publication
+looking identical to a supported one.
 
 **Comparison gate** — every rebuild is compared against the previous one. A lost
 sequence or a TMRCA that moved is a curation regression until proven otherwise.
@@ -119,16 +129,20 @@ scripts/
   04b_temporal_signal.py     the temporal gate, runnable standalone
   05b_segment_congruence.py  the congruence gate, runnable standalone
   05c_cut_clades.py          split a tree into clades, test each for clock signal
+  08b_convergence.py         ESS and between-chain agreement
+  08e_trait_signal.py        the trait-signal gate, runnable standalone
+  13_check_updates.py        does the scheduled rebuild have anything to do?
   lib/
   beastxml.py                BEAST model blocks: tree priors, clocks, tip dates
   config.py                  config loading and validation
   dates.py                   date parsing; never raises on malformed input
   hosts.py                   word-boundary matching + shadowing audit
   temporal.py                root-to-tip, permutation test, verdict
+  traitsignal.py             AI, parsimony score, MC; tip-label randomisation
   datepolicy.py              midpoint vs interval, decided per dataset
   segments.py                congruence screening and reassortment localisation
   preflight.py               per-step verification
-tests/                       209 tests
+tests/                       362 tests
 docs/DECISIONS.md            why each default is what it is
 docs/NEXTSTRAIN.md           organising many builds without chaos
 docs/PORTING.md              what is not wired up yet, and exactly why
@@ -167,10 +181,13 @@ mismatch in **[docs/PORTING.md](docs/PORTING.md)**.
 
 - [x] Port `01_fetch` and `02_curate` onto the config and the new libraries
 - [x] Port `04_alignment_qc` and `06_subsample`
-- [x] Port `07_make_beast_xml` (except the discrete-trait block)
-- [ ] Discrete-trait block in `07`; port `09_make_auspice`
-- [ ] Write `08b_convergence.py`, `08d_drt_summary.py`, `12_compare_builds.py`,
-      `13_check_updates.py`
+- [x] Port `07_make_beast_xml`, discrete-trait block included
+- [x] Trait-signal gate (`08e_trait_signal.py`), wired so a build cannot reach
+      Auspice with an untested trait
+- [x] Convergence gate (`08b_convergence.py`): ESS plus between-chain agreement
+- [x] Scheduled-rebuild check (`13_check_updates.py`)
+- [ ] Write `08d_drt_summary.py` and `12_compare_builds.py`
+- [ ] Port `09_make_auspice`
 - [ ] End-to-end run on CDV, then BTV
 - [ ] Generated Auspice descriptions carrying gate verdicts
 

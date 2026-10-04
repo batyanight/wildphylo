@@ -36,7 +36,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib.config import load, ConfigError            # noqa: E402
+from lib.config import load, ConfigError, resolve_path  # noqa: E402
 from lib.dates import parse_collection_date, PRECISION_RANK  # noqa: E402
 from lib.hosts import load_host_table, audit_host_table, normalize_host  # noqa: E402
 from lib.preflight import check_curation            # noqa: E402
@@ -213,13 +213,16 @@ def load_reference_anchors(cfg: dict) -> dict[str, str]:
     refs_cfg = cfg.get("references") or {}
     if not refs_cfg.get("include_as_anchors"):
         return {}
-    table = refs_cfg.get("table")
-    if not table or not Path(table).is_file():
+    # Same cwd trap as hosts.table: resolve against the config file as well,
+    # so this works from a build directory and not only from the repo root.
+    raw = refs_cfg.get("table")
+    table = resolve_path(cfg, raw) if raw else None
+    if not table or not table.is_file():
         logging.warning("references.include_as_anchors is set but "
-                        "references.table is missing: %s", table)
+                        "references.table is missing: %s", raw)
         return {}
     out, skipped = {}, 0
-    for line in Path(table).read_text().splitlines():
+    for line in table.read_text().splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         parts = [p.strip() for p in line.split("\t")]
@@ -293,7 +296,7 @@ def main() -> int:
         return 2
 
     # --- config-derived settings -------------------------------------------
-    host_rules = load_host_table(Path(cfg["hosts"]["table"]))
+    host_rules = load_host_table(resolve_path(cfg, cfg["hosts"]["table"]))
     for w in audit_host_table(host_rules):
         # A shadowed host rule is the failure that put a pinniped into the CDV
         # tree as Panthera leo. Surface it every run, not just at config load.

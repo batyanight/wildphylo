@@ -497,3 +497,82 @@ remove.
   50M sequence-only chains on this dataset bottomed at ESS 211 on the
   coalescent block. `chain_length: 100000000` is the floor for the trait run,
   not a generous default.
+
+---
+
+## DR-009 — The trait analysis is gated on whether the trait has signal at all
+
+**Decision.** A discrete-trait analysis does not publish until a tip-label
+randomisation test (Parker, Rambaut & Pybus 2008) shows that host states are
+more clustered on the phylogeny than a random assignment of the same states
+would be. `beast.discrete_trait.signal_gate: true` and `on_no_signal: stop` are
+the defaults. `rule auspice` takes the gate's JSON as an input, so the gate
+cannot be reached around rather than through.
+
+**Why.** A DTA always returns an answer. BSSVS always selects some rates,
+ancestral reconstruction always paints every internal node, and a jump counter
+always produces a transition table with a largest entry. None of that is
+evidence. If host labels were shuffled at random across the tips, every one of
+those outputs would still appear and still look structured. So the first
+question is not which transition is most common; it is whether the labels are
+associated with the tree at all — and nothing in a BEAST run answers it.
+
+This came out of the america-2 analysis, where felid→procyonid appeared as the
+most common transition at 15.5%, running 5–6× against the reverse, stable
+across both chains, with all five BF > 3 indicators in the empirical top six.
+The state-through-time reconstruction then showed felid holding 40–41% of
+lineages from 1975 to 1990 against a 15% tip share, collapsing to baseline in
+1995 — immediately after the 1992.7 felid tips drop out. The whole felid
+"backbone" is about two lineages, and every lineage descending from it scored
+another outbound felid transition. A reproducible, well-converged, decisively
+supported result that was an artefact of which tips happen to be oldest.
+
+**What it costs.** Nothing in compute. Tip states do not enter the tree prior
+the way dates do, so unlike the date-randomisation test this needs no reruns:
+the labels are shuffled across the posterior trees already sampled. A thousand
+permutations over a thousand trees at 65 tips runs in about twelve seconds.
+
+**Alternatives and why not.**
+
+- *Report the transition table with a caveat.* Caveats do not survive being
+  cited. A table in a paper is read as a result regardless of the sentence
+  underneath it.
+- *Use BEAST's own ancestral reconstruction to assess clustering.* Circular.
+  That reconstruction is the thing under suspicion. The statistics here use
+  topology and tip labels only, which is also why the gate runs on a
+  sequence-only `.trees` file.
+- *Rely on BSSVS Bayes factors.* BSSVS selects among rates given that the trait
+  model is being fitted. It has no way to express "this trait should not have
+  been fitted."
+
+**Pitfalls of what was chosen.**
+
+- **The null construction is the thing to get right, and it is easy to get
+  wrong.** The observed analysis applies one fixed labelling across the whole
+  posterior, so a null replicate must be one fixed *permuted* labelling applied
+  across the whole posterior, summarised by its mean. Permuting independently
+  per tree and pooling the single values compares a mean against a distribution
+  of single draws; the mean has far smaller variance, lands in the tail almost
+  automatically, and everything comes out significant. There is a regression
+  test named after this.
+- **Passing does not validate transition directions.** A state whose tips are
+  old and deeply placed clusters significantly and still produces outbound
+  counts that are a consequence of sampling depth — which is exactly the
+  america-2 case. Signal is necessary for a directional claim, not sufficient.
+  Read `08g_state_through_time.py` alongside the gate; they answer different
+  questions.
+- **Failing to reject is not evidence of no structure when there is no power.**
+  With fewer than five tips in a state, or fewer than twenty labelled tips
+  overall, the test cannot reject whatever is true. Both conditions are
+  reported explicitly rather than left for the reader to notice.
+- **`?` tips are pruned, not treated as a sixth state.** The tips nobody could
+  classify would cluster perfectly by construction and manufacture signal.
+- **p has a floor of 1/(permutations + 1).** Davison–Hinkley; reporting p = 0
+  would claim resolution the permutations do not buy. `signal_permutations`
+  below 99 is warned about at config-validation time for this reason.
+
+**How to report it.** State the three statistics, their null means and 95%
+ranges, the number of permutations, and the number of labelled tips per state.
+The MC column is the one that licenses state-specific claims: a transition
+involving a state whose MC is not significant has no demonstrated clustering
+behind it, whatever its Bayes factor.

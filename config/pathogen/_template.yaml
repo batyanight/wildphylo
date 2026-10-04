@@ -136,6 +136,15 @@ beast:
     # n states gives n(n-1) rates, and they are rarely all identifiable.
     symmetric: true
     bssvs: true
+    # --- tip-label randomisation gate ---------------------------------------
+    # A discrete-trait analysis ALWAYS returns a transition table, whether or
+    # not host is associated with the phylogeny. This gate shuffles the host
+    # labels across the tips of the posterior trees already sampled and asks
+    # whether the real labelling is more clustered than chance. It is minutes
+    # of compute on files that already exist, not another chain.
+    signal_gate: true
+    signal_permutations: 1000   # smallest obtainable p is 1/(this + 1)
+    on_no_signal: stop          # stop | warn
   date_randomisation:
     enabled: true
     replicates: 20
