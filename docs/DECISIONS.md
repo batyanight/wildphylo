@@ -576,3 +576,65 @@ ranges, the number of permutations, and the number of labelled tips per state.
 The MC column is the one that licenses state-specific claims: a transition
 involving a state whose MC is not significant has no demonstrated clustering
 behind it, whatever its Bayes factor.
+
+---
+
+## DR-010 — Transition directions are counted off the trees, never read off the BSSVS indicator vector
+
+**Decision.** The direction of a host transition is established by walking the
+sampled ancestral-state trees and comparing each node with its parent
+(`08f_jump_history.py`). The BSSVS `rateIndicator` vector is used only to say
+WHICH transitions the model selected, never which way they point.
+
+**Why.** BSSVS reports the indicators as a flat vector, and mapping index to
+ordered host pair requires knowing BEAST's internal ordering of an asymmetric
+rate matrix. Five states give 20 ordered pairs and 20 indices, and there is no
+label on any of them. Guess the convention wrong and every direction transposes
+— which does not produce an error, a warning, or an implausible number. It
+produces a clean result with the biology inverted. For CDV that is the
+difference between felids being a dead end and felids being a source, and
+nothing downstream would catch it.
+
+Walking the trees needs no convention. A node is procyonid, its parent is
+felid, that is a felid→procyonid transition. Whichever directions dominate the
+tree-walk are the real ones, and they anchor the indicator vector: once the
+dominant directions are known from the trees, the indicators can be matched to
+them by magnitude.
+
+**What it costs.** Branch-level counting misses multiple changes within a
+single branch, so it is a lower bound and biased against long branches. A full
+Markov-jump history from BEAST's complete-history logger would count those; it
+was not enabled on the america-2 run, and at 65 tips the resolution to
+distinguish one change from three on a branch is not really there anyway.
+
+**Pitfalls carried forward.**
+
+- **Branch counts are not event counts.** A state whose tips form one old clade
+  scores an outbound transition on every lineage descending from that clade's
+  stem, all of them consequences of a single ancestral placement. The america-2
+  felid MC of 7.71 from 10 tips (DR-009) says most felid tips are one clade, so
+  the felid-outbound count is on the order of two or three independent events
+  however many branches carry it.
+- **Terminal branches are not corridors.** A transition on a terminal branch
+  describes that one tip's own label and carries no information about onward
+  transmission. `08f` reports the terminal share per transition for this
+  reason; a transition that is mostly terminal is a tip census.
+- **Every jump is counted at equal weight.** The trait logger as configured
+  writes only the modal reconstructed state, so a node split 35/33 between two
+  states contributes exactly as much as one at 95%. The parser reads
+  `<tag>.prob` when present and it is simply absent here. Adding a second
+  `<metadata>` reference on `TreeWithTraitLogger` would log the full
+  state-probability vector and let jumps be filtered or weighted by support.
+  That needs a rerun, and until then the counts discard reconstruction
+  uncertainty — which runs in the same direction as the two pitfalls above,
+  since the deepest nodes are both the least certain and the ones generating
+  the most descendant branches.
+
+**Retired.** `12_count_trait_jumps.py` was the first implementation of this
+idea: a contingency table with directional asymmetry, 172 lines, its own
+parser. `08f_jump_history.py` does everything it did and adds the timing, the
+root-state posterior, the tip census and the terminal share — all of which
+exist because the count alone could not distinguish transmission from
+anchoring. Two implementations of the same count, with two parsers, can
+disagree about one posterior; the predecessor is removed and its reasoning is
+recorded here, which is the part that was worth keeping.

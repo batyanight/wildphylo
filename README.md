@@ -131,6 +131,8 @@ scripts/
   05c_cut_clades.py          split a tree into clades, test each for clock signal
   08b_convergence.py         ESS and between-chain agreement
   08e_trait_signal.py        the trait-signal gate, runnable standalone
+  08f_jump_history.py        host transitions, and when each one happened
+  08g_state_through_time.py  lineages carrying each state, year by year
   13_check_updates.py        does the scheduled rebuild have anything to do?
   lib/
   beastxml.py                BEAST model blocks: tree priors, clocks, tip dates
@@ -139,10 +141,11 @@ scripts/
   hosts.py                   word-boundary matching + shadowing audit
   temporal.py                root-to-tip, permutation test, verdict
   traitsignal.py             AI, parsimony score, MC; tip-label randomisation
+  traittrees.py              annotated-Newick parser for ancestral-state trees
   datepolicy.py              midpoint vs interval, decided per dataset
   segments.py                congruence screening and reassortment localisation
   preflight.py               per-step verification
-tests/                       362 tests
+tests/                       383 tests
 docs/DECISIONS.md            why each default is what it is
 docs/NEXTSTRAIN.md           organising many builds without chaos
 docs/PORTING.md              what is not wired up yet, and exactly why
