@@ -650,10 +650,16 @@ rule publish:
     params:
         prev = f"builds/{PATHOGEN}",
         shift = config["nextstrain"]["update"]["alert_on_tmrca_shift_years"],
+        loss = ("" if config["nextstrain"]["update"].get(
+                    "alert_on_sequence_loss", True)
+                else "--no-alert-on-sequence-loss"),
+    log: f"{OUT}/logs/12_compare_builds.log"
     shell:
         "python scripts/12_compare_builds.py --current {input.json}"
         " --builds-dir {params.prev} --max-tmrca-shift {params.shift}"
+        " {params.loss} --pathogen " + PATHOGEN +
         " --out {output.report}"
+        " --out-json " + f"{OUT}/build_comparison.json" + " 2>&1 | tee {log}"
 
 
 # --- provenance -------------------------------------------------------------

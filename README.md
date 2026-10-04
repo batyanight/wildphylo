@@ -131,6 +131,7 @@ scripts/
   05c_cut_clades.py          split a tree into clades, test each for clock signal
   08b_convergence.py         ESS and between-chain agreement
   08d_drt_summary.py         the date-randomisation gate
+  12_compare_builds.py       build-to-build comparison
   08e_trait_signal.py        the trait-signal gate, runnable standalone
   08f_jump_history.py        host transitions, and when each one happened
   08g_state_through_time.py  lineages carrying each state, year by year
@@ -147,7 +148,7 @@ scripts/
   datepolicy.py              midpoint vs interval, decided per dataset
   segments.py                congruence screening and reassortment localisation
   preflight.py               per-step verification
-tests/                       397 tests
+tests/                       414 tests
 docs/DECISIONS.md            why each default is what it is
 docs/NEXTSTRAIN.md           organising many builds without chaos
 docs/PORTING.md              what is not wired up yet, and exactly why
@@ -192,7 +193,7 @@ mismatch in **[docs/PORTING.md](docs/PORTING.md)**.
 - [x] Convergence gate (`08b_convergence.py`): ESS plus between-chain agreement
 - [x] Scheduled-rebuild check (`13_check_updates.py`)
 - [x] Date-randomisation gate (`08d_drt_summary.py`)
-- [ ] Write `12_compare_builds.py`
+- [x] Comparison gate (`12_compare_builds.py`)
 - [ ] Port `09_make_auspice`
 - [ ] End-to-end run on CDV, then BTV
 - [ ] Generated Auspice descriptions carrying gate verdicts

@@ -233,11 +233,31 @@ trivially.
 Shares `lib/beastlog.py` with 08b: one log reader, one HPD, one ESS, so a
 convergence verdict and a DRT verdict describe the same chain.
 
+**`12_compare_builds.py`** — written. What changed since the last build, and is
+it a finding? The framing it enforces: a large change between builds is a
+CURATION REGRESSION until shown otherwise. New data arriving monthly moves a
+TMRCA by months, not decades; a dataset that shrinks has almost always lost
+records to a changed query rather than to GenBank withdrawals.
+
+Compares accession composition (not just the count -- a count can be unchanged
+while twenty records are swapped out, which is exactly what a broken query
+produces, and a count-only check reports nothing), every gate verdict including
+per clade, the temporal R^2 and clock slope, and the TMRCA against
+`alert_on_tmrca_shift_years`.
+
+Deliberately does NOT compare tree topology: two trees built from overlapping
+data differ mostly by reordering equally-supported splits, so a topological
+distance is large, noisy and uninformative about whether anything is wrong.
+
+Works from both call signatures, because they differ: the Snakefile passes an
+Auspice JSON, and CI stops at the temporal gate and has none. A first build has
+nothing to compare against, which is the normal state of a new pathogen and
+exits zero rather than blocking it.
+
 ## Not yet written at all
 
 Referenced by the workflow, no implementation:
 
-- `12_compare_builds.py` — build-to-build comparison gate.
 
 ## Not used by the workflow
 
