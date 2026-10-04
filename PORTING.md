@@ -254,6 +254,40 @@ Auspice JSON, and CI stops at the temporal gate and has none. A first build has
 nothing to compare against, which is the normal state of a new pathogen and
 exits zero rather than blocking it.
 
+**`09_make_auspice.py`** — ported. Was the last script whose CLI did not match
+what the workflow called it with: the Snakefile passed `--config`,
+`--alignment` and `--output` while the script required `--most-recent`,
+`--title`, `--maintainer` and `--trait-key`. The rule would have failed at
+runtime, potentially days into a build.
+
+Three real bugs came out with the flags.
+
+The script carried CDV defaults — a title naming the America-2 lineage and a
+description citing the H CDS of A75/17. In a one-pathogen repository that was
+untidy; in a pathogen-agnostic one it publishes a BTV build described as canine
+distemper, and nothing downstream catches it because the JSON is valid and
+renders. Everything that names the pathogen now comes from `nextstrain:` in the
+config.
+
+`--trait-key` defaulted to `location`, while this repo's XML writes
+`tag="host_group"`. The key is auto-detected now, via the same `detect_tag`
+the posterior-tree analyses use.
+
+Tips took their host from the metadata, which holds the RAW host group, while
+internal nodes carry the model's collapsed `dta_states` value — so Auspice
+rendered `wild_felid` and `felid` as different categories and the colouring
+implied a host transition at every tip. Tip hosts are now collapsed exactly as
+07 collapses them.
+
+`--most-recent` is derived from the tip labels rather than required, because a
+value passed by hand that is a year stale shifts every node together and
+nothing looks wrong. The existing tip-height consistency check is kept and
+still refuses to write.
+
+New: `--gates` folds gate verdicts into the Auspice description, which was the
+outstanding roadmap item. Uses `lib/traittrees` rather than its own parser,
+which was the fourth in the repo.
+
 ## Not yet written at all
 
 Referenced by the workflow, no implementation:

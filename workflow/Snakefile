@@ -636,6 +636,11 @@ rule auspice:
         "python scripts/09_make_auspice.py --config {params.cfg}"
         " --mcc {input.mcc} --metadata {input.meta}"
         " --full-metadata {input.full_meta} --alignment {input.aln}"
+        # The gate verdicts travel with the published build. A trait colouring
+        # that failed its signal test renders identically to one that passed,
+        # and the people reading a published tree did not run the pipeline.
+        " --gates {input.conv}"
+        + (" {input.trait_signal}" if TRAIT_SIGNAL else "") +
         " --output {output.json} 2>&1 | tee {log}"
 
 

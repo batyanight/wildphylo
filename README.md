@@ -148,7 +148,7 @@ scripts/
   datepolicy.py              midpoint vs interval, decided per dataset
   segments.py                congruence screening and reassortment localisation
   preflight.py               per-step verification
-tests/                       414 tests
+tests/                       429 tests
 docs/DECISIONS.md            why each default is what it is
 docs/NEXTSTRAIN.md           organising many builds without chaos
 docs/PORTING.md              what is not wired up yet, and exactly why
@@ -194,9 +194,8 @@ mismatch in **[docs/PORTING.md](docs/PORTING.md)**.
 - [x] Scheduled-rebuild check (`13_check_updates.py`)
 - [x] Date-randomisation gate (`08d_drt_summary.py`)
 - [x] Comparison gate (`12_compare_builds.py`)
-- [ ] Port `09_make_auspice`
+- [x] Port `09_make_auspice` (config-driven, gate verdicts in the description)
 - [ ] End-to-end run on CDV, then BTV
-- [ ] Generated Auspice descriptions carrying gate verdicts
 
 ## Acknowledgements
 

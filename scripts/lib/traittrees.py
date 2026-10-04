@@ -51,7 +51,7 @@ import re
 __all__ = [
     "smart_open", "read_bracket", "annotation_value", "NewickParser",
     "strip_leading_comment", "detect_tag", "iter_trees", "node_depths",
-    "label_date", "NUMBER_RE", "TREE_LINE_RE", "TRANSLATE_ROW_RE",
+    "label_date", "parse_all_annotations", "NUMBER_RE", "TREE_LINE_RE", "TRANSLATE_ROW_RE",
 ]
 
 # --------------------------------------------------------------------------- #
@@ -113,11 +113,17 @@ class NewickParser:
     so a single forward pass over the list is enough to accumulate depths.
     """
 
-    def __init__(self, s, tag):
+    def __init__(self, s, tag, keep_annotations=False):
         self.s = s
         self.i = 0
         self.tag = tag
         self.nodes = []
+        # An MCC tree carries far more per node than the state: height, its
+        # 95% HPD, clade posterior, rate. The posterior-tree analyses want one
+        # key across thousands of trees and would waste memory keeping the
+        # rest; the Auspice export wants all of it from a single tree. Same
+        # grammar, so one parser with a flag rather than a second parser.
+        self.keep_annotations = keep_annotations
 
     # -- low-level ---------------------------------------------------------- #
     def peek(self):
@@ -159,8 +165,12 @@ class NewickParser:
                 "length": 0.0,
                 "label": None,
                 "is_tip": True,
+                "children": [],
+                **({"ann": {}} if self.keep_annotations else {}),
             }
         )
+        if parent is not None:
+            self.nodes[parent]["children"].append(idx)
         if self.peek() == "(":
             self.nodes[idx]["is_tip"] = False
             self.i += 1  # consume '('
@@ -196,6 +206,8 @@ class NewickParser:
         return idx
 
     def _absorb(self, idx, content):
+        if self.keep_annotations:
+            self.nodes[idx]["ann"].update(parse_all_annotations(content))
         if self.nodes[idx]["state"] is None:
             val = annotation_value(content, self.tag)
             if val is not None:
@@ -211,6 +223,26 @@ class NewickParser:
     def parse(self):
         self.node(None)
         return self.nodes
+
+
+ANN_PAIR = re.compile(
+    r'(?:^|,)\s*&?\s*([A-Za-z_][\w.%+-]*)\s*=\s*'
+    r'(?:"([^"]*)"|\{([^}]*)\}|([^,]+))')
+
+
+def parse_all_annotations(content):
+    """
+    Every key=value in a BEAST annotation body, as strings.
+
+    Set-valued entries ({1950,1972}) keep their braces stripped and are
+    returned as the raw comma-joined text, because the caller decides whether
+    a given key is a pair of HPD bounds or a list of states -- guessing here
+    would turn a two-element HPD into a two-state set.
+    """
+    out = {}
+    for key, q, brace, bare in ANN_PAIR.findall(content):
+        out[key] = (q or brace or bare or "").strip()
+    return out
 
 
 def strip_leading_comment(newick):
