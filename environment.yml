@@ -19,6 +19,10 @@ dependencies:
   - iqtree>=2.2
   - trimal
   - seqkit
+  # NCBI command-line tools: esearch/efetch/xtract for ad-hoc GenBank queries,
+  # `datasets` for genome/virus packages with metadata
+  - entrez-direct
+  - ncbi-datasets-cli
   # Nextstrain
   - augur>=24
   - auspice
