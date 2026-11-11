@@ -59,8 +59,7 @@ hosts:
     procyonid: procyonid
     wild_canid: wild_canid
     mustelid: mustelid
-    wild_felid: felid
-    domestic_cat: felid
+    wild_felid: wild_felid
     domestic_dog: domestic_dog
   dta_other: null
 exclude:

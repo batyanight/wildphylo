@@ -15,6 +15,12 @@ from wildphylo.preflight import (
     check_trait_states,
 )
 
+# A synthetic config, not the CDV one. `domestic_cat` is kept here only to
+# exercise a two-group collapse: the real CDV host table files domestic cat
+# under `other`, so that group never appears in a CDV dataset and the CDV map
+# no longer lists it. `validate` warns on such a key; `check_trait_states`
+# works from counts and does not read the host table, so the fiction is local
+# to this fixture.
 CFG = {
     "fetch": {"taxid": 11232},
     "virus": {"expected_rate_range": [1.0e-4, 1.0e-2]},
@@ -134,10 +140,11 @@ def test_twelve_states_warns_about_rate_count():
 
 def test_thinness_is_judged_after_collapsing_not_before():
     """
-    domestic_cat (2) collapses into 'felid' alongside wild_felid (7), giving 9
-    -- above min_group_size. The check must not warn, because the state map has
-    already fixed the thinness. Judging group sizes before the collapse would
-    produce a warning about a problem that no longer exists.
+    Two groups of 2 and 7 collapsing onto one state give 9 -- above
+    min_group_size. The check must not warn, because the state map has already
+    fixed the thinness. Judging group sizes before the collapse would produce a
+    warning about a problem that no longer exists. The pair is synthetic; see
+    the note on CFG.
     """
     c = check_trait_states(CFG, {**CLADE3, "domestic_cat": 2})
     assert not any("min_group_size" in w for w in c.warnings)

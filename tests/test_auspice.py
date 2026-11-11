@@ -35,11 +35,11 @@ Begin trees;
 \t\t2 MW984525|procyonid|2015.0,
 \t\t3 KX024709|domestic_dog|2020.0
 ;
-tree TREE1 = [&R] ((1[&host_group="felid",host_group.prob=0.95,height=28.0]:12.0,\
+tree TREE1 = [&R] ((1[&host_group="wild_felid",host_group.prob=0.95,height=28.0]:12.0,\
 2[&host_group="procyonid",height=5.0]:11.0)\
-[&host_group="felid",height=16.0,height_95%_HPD={12.0,22.0},posterior=0.88]:14.0,\
+[&host_group="wild_felid",height=16.0,height_95%_HPD={12.0,22.0},posterior=0.88]:14.0,\
 3[&host_group="domestic_dog",height=0.0]:30.0)\
-[&host_group="felid",height=30.0,posterior=1.0]:0.0;
+[&host_group="wild_felid",height=30.0,posterior=1.0]:0.0;
 End;
 """
 
@@ -187,15 +187,18 @@ def test_tip_and_internal_states_share_a_category(build, tmp_path, run):
     """
     Regression. Tips took their host from metadata, which holds the RAW host
     group, while internal nodes carry the model's collapsed state. Auspice then
-    renders wild_felid and felid as different colours and the tree implies a
-    transition at every tip.
+    renders the raw group and the collapsed state as different colours and the
+    tree implies a transition at every tip. The CDV map now names the felid
+    state `wild_felid`, so agreement here is agreement on that name; the
+    collapse itself is still exercised by cdv-1200-dogwild, which maps
+    wild_felid to `wild`.
     """
     out = tmp_path / "a.json"
     run(build, out, config=ROOT / "tests" / "fixtures" / "configs" / "cdv-1200.yaml")
     tree = json.loads(out.read_text())["tree"]
     internal = tree["children"][0]["node_attrs"]["host_group"]["value"]
     tip = tree["children"][0]["children"][0]["node_attrs"]["host_group"]["value"]
-    assert tip == internal == "felid"
+    assert tip == internal == "wild_felid"
 
 
 def test_the_trait_key_is_auto_detected(build):

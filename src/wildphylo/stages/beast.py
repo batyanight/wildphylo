@@ -998,10 +998,9 @@ def _discrete_trait(
     afterwards which had been clicked.
 
     ``hosts.dta_states`` maps host group to trait state, so several groups can
-    collapse onto one state (wild_felid and domestic_cat to felid). A host group
-    absent from the map has no declared state: it becomes '?', which the codeMap
-    makes ambiguous across all states. Assigning it to a state instead would
-    invent an observation.
+    collapse onto one state. A host group absent from the map has no declared
+    state: it becomes '?', which the codeMap makes ambiguous across all states.
+    Assigning it to a state instead would invent an observation.
     """
     state_map = cfg.get("hosts", {}).get("dta_states") or {}
     tip_states: dict[str, str] = {}

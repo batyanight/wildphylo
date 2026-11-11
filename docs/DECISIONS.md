@@ -221,20 +221,29 @@ warns when it exceeds tips/10.
 
 ### Consequence worth noting
 
-Collapsing can *fix* a thin state rather than merely hiding it. `domestic_cat`
-(n=2) and `wild_felid` (n=7) both map to `felid`, giving 9 — above
-`min_group_size`. Thinness is therefore evaluated **after** collapsing, not
-before, or the pipeline would warn about a problem the map already solved.
-Pinned by `test_thinness_is_judged_after_collapsing_not_before`.
+Collapsing can *fix* a thin state rather than merely hiding it: two groups of
+n=2 and n=7 mapped to one state give 9, above `min_group_size`. Thinness is
+therefore evaluated **after** collapsing, not before, or the pipeline would
+warn about a problem the map already solved. Pinned by
+`test_thinness_is_judged_after_collapsing_not_before`.
+
+This record first used `domestic_cat` (n=2) and `wild_felid` (n=7) collapsing
+to `felid` as the example. That collapse never happened: the CDV host table
+files domestic cat under `other`, so `domestic_cat` is not a group any rule
+produces and the mapping never fired. `validate` now warns on a `dta_states`
+key the host table cannot produce, which is how it was found.
 
 ### Pitfall
 
 A collapse is a scientific claim: it asserts those hosts are epidemiologically
-interchangeable for this pathogen. Pooling `domestic_cat` with `wild_felid` says
-captive and free-ranging felids play the same role in transmission. Defensible
-for the two felid outbreak clusters you recovered, both captive. Less defensible
-if the question ever becomes about free-ranging felids specifically. The map
-makes that claim visible and reviewable, which is the point.
+interchangeable for this pathogen. Pooling domestic with free-ranging felids
+would say captive and wild animals play the same role in transmission —
+defensible for captive outbreak clusters, much less so if the question becomes
+about free-ranging felids specifically. The map makes that claim visible and
+reviewable, which is the point. It also makes the *absence* of a claim visible:
+the CDV map now leaves `ailurid` unmapped, so the red panda sequence enters the
+trait as `?` instead of being counted as a felid, which is what the published
+run did.
 
 ---
 
@@ -490,9 +499,8 @@ remove.
   is what the BEAST_CLASSIC example uses in place of a Poisson.
 - **Unmapped host groups become `?`,** ambiguous across all states, rather than
   being assigned to a state. `hosts.dta_states` maps host group to trait state,
-  so several groups may collapse onto one (`wild_felid` and `domestic_cat` both
-  to `felid`); a group absent from the map has no declared state and inventing
-  one would invent an observation.
+  so several groups may collapse onto one; a group absent from the map has no
+  declared state and inventing one would invent an observation.
 - **Trait parameters mix worse than anything in a sequence-only run.** The
   50M sequence-only chains on this dataset bottomed at ESS 211 on the
   coalescent block. `chain_length: 100000000` is the floor for the trait run,

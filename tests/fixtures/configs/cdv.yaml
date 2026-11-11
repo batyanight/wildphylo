@@ -58,12 +58,16 @@ locus:
     accession: AF164967
     strain: A75/17
     lineage: America-2
-    # 1-based inclusive, in the reference's own numbering. MUST span a
-    # multiple of 3 — a CDS that does not is arithmetically impossible, and
-    # the previous value [21, 1836] spanned 1816 nt = 605.33 codons. 1824 nt
-    # is 608 codons, so a CDS starting at 21 ends at 1844.
-    # VERIFY against AF164967 before relying on this for annotation.
-    cds: [21, 1844]
+    # 1-based inclusive, in the reference record's own numbering. Verified
+    # against AF164967.1 (15690 bp, complete genome): gene H is 7059..9004 and
+    # CDS H is 7079..8902, which is 1824 nt = 608 codons (607 aa + stop) and
+    # matches expected_length. MUST span a multiple of 3; a CDS that does not
+    # is arithmetically impossible.
+    # Was [21, 1844] — the same CDS numbered from the first base of the H gene
+    # feature, a third coordinate system that neither this key nor the
+    # glossary declares. Alignment-column coordinates (1..1824 in the served
+    # Auspice JSON) are a fourth; do not mix them.
+    cds: [7079, 8902]
 
 # --- date handling ----------------------------------------------------------
 dates:
@@ -98,8 +102,7 @@ hosts:
     procyonid:    procyonid
     wild_canid:   wild_canid
     mustelid:     mustelid
-    wild_felid:   felid
-    domestic_cat: felid
+    wild_felid:   wild_felid
     domestic_dog: domestic_dog
   dta_other: null          # null = exclude unmapped groups; or a state name to pool them
 

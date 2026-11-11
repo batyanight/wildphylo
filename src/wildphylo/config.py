@@ -333,6 +333,16 @@ def _finish(
             for g in h.get("reservoir_candidates", [])
             if g not in declared_groups
         )
+        # A dta_states key the table never produces is a merge that can never
+        # fire, and it misrepresents the model: `domestic_cat: felid` read as
+        # though domestic cats were pooled with wild felids when the table
+        # files domestic cat under `other`.
+        warnings.extend(
+            f"hosts.dta_states maps {g!r} to a trait state, but no rule in "
+            "the host table produces that group; the mapping never fires"
+            for g in (h.get("dta_states") or {})
+            if g not in declared_groups
+        )
 
     # --- beast ---
     b = cfg["beast"]

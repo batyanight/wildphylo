@@ -647,6 +647,24 @@ def test_cds_span_must_be_a_multiple_of_three():
     assert any("multiple of 3" in e for e in errors)
 
 
+def test_cdv_cds_bounds_are_the_verified_genome_relative_ones():
+    """
+    [21, 1844] spans the right 1824 nt but numbers the H CDS from the first
+    base of the H *gene* feature, which is neither the reference record's
+    numbering (what the key declares) nor the CDS's own. AF164967.1 has gene H
+    at 7059..9004 and CDS H at 7079..8902. An annotation step trusting the old
+    pair against the genome would shift every feature by about 7 kb.
+    """
+    import yaml
+
+    cfg = yaml.safe_load((ROOT / "tests/fixtures/configs/cdv.yaml").read_text())
+    ref = cfg["locus"]["coordinate_reference"]
+    assert ref["accession"] == "AF164967"
+    assert ref["cds"] == [7079, 8902]
+    start, end = ref["cds"]
+    assert end - start + 1 == cfg["locus"]["expected_length"]
+
+
 def test_cds_span_disagreeing_with_expected_length_warns():
     import yaml
 
@@ -902,3 +920,36 @@ def test_review_gate_build_dir_needs_a_config(build, caplog):
 def test_review_gate_needs_both_paths_without_build_dir(tmp_path, caplog):
     assert cli.main(["curate", "review", "--marker", str(tmp_path / "m")]) == 2
     assert "--needs-review is required without --build-dir" in caplog.text
+
+
+def test_dta_states_key_absent_from_the_host_table_warns():
+    """
+    `hosts.dta_states` mapped `domestic_cat` to `felid` in the CDV config, but
+    no rule in the host table produces `domestic_cat` — domestic cat is
+    `other`. The merge could never fire, and the config read as though the
+    published analysis pooled domestic cats with wild felids. `wild_groups`
+    and `reservoir_candidates` were already cross-checked against the table;
+    the trait map was not.
+    """
+    import yaml
+
+    from wildphylo.config import validate
+
+    cfg = yaml.safe_load((ROOT / "tests/fixtures/configs/cdv.yaml").read_text())
+    cfg["_path"] = "x"
+    cfg["hosts"]["dta_states"]["kangaroo"] = "marsupial"
+    _e, warnings = validate(cfg)
+    assert any("kangaroo" in w and "dta_states" in w for w in warnings)
+
+
+def test_dta_states_keys_of_the_shipped_cdv_config_all_exist():
+    import yaml
+
+    from wildphylo.config import validate
+
+    cfg = yaml.safe_load((ROOT / "tests/fixtures/configs/cdv.yaml").read_text())
+    cfg["_path"] = "x"
+    _e, warnings = validate(cfg)
+    assert not [w for w in warnings if "dta_states maps" in w], (
+        "a shipped dta_states key names a host group the table never produces"
+    )
