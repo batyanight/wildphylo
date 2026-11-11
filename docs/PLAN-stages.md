@@ -167,6 +167,10 @@ second offline smoke build (`builds/cdv-smoke/20261113`) through the
 simplified rules produced the same QC table, temporal report, subsample and
 BEAST XMLs as the explicit-path run, and the date-randomisation XML rule ran
 for the first time (its `--randomize-dates` flag had never parsed).
+The two builds' ML trees differed because IQ-TREE was unseeded; `tree.seed`
+now fixes the search. Verified: two seeded 8-thread runs give the same
+topology (140 of 140 splits) and log-likelihood, with branch lengths agreeing
+to about 5e-5 (parallel floating-point); one thread is bit-identical.
 
 Not done, in rough priority:
 

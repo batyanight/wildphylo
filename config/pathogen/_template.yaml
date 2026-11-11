@@ -115,7 +115,10 @@ tree:
   # feeds a result.
   fast: false
   # IQ-TREE random seed. Fixed so two builds of the same alignment give the
-  # same tree; change it deliberately when you want an independent search.
+  # same topology; change it deliberately when you want an independent search.
+  # Branch lengths still differ in the fifth decimal between multithreaded
+  # runs (IQ-TREE's parallel likelihood sums); run with one thread for
+  # bit-identical output.
   seed: 20260819
 
 temporal_signal:
