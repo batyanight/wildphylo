@@ -32,6 +32,9 @@ REQUIRED_LOCUS = ("locus", "loci")
 RATE_FLOOR, RATE_CEILING = 1e-9, 1e-1
 
 
+DEFAULT_TREE_SEED = 20260819  # the same fixed seed subsampling uses
+
+
 class ConfigError(Exception):
     pass
 
@@ -142,6 +145,12 @@ def validate(cfg: dict[str, Any]) -> tuple[list[str], list[str]]:
     fast = cfg["tree"].get("fast", False)
     if not isinstance(fast, bool):
         errors.append(f"tree.fast must be true or false, got {fast!r}")
+    # IQ-TREE's search is stochastic; without a fixed seed two builds of the
+    # same alignment give different trees, and the temporal gate's numbers
+    # move with them. The seed is part of the analysis, so it lives here.
+    seed = cfg["tree"].get("seed", DEFAULT_TREE_SEED)
+    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+        errors.append(f"tree.seed must be a non-negative integer, got {seed!r}")
 
     # --- segmented pathogens ---
     segmented = (cfg.get("virus") or {}).get("segmented", False)

@@ -143,7 +143,7 @@ Crashed and superseded BEAST runs go to a Zenodo deposit. The Auspice dataset
 is regenerated through the pipeline and must pass the comparison gate against
 the currently served JSON before it replaces it.
 
-## Completion note (2026-11-10)
+## Completion note (2026-11-10, updated 2026-11-11)
 
 Done: glossary; ruff `ALL` pinned; mypy strict on `src/`; conda-lock;
 blocking CI lint job; `src/wildphylo` package with the `wildphylo` command;
@@ -160,6 +160,14 @@ gate is a step instead of inline Snakefile Python; `publish dataset` added;
 removed here; their lint-cleaned versions are in git history at the commit
 that deleted them and the originals are in the cdv-phylodynamics repo.
 
+`--build-dir` (2026-11-11): `layout.BuildLayout` is the single source of build
+paths; every step takes `--config --build-dir` plus wildcards and derives the
+rest through `stepargs.resolve`; the Snakefile rules shrank by 69 lines. A
+second offline smoke build (`builds/cdv-smoke/20261113`) through the
+simplified rules produced the same QC table, temporal report, subsample and
+BEAST XMLs as the explicit-path run, and the date-randomisation XML rule ran
+for the first time (its `--randomize-dates` flag had never parsed).
+
 Not done, in rough priority:
 
 - **Smoke build passed offline** (2026-11-11, `builds/cdv-smoke/20261112`,
@@ -170,9 +178,6 @@ Not done, in rough priority:
   step itself was exercised only by its tests, because `NCBI_EMAIL` was unset.
   Run a fresh `cdv-smoke` build with the email set once before relying on
   the cap end to end.
-- **`--build-dir` defaults:** the layout module is done
-  (`src/wildphylo/layout.py`, `BuildLayout`; the Snakefile takes every path
-  from it). Steps' `--build-dir` defaults, built on it, are the next task.
 - **`publish dataset` is not wired into the Snakefile.** It needs a config key
   for the pathogen repo path, which phase 2 decides.
 - **`beast.py`** is ~2000 lines and is the next consolidation target.

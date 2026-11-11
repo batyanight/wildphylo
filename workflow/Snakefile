@@ -320,6 +320,7 @@ rule ml_tree:
                 if config["tree"].get("alrt") else ""),
         # tree.fast: IQ-TREE's -fast search, for smoke builds only.
         fast = "-fast" if config["tree"].get("fast") else "",
+        seed = config["tree"].get("seed", cfgmod.DEFAULT_TREE_SEED),
         extra = config["tree"].get("extra_args", ""),
         pre = str(L.ml_tree_prefix("{locus}")),
         iqtree = IQTREE,
@@ -327,7 +328,8 @@ rule ml_tree:
     log: L.log("03_tree_{locus}")
     shell:
         "{params.iqtree} -s {input.aln} -m {params.model} {params.ufboot}"
-        " {params.alrt} {params.fast} {params.extra} -T {threads} --prefix {params.pre}"
+        " {params.alrt} {params.fast} {params.extra} -seed {params.seed}"
+        " -T {threads} --prefix {params.pre}"
         " -redo 2>&1 | tee {log}"
 
 

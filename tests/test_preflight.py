@@ -397,3 +397,20 @@ def test_no_max_records_means_no_cap_warning():
 def test_max_records_must_be_an_integer_of_at_least_one(cap):
     e, _w = validate(seg_cfg(fetch={"taxid": 40051, "max_records": cap}))
     assert any("fetch.max_records must be an integer >= 1" in x for x in e)
+
+
+@pytest.mark.parametrize("seed", [0, 1, 20260819])
+def test_tree_seed_accepts_a_non_negative_integer(seed):
+    e, _w = validate(seg_cfg(tree={"model": "MFP", "seed": seed}))
+    assert e == []
+
+
+@pytest.mark.parametrize("seed", [-1, 1.5, "7", True, None])
+def test_tree_seed_rejects_anything_else(seed):
+    e, _w = validate(seg_cfg(tree={"model": "MFP", "seed": seed}))
+    assert any("tree.seed must be a non-negative integer" in x for x in e)
+
+
+def test_tree_seed_defaults_when_absent():
+    e, _w = validate(seg_cfg(tree={"model": "MFP"}))
+    assert e == []

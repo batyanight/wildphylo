@@ -114,6 +114,9 @@ tree:
   # builds that only need to prove the chain runs; leave false for any tree that
   # feeds a result.
   fast: false
+  # IQ-TREE random seed. Fixed so two builds of the same alignment give the
+  # same tree; change it deliberately when you want an independent search.
+  seed: 20260819
 
 temporal_signal:
   min_r_squared: 0.10
