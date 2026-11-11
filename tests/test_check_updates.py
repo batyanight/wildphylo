@@ -128,7 +128,21 @@ def test_blank_lines_in_the_accession_file_are_not_counted(mod, tmp_path):
 def test_template_config_is_skipped(mod, repo_root):
     got = mod.load_configs(repo_root / "config" / "pathogen", None)
     assert all(not p.name.startswith("_") for p, _ in got)
-    assert len(got) >= 2
+    assert len(got) >= 1
+
+
+def test_capped_fetch_configs_are_never_rebuilt(mod, repo_root):
+    """A capped fetch is a smoke test, not an analysis; the scheduler skips it."""
+    got = mod.load_configs(repo_root / "config" / "pathogen", None)
+    ids = [c["id"] for _, c in got]
+    assert "cdv-smoke" not in ids, "cdv-smoke sets fetch.max_records and must be skipped"
+    assert "btv" in ids
+
+
+def test_only_can_still_name_a_capped_config_explicitly(mod, repo_root):
+    """--only is a deliberate request, so the cap does not hide the config."""
+    got = mod.load_configs(repo_root / "config" / "pathogen", "cdv-smoke")
+    assert [c["id"] for _, c in got] == ["cdv-smoke"]
 
 
 def test_only_restricts_to_one_pathogen(mod, repo_root):

@@ -14,9 +14,9 @@ on:
   workflow_dispatch:
     inputs:
       pathogen:
-        description: "Pathogen id (must match config/pathogen/<id>.yaml)"
+        description: "Pathogen id (must match config/pathogen/<id>.yaml; analysis configs live in the pathogen repos)"
         required: true
-        default: cdv
+        default: btv
       force:
         description: "Rebuild even if no new accessions"
         type: boolean

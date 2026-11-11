@@ -185,6 +185,10 @@ def load_configs(config_dir: Path, only: str | None) -> list[tuple[Path, dict[st
         cfg["_path"] = str(p)
         if only and cfg.get("id") != only:
             continue
+        if not only and (cfg.get("fetch") or {}).get("max_records"):
+            # A capped fetch is a smoke dataset, not an analysis (see
+            # fetch.max_records); the scheduled rebuild never runs it.
+            continue
         errors, _ = validate(cfg)
         if errors:
             # Refuse rather than skip. A config that stopped validating is the
