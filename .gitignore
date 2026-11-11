@@ -103,3 +103,13 @@ builds/*/*/clades/*/jumps.tsv
 # specification in the same way the XML is.
 !builds/*/*/clades/*/*_traits.txt
 .claude/worktrees/
+
+# Wheel/sdist build artefacts
+build/
+dist/
+*.egg-info/
+
+# BEAST writes its loggers' fileName relative to the working directory, so a
+# chain started from the repo root drops its posterior log here. See the open
+# item in docs/PLAN-stages.md.
+/H_*_drt*.log

@@ -214,6 +214,13 @@ Not done, in rough priority:
   `temporal_signal.on_fail: warn`, or nothing past the gate would ever be
   exercised against real data. Run it to the XML targets, not to rule `all`,
   which past the gate pulls the real 100M-state chains.
+- **`drt_run` writes BEAST's posterior log into the working directory.** The
+  rule's XML names its loggers relatively, so a chain started from the repo
+  root drops `H_*_drt<N>.log` beside the Snakefile instead of under the
+  replicate's build directory. Exposed when `drt_xml` first ran; the files are
+  now gitignored, which is a plaster, not the fix. The rule should run with
+  the replicate directory as its working directory, or the writer should
+  absolutise the logger paths.
 - **A smoke fixture that rule `all` can finish** would need chain lengths
   small enough to run and would then trip the convergence gate on ESS. Worth
   solving; not solved.
