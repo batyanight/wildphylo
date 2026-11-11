@@ -432,8 +432,12 @@ def subsample(args: argparse.Namespace) -> int:
                 args.seed = int(sub_cfg["seed"])
         except ConfigError as exc:
             return fail(UsageError(str(exc)))
-        except Exception as exc:  # noqa: BLE001
-            _err(f"NOTE: could not read settings from {args.config}: {exc}")
+        except Exception as exc:  # noqa: BLE001 -- any read failure is a usage error, see below
+            # No fallback. The default wild-group set is CDV's, so carrying on
+            # after a --config nobody could read would classify every wild host
+            # of a ruminant or rodent pathogen as domestic, and say so only in
+            # a NOTE.
+            return fail(UsageError(f"could not read settings from {args.config}: {exc}"))
     _say(f"wild host groups: {', '.join(sorted(wild_groups)) or '(none)'}")
 
     clades_df = (

@@ -551,3 +551,51 @@ def test_subsample_clade_mode_without_a_clade_is_a_usage_error(curated, caplog):
     r = run_cli("beast", "subsample", "--aln", curated["aln"], "--mode", "clade")
     assert r.returncode == 2
     assert "--mode clade requires --clade" in caplog.text
+
+
+def test_subsample_refuses_a_config_it_cannot_read(curated, tmp_path, caplog):
+    """
+    The module default for wild host groups is CDV's carnivore set. Falling
+    back to it when `--config` was given but could not be read would classify
+    every wild host of a ruminant or rodent pathogen as domestic, and the only
+    sign would be a NOTE in a log nobody reads. A config that cannot be read
+    is a usage error.
+    """
+    caplog.set_level(logging.ERROR, logger="wildphylo")
+    bad = tmp_path / "broken.yaml"
+    bad.write_text("hosts: [this is a list, not a mapping]\n")
+    r = run_cli(
+        *("beast", "subsample", "--mode", "global", "--aln", curated["aln"], "--config", bad)
+    )
+    assert r.returncode == 2
+    assert "broken.yaml" in caplog.text or "hosts" in caplog.text
+
+
+def test_subsample_refuses_an_unparsable_config(curated, tmp_path, caplog):
+    """
+    A config that is not valid YAML raises ParserError, not ConfigError, and
+    was caught by a broad `except Exception` that left wild_groups at CDV's
+    carnivore set. Same consequence as above, reached by a different route.
+    """
+    caplog.set_level(logging.ERROR, logger="wildphylo")
+    bad = tmp_path / "unparsable.yaml"
+    bad.write_text("hosts: [unclosed\n")
+    r = run_cli(
+        *("beast", "subsample", "--mode", "global", "--aln", curated["aln"], "--config", bad)
+    )
+    assert r.returncode == 2
+    assert "unparsable.yaml" in caplog.text
+
+
+def test_qc_refuses_an_unparsable_config(curated, tmp_path, caplog):
+    """
+    The thresholds a config carries become flag columns in the QC table.
+    Substituting the module defaults for a config that could not be read makes
+    two builds' audit trails disagree with nothing on the record to say why.
+    """
+    caplog.set_level(logging.ERROR, logger="wildphylo")
+    bad = tmp_path / "unparsable.yaml"
+    bad.write_text("alignment: [unclosed\n")
+    r = run_cli(*("align", "qc", "--aln", curated["aln"], "--config", bad, "--outdir", tmp_path))
+    assert r.returncode == 2
+    assert "unparsable.yaml" in caplog.text

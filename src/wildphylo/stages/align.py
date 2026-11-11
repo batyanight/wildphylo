@@ -354,8 +354,12 @@ def _resolve_thresholds(args: argparse.Namespace) -> None:
         try:
             alignment_cfg = load_config(args.config).get("alignment", {})
             from_config = {k: float(v) for k, v in alignment_cfg.items() if k in _CONFIG_KEYS}
-        except Exception as exc:  # noqa: BLE001 -- any unreadable config falls back to the defaults
-            _say(f"NOTE: could not read thresholds from {args.config}: {exc}")
+        except Exception as exc:
+            # A config that was given and could not be read must not be
+            # replaced by the module defaults: the thresholds it carries end up
+            # in the QC table as flags, and a silent substitution makes two
+            # builds' audit trails disagree for no recorded reason.
+            raise UsageError(f"could not read thresholds from {args.config}: {exc}") from exc
     for attr, key, default in (
         ("gap_threshold", "max_gap_fraction", DEFAULT_GAP_THRESHOLD),
         ("identity_threshold", "min_identity_to_consensus", DEFAULT_IDENTITY_THRESHOLD),
@@ -582,6 +586,7 @@ def qc(args: argparse.Namespace) -> int:
     """
     try:
         _resolve_paths(args)
+        _resolve_thresholds(args)
     except UsageError as exc:
         return fail(exc)
 
@@ -593,7 +598,6 @@ def qc(args: argparse.Namespace) -> int:
     if not seqs:
         _say(f"No sequences read from {args.aln}", err=True)
         return 1
-    _resolve_thresholds(args)
 
     lengths = {len(s) for s in seqs.values()}
     if len(lengths) != 1:
