@@ -183,6 +183,6 @@ def test_build_dir_without_a_locus_is_refused(tmp_path, caplog):
                 "x",
             ]
         )
-        == 1
+        == 2
     )
     assert "--locus" in caplog.text

@@ -19,7 +19,8 @@ This module owns that ranking and everything around it, so a step states only
   paths get their parent directories created and every resolved value is
   logged at debug level.
 * :class:`UsageError` is how any of that fails; :func:`fail` reports one the
-  same way for every step (log, then a return code).
+  same way for every step (log, then a return code). The convention: usage
+  errors exit 2 and are logged; gate failures exit 1.
 
 The tables themselves stay in the stage modules: which flag comes from which
 layout method or config key is that step's decision::
@@ -264,7 +265,10 @@ def resolve(
     return build
 
 
-def fail(error: UsageError, *, code: int = 2) -> int:
-    """Report a usage error the way every step does: log the message, return the exit code."""
+USAGE_EXIT_CODE = 2
+
+
+def fail(error: UsageError) -> int:
+    """Report a usage error the way every step does: log the message, return exit code 2."""
     log.error("%s", error)
-    return code
+    return USAGE_EXIT_CODE

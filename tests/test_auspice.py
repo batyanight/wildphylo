@@ -485,12 +485,12 @@ def test_dataset_build_dir_needs_config_and_locus(tmp_path, caplog, drop):
     argv += ["--build-dir", str(tmp_path / "build")]
     i = argv.index(drop)
     del argv[i : i + 2]
-    assert cli.main(argv) == 1
+    assert cli.main(argv) == 2
     assert drop in caplog.text
 
 
 def test_dataset_without_build_dir_still_requires_mcc_and_output(caplog):
-    assert cli.main(["auspice", "dataset"]) == 1
+    assert cli.main(["auspice", "dataset"]) == 2
     assert "--mcc, --output required" in caplog.text
 
 

@@ -336,7 +336,7 @@ def dataset(args: argparse.Namespace) -> int:
             validate_config=False,
         )
     except UsageError as e:
-        return fail(e, code=1)
+        return fail(e)
     if args.gates is None:
         args.gates = []
     if not args.mcc.is_file():
@@ -893,7 +893,7 @@ def entropy(args: argparse.Namespace) -> int:
             validate_config=False,
         )
     except UsageError as e:
-        return fail(e, code=1)
+        return fail(e)
     if args.gene_start is not None or args.cds:
         log.warning(
             "note: --gene-start and --cds are ignored — CDS extents now come from "

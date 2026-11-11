@@ -10,6 +10,7 @@ ignored. These tests exist to keep that from coming back.
 import contextlib
 import io
 import json
+import logging
 import random
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -440,9 +441,24 @@ def test_explicit_out_xml_overrides_the_build_dir_default(build, tmp_path):
     assert layout.beast_traits("H", "1").is_file(), "the traits default still applies"
 
 
-def test_build_dir_xml_needs_locus_and_seed(build):
+def test_build_dir_xml_needs_locus_and_seed(build, caplog):
     cfg, layout = build
+    caplog.set_level(logging.ERROR, logger="wildphylo")
     r = run_cli("beast", "xml", "--config", cfg, "--build-dir", layout.root, "--seed", 1)
-    assert r.returncode == 1 and "--locus" in r.stderr
+    assert r.returncode == 2 and "--locus" in caplog.text
+    caplog.clear()
     r = run_cli("beast", "xml", "--config", cfg, "--build-dir", layout.root, "--locus", "H")
-    assert r.returncode == 1 and "--seed" in r.stderr
+    assert r.returncode == 2 and "--seed" in caplog.text
+
+
+def test_xml_with_an_unreadable_config_is_a_usage_error(tmp_path, caplog):
+    caplog.set_level(logging.ERROR, logger="wildphylo")
+    r = run_cli("beast", "xml", "--aln", tmp_path / "a.fasta", "--config", tmp_path / "nope.yaml")
+    assert r.returncode == 2
+    assert "config not found" in caplog.text
+
+
+def test_xml_without_aln_or_build_dir_is_a_usage_error(caplog):
+    caplog.set_level(logging.ERROR, logger="wildphylo")
+    assert run_cli("beast", "xml").returncode == 2
+    assert "--aln is required" in caplog.text

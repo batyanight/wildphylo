@@ -294,9 +294,8 @@ def test_each_resolved_value_is_logged_at_debug_level(caplog):
 def test_fail_logs_the_message_and_returns_the_code(caplog):
     with caplog.at_level(logging.ERROR, logger="wildphylo.stepargs"):
         assert fail(UsageError("--tree is required")) == 2
-        assert fail(UsageError("again"), code=1) == 1
     assert "--tree is required" in caplog.text
-    assert [r.levelno for r in caplog.records] == [logging.ERROR, logging.ERROR]
+    assert [r.levelno for r in caplog.records] == [logging.ERROR]
 
 
 # --- Build ------------------------------------------------------------------

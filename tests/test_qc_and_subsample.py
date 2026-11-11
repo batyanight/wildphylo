@@ -9,6 +9,7 @@ it was asked to, and nowhere else" is the property worth testing.
 
 import contextlib
 import io
+import logging
 import subprocess
 import sys
 from pathlib import Path
@@ -534,11 +535,19 @@ def test_subsample_explicit_outputs_override_the_build_dir(curated, tmp_path):
     assert layout.subsample_metadata("H").is_file()
 
 
-def test_subsample_build_dir_needs_locus(curated, tmp_path):
+def test_subsample_build_dir_needs_locus(curated, tmp_path, caplog):
+    caplog.set_level(logging.ERROR, logger="wildphylo")
     cfg, layout = _subsample_build(curated, tmp_path)
     r = run_cli(
         "beast",
         *("subsample", "--config", cfg, "--build-dir", layout.root, "--mode", "global"),
     )
-    assert r.returncode == 1
-    assert "--locus" in r.stderr
+    assert r.returncode == 2
+    assert "--locus" in caplog.text
+
+
+def test_subsample_clade_mode_without_a_clade_is_a_usage_error(curated, caplog):
+    caplog.set_level(logging.ERROR, logger="wildphylo")
+    r = run_cli("beast", "subsample", "--aln", curated["aln"], "--mode", "clade")
+    assert r.returncode == 2
+    assert "--mode clade requires --clade" in caplog.text

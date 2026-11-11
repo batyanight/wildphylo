@@ -9,6 +9,7 @@ says, and the assertions ask the layout rather than repeating its strings.
 
 import contextlib
 import io
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -89,26 +90,30 @@ def test_explicit_aln_needs_no_locus(build, tmp_path):
     assert tsv.is_file()
 
 
-def test_build_dir_without_locus_is_a_usage_error(build):
+def test_build_dir_without_locus_is_a_usage_error(build, caplog):
+    caplog.set_level(logging.ERROR, logger="wildphylo")
     r = run_qc("--config", CONFIG, "--build-dir", build.root)
     assert r.returncode == 2
-    assert "--locus" in r.stderr
+    assert "--locus" in caplog.text
     assert not build.alignment_qc("H").exists()
 
 
-def test_build_dir_without_config_is_a_usage_error(build):
+def test_build_dir_without_config_is_a_usage_error(build, caplog):
+    caplog.set_level(logging.ERROR, logger="wildphylo")
     r = run_qc("--build-dir", build.root, "--locus", "H")
     assert r.returncode == 2
-    assert "--config" in r.stderr
+    assert "--config" in caplog.text
 
 
-def test_no_aln_and_no_build_dir_is_a_usage_error(tmp_path):
+def test_no_aln_and_no_build_dir_is_a_usage_error(tmp_path, caplog):
+    caplog.set_level(logging.ERROR, logger="wildphylo")
     r = run_qc("--out-tsv", tmp_path / "q.tsv")
     assert r.returncode == 2
-    assert "--aln" in r.stderr
+    assert "--aln" in caplog.text
 
 
-def test_locus_without_build_dir_is_a_usage_error(build):
+def test_locus_without_build_dir_is_a_usage_error(build, caplog):
+    caplog.set_level(logging.ERROR, logger="wildphylo")
     r = run_qc("--aln", build.alignment("H"), "--locus", "H")
     assert r.returncode == 2
-    assert "--build-dir" in r.stderr
+    assert "--build-dir" in caplog.text

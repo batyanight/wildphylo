@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -493,11 +494,29 @@ def test_state_through_time_defaults_to_every_seed_under_build_dir(tmp_path):
     assert "year" in out.read_text().splitlines()[0].lower()
 
 
-def test_build_dir_without_locus_or_config_is_a_clear_error(tmp_path):
+def test_build_dir_without_locus_or_config_is_a_clear_error(tmp_path, caplog):
+    caplog.set_level(logging.ERROR, logger="wildphylo")
     cfg, build, _ = _trait_build(tmp_path)
     no_locus = run_cli("beast", "jumps", "--config", cfg, "--build-dir", build)
-    assert no_locus.returncode == 1
-    assert "--locus" in no_locus.stderr
+    assert no_locus.returncode == 2
+    assert "--locus" in caplog.text
+    caplog.clear()
     no_cfg = run_cli("beast", "jumps", "--build-dir", build, "--locus", "H")
-    assert no_cfg.returncode == 1
-    assert "--config" in no_cfg.stderr
+    assert no_cfg.returncode == 2
+    assert "--config" in caplog.text
+
+
+def test_jumps_without_trees_or_build_dir_is_a_usage_error(caplog):
+    caplog.set_level(logging.ERROR, logger="wildphylo")
+    r = run_cli("beast", "jumps")
+    assert r.returncode == 2
+    assert "--trees is required" in caplog.text
+
+
+def test_a_malformed_focus_is_a_usage_error(tmp_path, caplog):
+    caplog.set_level(logging.ERROR, logger="wildphylo")
+    _, _, layout = _trait_build(tmp_path)
+    trees = layout.beast_trait_trees("H", "12345")
+    r = run_cli("beast", "jumps", "--trees", trees, "--burnin", "0.0", "--focus", "no_colon")
+    assert r.returncode == 2
+    assert "FROM:TO" in caplog.text

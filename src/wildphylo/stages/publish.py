@@ -426,7 +426,7 @@ def dataset(args: argparse.Namespace) -> int:
             validate_config=False,
         )
     except UsageError as e:
-        return fail(e, code=1)
+        return fail(e)
     for label, path in (
         ("dataset", args.dataset),
         ("comparison", args.comparison),

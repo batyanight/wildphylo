@@ -41,7 +41,7 @@ from wildphylo.newick import (
     node_depths,
 )
 from wildphylo.preflight import check_clock_prior
-from wildphylo.stepargs import UsageError, add_build_dir_arguments, resolve
+from wildphylo.stepargs import UsageError, add_build_dir_arguments, fail, resolve
 
 if TYPE_CHECKING:
     import argparse
@@ -60,7 +60,12 @@ GAP = frozenset("-.")
 
 
 class BeastStepError(Exception):
-    """A beast step cannot continue; the message is shown to the user and the exit code is 1."""
+    """A beast step cannot continue with the data it was given; exit code 1.
+
+    Usage errors (a missing or inconsistent flag) are not this: they raise
+    :class:`~wildphylo.stepargs.UsageError`, which :func:`~wildphylo.stepargs.fail`
+    logs with exit code 2.
+    """
 
 
 def _say(text: str = "") -> None:
@@ -395,17 +400,13 @@ def subsample(args: argparse.Namespace) -> int:
                 "out_aln": lambda b: b.layout.subsample(b.need("locus")),
                 "out_meta": lambda b: b.layout.subsample_metadata(b.need("locus")),
             },
+            required=("aln",),
             outputs=("out_aln", "out_meta"),
         )
     except UsageError as exc:
-        _err(str(exc))
-        return 1
-    if args.aln is None:
-        _err("--aln is required (or --build-dir with --config and --locus)")
-        return 1
+        return fail(exc)
     if args.mode == "clade" and not args.clade:
-        _err("--mode clade requires --clade (e.g. --clade clade_3)")
-        return 1
+        return fail(UsageError("--mode clade requires --clade (e.g. --clade clade_3)"))
     if not args.aln.is_file():
         _err(f"Alignment not found: {args.aln}")
         return 1
@@ -429,6 +430,8 @@ def subsample(args: argparse.Namespace) -> int:
                 args.year_bin = int(sub_cfg["year_bin"])
             if args.seed == DEFAULT_SEED and "seed" in sub_cfg:
                 args.seed = int(sub_cfg["seed"])
+        except ConfigError as exc:
+            return fail(UsageError(str(exc)))
         except Exception as exc:  # noqa: BLE001
             _err(f"NOTE: could not read settings from {args.config}: {exc}")
     _say(f"wild host groups: {', '.join(sorted(wild_groups)) or '(none)'}")
@@ -440,8 +443,7 @@ def subsample(args: argparse.Namespace) -> int:
         pd.read_csv(args.metadata, sep="\t") if args.metadata and args.metadata.is_file() else None
     )
     if clades_df is None and args.mode == "clade":
-        _err("--mode clade needs --clades (run `wildphylo tree clades` first)")
-        return 1
+        return fail(UsageError("--mode clade needs --clades (run `wildphylo tree clades` first)"))
 
     df = build_records(seqs, clades_df, meta_df)
     _say(f"Loaded {len(df)} aligned sequences")
@@ -945,12 +947,12 @@ def _resolve_xml(args: argparse.Namespace) -> bool:
         try:
             args.replicate = int(args.rep)
         except ValueError as exc:
-            raise BeastStepError(f"--rep must be a replicate number, got {args.rep!r}") from exc
+            msg = f"--rep must be a replicate number, got {args.rep!r}"
+            raise UsageError(msg) from exc
     is_drt = args.rep is not None
     if args.randomize_dates and not is_drt and args.out_xml is None:
-        raise BeastStepError(
-            "--build-dir with --randomize-dates needs --rep (one replicate per call)"
-        )
+        msg = "--build-dir with --randomize-dates needs --rep (one replicate per call)"
+        raise UsageError(msg)
 
     derived: dict[str, Callable[[Build], Any]] = {
         "aln": lambda b: b.layout.subsample(b.need("locus")),
@@ -1097,7 +1099,9 @@ def xml(args: argparse.Namespace) -> int:
     """
     try:
         return _xml(args)
-    except (BeastStepError, UsageError) as exc:
+    except UsageError as exc:
+        return fail(exc)
+    except BeastStepError as exc:
         _err(str(exc))
         return 1
 
@@ -1105,7 +1109,8 @@ def xml(args: argparse.Namespace) -> int:
 def _xml(args: argparse.Namespace) -> int:
     drt_layout = _resolve_xml(args)
     if args.aln is None:
-        raise BeastStepError("--aln is required (or --build-dir with --config, --locus, --seed)")
+        msg = "--aln is required (or --build-dir with --config, --locus, --seed)"
+        raise UsageError(msg)
     seed = DEFAULT_SEED if args.seed is None else args.seed
     # --- config -------------------------------------------------------------
     cfg: dict[str, Any] = {}
@@ -1114,8 +1119,7 @@ def _xml(args: argparse.Namespace) -> int:
         try:
             cfg = load_config(args.config)
         except ConfigError as e:
-            _err(str(e))
-            return 2
+            raise UsageError(str(e)) from e
         locus_cfg = _locus_config(cfg, args.locus)
 
     beast_cfg = cfg.get("beast", {})
@@ -1473,13 +1477,13 @@ def _resolve_trees(args: argparse.Namespace) -> list[Path]:
         try:
             return [b.layout.beast_trait_trees(locus, seed) for seed in b.seeds()]
         except ValueError as exc:
-            raise BeastStepError(
-                f"{exc}; enable beast.discrete_trait or pass --trees explicitly"
-            ) from exc
+            msg = f"{exc}; enable beast.discrete_trait or pass --trees explicitly"
+            raise UsageError(msg) from exc
 
     resolve(args, derived={"trees": default})
     if args.trees is None:
-        raise BeastStepError("--trees is required (or --build-dir with --config and --locus)")
+        msg = "--trees is required (or --build-dir with --config and --locus)"
+        raise UsageError(msg)
     return expand_tree_files([str(t) for t in args.trees])
 
 
@@ -1652,7 +1656,8 @@ def _report_focus_jump(
     try:
         fa, fb = focus.split(":")
     except ValueError:
-        raise BeastStepError("--focus must look like FROM:TO, e.g. wild_felid:procyonid") from None
+        msg = "--focus must look like FROM:TO, e.g. wild_felid:procyonid"
+        raise UsageError(msg) from None
     ys = sorted(by_type.get((fa, fb), []))
     focus_rows = [j for j in jumps if (j[2], j[3]) == (fa, fb)]
     if not ys:
@@ -1888,7 +1893,9 @@ def jumps(args: argparse.Namespace) -> int:
         if args.out:
             _write_jump_table(args.out, scan.jumps)
         _report_jumps(args, scan)
-    except (BeastStepError, UsageError) as exc:
+    except UsageError as exc:
+        return fail(exc)
+    except BeastStepError as exc:
         _err(str(exc))
         return 1
     return 0
@@ -2035,7 +2042,8 @@ def _report_focus_state(
 
     f = args.focus
     if f not in states:
-        raise BeastStepError(f"--focus {f} not among states: {', '.join(states)}")
+        msg = f"--focus {f} not among states: {', '.join(states)}"
+        raise UsageError(msg)
     share = counts[f] / np.where(total > 0, total, np.nan)
     valid = [k for k in range(len(grid)) if total[k] >= args.min_lineages]
     if not valid:
@@ -2264,7 +2272,9 @@ def state_through_time(args: argparse.Namespace) -> int:
         _report_state_through_time(
             args, len(per_tree), root_years, tip_census, tag, grid, states, counts, total
         )
-    except (BeastStepError, UsageError) as exc:
+    except UsageError as exc:
+        return fail(exc)
+    except BeastStepError as exc:
         _err(str(exc))
         return 1
     return 0

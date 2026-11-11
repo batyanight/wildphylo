@@ -15,7 +15,7 @@ import pandas as pd
 
 from wildphylo.cli import step
 from wildphylo.config import load as load_config
-from wildphylo.stepargs import UsageError, add_build_dir_arguments, resolve
+from wildphylo.stepargs import UsageError, add_build_dir_arguments, fail, resolve
 
 if TYPE_CHECKING:
     import argparse
@@ -583,9 +583,7 @@ def qc(args: argparse.Namespace) -> int:
     try:
         _resolve_paths(args)
     except UsageError as exc:
-        # The report of this step is its stdout/stderr (see _say), so usage errors go there too.
-        _say(f"wildphylo align qc: {exc}", err=True)
-        return 2
+        return fail(exc)
 
     if not args.aln.is_file():
         _report_missing_alignment(args.aln)

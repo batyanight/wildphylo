@@ -62,7 +62,8 @@ Every step takes `--config PATH` and `--build-dir PATH`; the Snakefile passes
 both. Steps derive their default inputs and outputs from the build dir, so the
 Snakefile only overrides when a rule needs a specific file. Each step writes
 `checks.json` into its own subfolder and exits non-zero on a `fail` verdict
-unless `--allow-fail` is given (gates only, and only via a DR entry).
+unless `--allow-fail` is given (gates only, and only via a DR entry). Usage
+errors exit 2 and are logged; gate failures exit 1.
 
 ```
 wildphylo fetch records        --config --build-dir [--force] [--dry-run]
