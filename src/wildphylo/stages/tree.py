@@ -13,12 +13,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from wildphylo.cli import step
-from wildphylo.config import ConfigError, load
-from wildphylo.layout import BuildLayout
+from wildphylo.stepargs import UsageError, add_build_dir_arguments, fail, resolve
 from wildphylo.temporal import assess
 
 if TYPE_CHECKING:
     import argparse
+
+    from wildphylo.stepargs import Build
 
 log = logging.getLogger(__name__)
 
@@ -241,10 +242,6 @@ def _report_clades(rows: list[dict[str, Any]], min_support: float | None) -> Non
     )
 
 
-class _UsageError(Exception):
-    """A command line that cannot be resolved to paths; reported, exit code 2."""
-
-
 def _resolve_paths(args: argparse.Namespace) -> None:
     """Fill in the input paths the command line left out, in place.
 
@@ -254,35 +251,19 @@ def _resolve_paths(args: argparse.Namespace) -> None:
     (``--out-tsv``, ``--out-json``, ``--out-dir``) have no place in the layout
     yet, so they stay explicit.
     """
-    if args.build_dir is None:
-        if args.locus is not None:
-            msg = "--locus only applies together with --build-dir"
-            raise _UsageError(msg)
-        if args.tree is None:
-            msg = "--tree is required unless --build-dir is given"
-            raise _UsageError(msg)
-        return
 
-    if args.config is None:
-        msg = "--build-dir needs --config (the layout depends on the pathogen id)"
-        raise _UsageError(msg)
-    try:
-        layout = BuildLayout.at(args.build_dir, load(args.config))
-    except ConfigError as exc:
-        raise _UsageError(str(exc)) from exc
+    def qc(b: Build) -> str | None:
+        # The QC table is only read when tips are filtered by --min-ungapped.
+        if args.min_ungapped > 0 or args.locus is not None:
+            return str(b.layout.alignment_qc(b.need("locus")))
+        return None
 
-    # The QC table is only read when tips are filtered by --min-ungapped.
-    needs_qc = args.qc is None and args.min_ungapped > 0
-    if args.locus is None and (args.tree is None or needs_qc):
-        wanted = ["--tree"] * (args.tree is None) + ["--qc"] * needs_qc
-        msg = f"--build-dir needs --locus to derive {', '.join(wanted)} (or give them)"
-        raise _UsageError(msg)
-
-    if args.tree is None:
-        args.tree = str(layout.ml_tree(args.locus))
-    if args.qc is None and args.locus is not None:
-        args.qc = str(layout.alignment_qc(args.locus))
-    log.debug("resolved: tree=%s qc=%s", args.tree, args.qc)
+    resolve(
+        args,
+        derived={"tree": lambda b: str(b.layout.ml_tree(b.need("locus"))), "qc": qc},
+        required=("tree",),
+        build_dir_only=("locus",),
+    )
 
 
 def add_arguments_clades(parser: argparse.ArgumentParser) -> None:
@@ -322,22 +303,7 @@ def add_arguments_clades(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--out-tsv", required=True)
     parser.add_argument("--out-json")
     parser.add_argument("--out-dir", help="Write one tip list per clade here.")
-    parser.add_argument(
-        "--config",
-        type=Path,
-        default=None,
-        help="Pathogen config; needed with --build-dir to locate the build layout.",
-    )
-    parser.add_argument(
-        "--build-dir",
-        type=Path,
-        default=None,
-        help="Build directory (builds/<id>/<date>). --tree and --qc not given explicitly "
-        "default to their place in the build layout. Needs --config and --locus.",
-    )
-    parser.add_argument(
-        "--locus", default=None, help="Locus whose files to use; required with --build-dir"
-    )
+    add_build_dir_arguments(parser)
 
 
 @step("tree", "clades", "Cut the ML tree into clades and test each for temporal signal")
@@ -376,9 +342,8 @@ def clades(args: argparse.Namespace) -> int:
     """
     try:
         _resolve_paths(args)
-    except _UsageError as exc:
-        log.error("wildphylo tree clades: %s", exc)  # noqa: TRY400 -- user error; no traceback
-        return 2
+    except UsageError as exc:
+        return fail(exc)
 
     from Bio import Phylo
 

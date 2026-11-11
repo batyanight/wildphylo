@@ -33,7 +33,6 @@ from wildphylo.beastxml import (
 from wildphylo.cli import step
 from wildphylo.config import ConfigError
 from wildphylo.config import load as load_config
-from wildphylo.layout import BuildLayout
 from wildphylo.newick import (
     Node,
     count_trees,
@@ -42,6 +41,7 @@ from wildphylo.newick import (
     node_depths,
 )
 from wildphylo.preflight import check_clock_prior
+from wildphylo.stepargs import UsageError, add_build_dir_arguments, resolve
 
 if TYPE_CHECKING:
     import argparse
@@ -51,6 +51,8 @@ if TYPE_CHECKING:
     import numpy.typing as npt
     import pandas as pd
 
+    from wildphylo.stepargs import Build
+
 log = logging.getLogger(__name__)
 
 DEFAULT_SEED = 20260819
@@ -59,65 +61,6 @@ GAP = frozenset("-.")
 
 class BeastStepError(Exception):
     """A beast step cannot continue; the message is shown to the user and the exit code is 1."""
-
-
-def _add_build_dir_arguments(parser: argparse.ArgumentParser) -> None:
-    """``--build-dir`` and ``--locus``, the selector every step's files depend on.
-
-    ``--config`` is declared by each step because its help text differs; with
-    ``--build-dir`` it is required. ``xml`` adds ``--seed`` and ``--rep`` itself.
-    """
-    parser.add_argument(
-        "--build-dir",
-        type=Path,
-        default=None,
-        help="Build directory (builds/<id>/<YYYYMMDD>). Every path flag not given "
-        "explicitly defaults to where the build layout puts that file; this needs "
-        "--config and the selectors the file depends on (--locus, ...).",
-    )
-    parser.add_argument(
-        "--locus",
-        help="Locus: which files under --build-dir (and, for xml, which locus "
-        "block of a multi-locus config).",
-    )
-
-
-def _need(args: argparse.Namespace, attr: str, *flags: str) -> Any:
-    """``args.<attr>`` or a clear error naming the flag(s) that must be given with --build-dir."""
-    value = getattr(args, attr)
-    if value is None:
-        wanted = " / ".join(flags or (f"--{attr}",))
-        raise BeastStepError(f"--build-dir needs {wanted} to place this step's files")
-    return value
-
-
-def _resolve(
-    args: argparse.Namespace,
-    defaults: dict[str, Callable[[BuildLayout, dict[str, Any]], Any]],
-) -> BuildLayout | None:
-    """Fill every path flag in ``defaults`` that was not given, from the build layout.
-
-    ``defaults`` maps an ``args`` attribute to a function of ``(layout, cfg)``.
-    Explicit flags always win: an attribute that is already set is not touched,
-    and its default function is never called (so a missing ``--locus`` is only
-    an error when some path actually depends on it). Without ``--build-dir``
-    this does nothing and returns None.
-    """
-    if args.build_dir is None:
-        return None
-    if args.config is None:
-        raise BeastStepError("--build-dir needs --config (the layout depends on the pathogen id)")
-    try:
-        cfg = load_config(args.config)
-    except ConfigError as exc:
-        raise BeastStepError(str(exc)) from exc
-    layout = BuildLayout.at(args.build_dir, cfg)
-    for attr, make in defaults.items():
-        if getattr(args, attr) is None:
-            value = make(layout, cfg)
-            setattr(args, attr, value)
-            log.debug("--build-dir: %s = %s", attr, value)
-    return layout
 
 
 def _say(text: str = "") -> None:
@@ -409,7 +352,7 @@ def add_arguments_subsample(parser: argparse.ArgumentParser) -> None:
         help="Pathogen config: supplies hosts.wild_groups, "
         "subsample.target_tips, year_bin and seed. Required with --build-dir.",
     )
-    _add_build_dir_arguments(parser)
+    add_build_dir_arguments(parser)
 
 
 @step(
@@ -444,16 +387,17 @@ def subsample(args: argparse.Namespace) -> int:
     import pandas as pd
 
     try:
-        _resolve(
+        resolve(
             args,
-            {
-                "aln": lambda lay, _: lay.alignment(_need(args, "locus", "--locus")),
-                "metadata": lambda lay, _: lay.metadata(),
-                "out_aln": lambda lay, _: lay.subsample(_need(args, "locus", "--locus")),
-                "out_meta": lambda lay, _: lay.subsample_metadata(_need(args, "locus", "--locus")),
+            derived={
+                "aln": lambda b: b.layout.alignment(b.need("locus")),
+                "metadata": lambda b: b.layout.metadata(),
+                "out_aln": lambda b: b.layout.subsample(b.need("locus")),
+                "out_meta": lambda b: b.layout.subsample_metadata(b.need("locus")),
             },
+            outputs=("out_aln", "out_meta"),
         )
-    except BeastStepError as exc:
+    except UsageError as exc:
         _err(str(exc))
         return 1
     if args.aln is None:
@@ -945,14 +889,7 @@ def add_arguments_xml(parser: argparse.ArgumentParser) -> None:
         help="Pathogen config: clock rate, clock model, tree prior, "
         "chain length and date policy all come from here. Required with --build-dir.",
     )
-    _add_build_dir_arguments(parser)
-    parser.add_argument(
-        "--rep",
-        default=None,
-        help="Date-randomisation replicate to place under --build-dir (drt/<locus>/rep<REP>/). "
-        "Implies --replicate REP; with --build-dir and no --rep/--replicate, "
-        "--seed picks the chain directory instead.",
-    )
+    add_build_dir_arguments(parser, seed=True, rep=True)
     parser.add_argument(
         "--metadata", type=Path, help="Curated metadata, for per-tip date uncertainty."
     )
@@ -990,13 +927,6 @@ def add_arguments_xml(parser: argparse.ArgumentParser) -> None:
         "enables the discrete trait. Used for the DRT, where "
         "only the clock rate matters.",
     )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=None,
-        help=f"Chain seed: picks the chain directory under --build-dir, and seeds the "
-        f"date shuffle (default {DEFAULT_SEED} for the shuffle).",
-    )
 
 
 def _resolve_xml(args: argparse.Namespace) -> bool:
@@ -1022,23 +952,20 @@ def _resolve_xml(args: argparse.Namespace) -> bool:
             "--build-dir with --randomize-dates needs --rep (one replicate per call)"
         )
 
-    def locus() -> str:
-        return str(_need(args, "locus", "--locus"))
-
-    def seed() -> str:
-        return str(_need(args, "seed", "--seed"))
-
-    defaults: dict[str, Callable[[BuildLayout, dict[str, Any]], Any]] = {
-        "aln": lambda lay, _: lay.subsample(locus()),
-        "metadata": lambda lay, _: lay.subsample_metadata(locus()),
-        "temporal_report": lambda lay, _: lay.temporal_report(locus()),
+    derived: dict[str, Callable[[Build], Any]] = {
+        "aln": lambda b: b.layout.subsample(b.need("locus")),
+        "metadata": lambda b: b.layout.subsample_metadata(b.need("locus")),
+        "temporal_report": lambda b: b.layout.temporal_report(b.need("locus")),
     }
+    outputs: tuple[str, ...]
     if is_drt:
-        defaults["out_xml"] = lambda lay, _: lay.drt_xml(locus(), str(args.rep))
+        derived["out_xml"] = lambda b: b.layout.drt_xml(b.need("locus"), b.need("rep"))
+        outputs = ("out_xml",)
     else:
-        defaults["out_xml"] = lambda lay, _: lay.beast_xml(locus(), seed())
-        defaults["out_traits"] = lambda lay, _: lay.beast_traits(locus(), seed())
-    _resolve(args, defaults)
+        derived["out_xml"] = lambda b: b.layout.beast_xml(b.need("locus"), b.need("seed"))
+        derived["out_traits"] = lambda b: b.layout.beast_traits(b.need("locus"), b.need("seed"))
+        outputs = ("out_xml", "out_traits")
+    resolve(args, derived=derived, outputs=outputs)
     return is_drt
 
 
@@ -1170,7 +1097,7 @@ def xml(args: argparse.Namespace) -> int:
     """
     try:
         return _xml(args)
-    except BeastStepError as exc:
+    except (BeastStepError, UsageError) as exc:
         _err(str(exc))
         return 1
 
@@ -1535,25 +1462,22 @@ def _add_tree_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--config", type=Path, default=None, help="Pathogen config; required with --build-dir."
     )
-    _add_build_dir_arguments(parser)
+    add_build_dir_arguments(parser)
 
 
 def _resolve_trees(args: argparse.Namespace) -> list[Path]:
     """Trait-tree files: ``--trees``, else every ``beast.seeds`` chain under --build-dir."""
 
-    def default(lay: BuildLayout, cfg: dict[str, Any]) -> list[Path]:
-        locus = str(_need(args, "locus", "--locus"))
-        seeds = (cfg.get("beast") or {}).get("seeds") or []
-        if not seeds:
-            raise BeastStepError("--build-dir: the config has no beast.seeds to find chains by")
+    def default(b: Build) -> list[Path]:
+        locus = b.need("locus")
         try:
-            return [lay.beast_trait_trees(locus, str(sd)) for sd in seeds]
+            return [b.layout.beast_trait_trees(locus, seed) for seed in b.seeds()]
         except ValueError as exc:
             raise BeastStepError(
                 f"{exc}; enable beast.discrete_trait or pass --trees explicitly"
             ) from exc
 
-    _resolve(args, {"trees": default})
+    resolve(args, derived={"trees": default})
     if args.trees is None:
         raise BeastStepError("--trees is required (or --build-dir with --config and --locus)")
     return expand_tree_files([str(t) for t in args.trees])
@@ -1964,7 +1888,7 @@ def jumps(args: argparse.Namespace) -> int:
         if args.out:
             _write_jump_table(args.out, scan.jumps)
         _report_jumps(args, scan)
-    except BeastStepError as exc:
+    except (BeastStepError, UsageError) as exc:
         _err(str(exc))
         return 1
     return 0
@@ -2340,7 +2264,7 @@ def state_through_time(args: argparse.Namespace) -> int:
         _report_state_through_time(
             args, len(per_tree), root_years, tip_census, tag, grid, states, counts, total
         )
-    except BeastStepError as exc:
+    except (BeastStepError, UsageError) as exc:
         _err(str(exc))
         return 1
     return 0

@@ -236,3 +236,22 @@ class BuildLayout:
 
     def build_comparison_json(self) -> Path:
         return self.root / "build_comparison.json"
+
+
+def dataset_path(layout: BuildLayout, cfg: dict[str, Any], locus: str | None) -> Path:
+    """Where ``auspice dataset`` writes for ``locus``, by the Snakefile's rule.
+
+    A multi-locus config has one dataset per locus, named ``<build_name>_<locus>``;
+    a single-locus config keeps the bare ``<build_name>`` so a published URL does
+    not move (docs/NEXTSTRAIN.md). ``locus`` may be None only for a single-locus
+    config. Raises ValueError when the config cannot name the dataset.
+    """
+    build_name = (cfg.get("nextstrain") or {}).get("build_name")
+    if not build_name:
+        raise ValueError("the config has no nextstrain.build_name")
+    n_loci = sum(1 for item in cfg["loci"] if item.get("analyse")) if "loci" in cfg else 1
+    if n_loci <= 1:
+        return layout.auspice_dataset(str(build_name))
+    if locus is None:
+        raise ValueError("a multi-locus config has one dataset per locus; the locus is needed")
+    return layout.auspice_dataset(str(build_name), locus)

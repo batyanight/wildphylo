@@ -14,9 +14,8 @@ from typing import TYPE_CHECKING, Any
 import pandas as pd
 
 from wildphylo.cli import step
-from wildphylo.config import ConfigError
 from wildphylo.config import load as load_config
-from wildphylo.layout import BuildLayout
+from wildphylo.stepargs import UsageError, add_build_dir_arguments, resolve
 
 if TYPE_CHECKING:
     import argparse
@@ -429,10 +428,6 @@ def _trim_columns(seqs: dict[str, str], args: argparse.Namespace) -> None:
         _say("(add --write-trimmed to save it)")
 
 
-class _UsageError(Exception):
-    """A command line that cannot be resolved to paths; reported, exit code 2."""
-
-
 def _resolve_paths(args: argparse.Namespace) -> None:
     """Fill in the paths the command line left out, in place.
 
@@ -442,56 +437,21 @@ def _resolve_paths(args: argparse.Namespace) -> None:
     ``--config C --build-dir B --locus L`` is a complete invocation. An explicit
     flag always wins. ``--plot`` counts as an explicit ``--out-png``.
     """
-    if args.build_dir is None:
-        if args.locus is not None:
-            msg = "--locus only applies together with --build-dir"
-            raise _UsageError(msg)
-        if args.aln is None:
-            msg = "--aln is required unless --build-dir is given"
-            raise _UsageError(msg)
-        if args.outdir is None:
-            args.outdir = DEFAULT_OUTDIR
-        return
-
-    if args.config is None:
-        msg = "--build-dir needs --config (the layout depends on the pathogen id)"
-        raise _UsageError(msg)
-    try:
-        layout = BuildLayout.at(args.build_dir, load_config(args.config))
-    except ConfigError as exc:
-        raise _UsageError(str(exc)) from exc
-
-    needs_locus = [
-        flag
-        for flag, value in (
-            ("--aln", args.aln),
-            ("--out-tsv", args.out_tsv),
-            ("--out-png", args.out_png or args.plot),
-        )
-        if value is None
-    ]
-    if needs_locus and args.locus is None:
-        msg = f"--build-dir needs --locus to derive {', '.join(needs_locus)} (or give them)"
-        raise _UsageError(msg)
-
-    locus = args.locus
-    if args.aln is None:
-        args.aln = layout.alignment(locus)
-    if args.metadata is None:
-        args.metadata = layout.metadata()
-    if args.out_tsv is None:
-        args.out_tsv = layout.alignment_qc(locus)
-    if args.out_png is None and args.plot is None:
-        args.out_png = layout.alignment_qc_plot(locus)
-    if args.outdir is None:
-        args.outdir = args.out_tsv.parent
-    log.debug(
-        "resolved: aln=%s metadata=%s out_tsv=%s out_png=%s outdir=%s",
-        args.aln,
-        args.metadata,
-        args.out_tsv,
-        args.out_png or args.plot,
-        args.outdir,
+    resolve(
+        args,
+        derived={
+            "aln": lambda b: b.layout.alignment(b.need("locus")),
+            "metadata": lambda b: b.layout.metadata(),
+            "out_tsv": lambda b: b.layout.alignment_qc(b.need("locus")),
+            "out_png": lambda b: (
+                None if args.plot is not None else b.layout.alignment_qc_plot(b.need("locus"))
+            ),
+            "outdir": lambda b: (args.out_tsv or b.layout.alignment_qc(b.need("locus"))).parent,
+        },
+        fallbacks={"outdir": DEFAULT_OUTDIR},
+        required=("aln",),
+        outputs=("out_tsv", "out_png"),
+        build_dir_only=("locus",),
     )
 
 
@@ -513,16 +473,6 @@ def add_arguments_qc(parser: argparse.ArgumentParser) -> None:
         help=f"Where trimmed/stripped alignments go (default: {DEFAULT_OUTDIR}, or with "
         "--build-dir the directory of the QC table)",
     )
-    parser.add_argument(
-        "--build-dir",
-        type=Path,
-        default=None,
-        help="Build directory (builds/<id>/<date>). Every path not given explicitly "
-        "defaults to its place in the build layout. Needs --config and --locus.",
-    )
-    parser.add_argument(
-        "--locus", default=None, help="Locus whose files to use; required with --build-dir"
-    )
     # Explicit output paths. Snakemake has to know exactly which files a rule
     # produces; a rule that writes to a hardcoded directory cannot be tracked,
     # re-run or cleaned, and its outputs quietly accumulate outside the build.
@@ -539,6 +489,7 @@ def add_arguments_qc(parser: argparse.ArgumentParser) -> None:
         help="Pathogen config; supplies QC thresholds from "
         "alignment.* when they are not given on the command line.",
     )
+    add_build_dir_arguments(parser)
     parser.add_argument(
         "--gap-threshold",
         type=float,
@@ -631,7 +582,8 @@ def qc(args: argparse.Namespace) -> int:
     """
     try:
         _resolve_paths(args)
-    except _UsageError as exc:
+    except UsageError as exc:
+        # The report of this step is its stdout/stderr (see _say), so usage errors go there too.
         _say(f"wildphylo align qc: {exc}", err=True)
         return 2
 

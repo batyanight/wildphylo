@@ -18,13 +18,14 @@ import yaml
 
 from wildphylo.cli import step
 from wildphylo.config import validate
-from wildphylo.stages.auspice import add_build_dir_arguments, dataset_path, resolve_build_dir
+from wildphylo.layout import dataset_path
 from wildphylo.stages.fetch import build_query
+from wildphylo.stepargs import Build, UsageError, add_build_dir_arguments, fail, resolve
 
 if TYPE_CHECKING:
     import argparse
+    from collections.abc import Callable
 
-    from wildphylo.layout import BuildLayout
 
 log = logging.getLogger(__name__)
 
@@ -358,13 +359,11 @@ def _read_json_object(path: Path) -> dict[str, Any] | None:
     return doc
 
 
-def _dataset_defaults(layout: BuildLayout, cfg: dict[str, Any], locus: str) -> dict[str, Any]:
-    """Layout defaults for the unset path flags of ``publish dataset``."""
-    return {
-        "dataset": dataset_path(layout, cfg, locus),
-        "comparison": layout.build_comparison_json(),
-        "provenance": layout.provenance(),
-    }
+_DATASET_DERIVED: dict[str, Callable[[Build], Any]] = {
+    "dataset": lambda b: dataset_path(b.layout, b.cfg, b.need("locus")),
+    "comparison": lambda b: b.layout.build_comparison_json(),
+    "provenance": lambda b: b.layout.provenance(),
+}
 
 
 def add_arguments_dataset(parser: argparse.ArgumentParser) -> None:
@@ -419,11 +418,15 @@ def dataset(args: argparse.Namespace) -> int:
     With ``--build-dir`` (plus ``--config`` and ``--locus``) the dataset, comparison
     and provenance default to the build layout's files.
     """
-    paths = ("dataset", "comparison", "provenance")
-    error = resolve_build_dir(args, _dataset_defaults, flags=paths, required=paths)
-    if error:
-        log.error("%s", error)
-        return 1
+    try:
+        resolve(
+            args,
+            derived=_DATASET_DERIVED,
+            required=tuple(_DATASET_DERIVED),
+            validate_config=False,
+        )
+    except UsageError as e:
+        return fail(e, code=1)
     for label, path in (
         ("dataset", args.dataset),
         ("comparison", args.comparison),
