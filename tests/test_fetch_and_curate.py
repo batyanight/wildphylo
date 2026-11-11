@@ -1,5 +1,5 @@
 """
-Tests for 01_fetch_sequences.py and 02_curate_metadata.py.
+Tests for `wildphylo fetch records`, `wildphylo curate metadata` and `wildphylo curate review`.
 
 Curation is tested end to end against synthetic GenBank fixtures
 (tests/fixtures/make_genbank.py) rather than a live download. Every fixture
@@ -8,7 +8,7 @@ independently of what the code does — and the tests do not depend on NCBI
 being reachable or on what GenBank happens to contain this week.
 """
 
-import importlib.util
+import logging
 import subprocess
 import sys
 from pathlib import Path
@@ -16,25 +16,19 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
 
 pd = pytest.importorskip("pandas")
 pytest.importorskip("Bio")
 
+from wildphylo import cli  # noqa: E402
 from wildphylo.config import load  # noqa: E402
+from wildphylo.stages import fetch as fetch_mod  # noqa: E402
 
 
-def _mod(name: str):
-    path = ROOT / "scripts" / name
-    spec = importlib.util.spec_from_file_location(name.replace(".py", ""), path)
-    m = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(m)
-    return m
-
-
-@pytest.fixture(scope="session")
-def fetch_mod():
-    return _mod("01_fetch_sequences.py")
+@pytest.fixture(autouse=True)
+def _run_from_repo_root(monkeypatch):
+    """Config paths (host table, references table) are relative to the repo root."""
+    monkeypatch.chdir(ROOT)
 
 
 @pytest.fixture(scope="session")
@@ -50,17 +44,29 @@ def fixtures(tmp_path_factory):
     return {"cdv": src / "cdv_test.gb", "btv": src / "btv_test.gb", "tmp": out}
 
 
+# `python -m wildphylo.cli` runs cli.py as __main__, a second copy of the module
+# from the one the stage modules register their steps with, so no steps appear.
+# Entering through `main` is what the installed `wildphylo` script does.
+_ENTRY = "import sys; from wildphylo.cli import main; sys.exit(main(sys.argv[1:]))"
+
+
 def run_curate(cfg: str, gb: Path, out: Path, *extra) -> subprocess.CompletedProcess:
+    """Run `wildphylo curate metadata` in a subprocess, so stdout and stderr are separate."""
     return subprocess.run(
         [
             sys.executable,
-            "scripts/02_curate_metadata.py",
+            "-c",
+            _ENTRY,
+            "curate",
+            "metadata",
             "--config",
             cfg,
             "--gb",
             str(gb),
             "--out-dir",
             str(out),
+            "--log",
+            str(out / "curate.log"),
             *extra,
         ],
         capture_output=True,
@@ -71,11 +77,11 @@ def run_curate(cfg: str, gb: Path, out: Path, *extra) -> subprocess.CompletedPro
 
 
 # =============================================================================
-# 01 — query construction
+# fetch records — query construction
 # =============================================================================
 
 
-def test_query_uses_organism_exp(fetch_mod):
+def test_query_uses_organism_exp():
     """
     [Organism:exp] expands to every strain and subtaxon beneath the node.
     Without it the query silently misses most records.
@@ -84,14 +90,14 @@ def test_query_uses_organism_exp(fetch_mod):
     assert "txid11232[Organism:exp]" in q
 
 
-def test_query_uses_config_length_bounds(fetch_mod):
+def test_query_uses_config_length_bounds():
     """Length bounds are pathogen-specific; BTV segments are short."""
     q = fetch_mod.build_query(load(ROOT / "config/pathogen/btv.yaml"))
     assert "300:4500[Sequence Length]" in q
     assert "txid40051" in q
 
 
-def test_query_filter_with_leading_boolean_is_not_double_joined(fetch_mod):
+def test_query_filter_with_leading_boolean_is_not_double_joined():
     cfg = load(ROOT / "config/pathogen/cdv.yaml")
     cfg["fetch"]["query_filter"] = "NOT patent[Title]"
     q = fetch_mod.build_query(cfg)
@@ -99,40 +105,101 @@ def test_query_filter_with_leading_boolean_is_not_double_joined(fetch_mod):
     assert q.endswith("NOT patent[Title]")
 
 
-def test_query_filter_without_boolean_gets_an_and(fetch_mod):
+def test_query_filter_without_boolean_gets_an_and():
     cfg = load(ROOT / "config/pathogen/cdv.yaml")
     cfg["fetch"]["query_filter"] = "complete genome[Title]"
     assert "AND complete genome[Title]" in fetch_mod.build_query(cfg)
 
 
-def test_empty_query_filter_leaves_no_dangling_operator(fetch_mod):
+def test_empty_query_filter_leaves_no_dangling_operator():
     cfg = load(ROOT / "config/pathogen/cdv.yaml")
     cfg["fetch"]["query_filter"] = ""
     q = fetch_mod.build_query(cfg)
     assert not q.rstrip().endswith(("AND", "NOT", "OR"))
 
 
-def test_fetch_requires_email():
+def test_fetch_requires_email(monkeypatch, tmp_path):
     """NCBI blocks anonymous bulk download; failing late wastes the run."""
-    r = subprocess.run(
-        [
-            sys.executable,
-            "scripts/01_fetch_sequences.py",
-            "--config",
-            "config/pathogen/cdv.yaml",
-            "--dry-run",
-        ],
-        capture_output=True,
-        text=True,
-        cwd=ROOT,
-        env={"PATH": "/usr/bin:/bin", "NCBI_EMAIL": ""},
-        check=False,
-    )
-    assert r.returncode == 2
+    monkeypatch.setenv("NCBI_EMAIL", "")
+    argv = ["fetch", "records", "--config", "config/pathogen/cdv.yaml", "--dry-run"]
+    assert cli.main([*argv, "--log", str(tmp_path / "fetch.log")]) == 2
 
 
 # =============================================================================
-# 02 — curation, single locus (CDV)
+# fetch records — end to end with Entrez stubbed
+# =============================================================================
+
+
+@pytest.fixture
+def stub_entrez(monkeypatch, fixtures):
+    """Replace the two network calls with the synthetic CDV GenBank file."""
+    text = fixtures["cdv"].read_text()
+    total = sum(1 for line in text.splitlines() if line.startswith("VERSION"))
+    calls = {"batches": 0, "reported_total": total}
+
+    def esearch(_query):
+        return "webenv", "1", calls["reported_total"]
+
+    def batch(_webenv, _key, start, _size):
+        calls["batches"] += 1
+        return text if start == 0 else ""
+
+    monkeypatch.setattr(fetch_mod, "esearch_history", esearch)
+    monkeypatch.setattr(fetch_mod, "fetch_batch", batch)
+    monkeypatch.setattr(fetch_mod.time, "sleep", lambda _s: None)
+    monkeypatch.setenv("NCBI_EMAIL", "test@example.org")
+    calls["total"] = total
+    return calls
+
+
+def _fetch_argv(tmp_path, *extra):
+    return [
+        "fetch",
+        "records",
+        "--config",
+        "config/pathogen/cdv.yaml",
+        "--out",
+        str(tmp_path / "raw" / "cdv.gb"),
+        "--acc",
+        str(tmp_path / "raw" / "cdv.acc"),
+        "--log",
+        str(tmp_path / "fetch.log"),
+        *extra,
+    ]
+
+
+def test_fetch_records_writes_flat_file_and_accession_snapshot(stub_entrez, tmp_path, caplog):
+    caplog.set_level(logging.INFO)  # pytest's handlers stop cli.main configuring the root level
+    assert cli.main(_fetch_argv(tmp_path)) == 0
+    accs = (tmp_path / "raw" / "cdv.acc").read_text().split()
+    assert len(accs) == stub_entrez["total"]
+    assert "AF100001.1" in accs
+    assert (tmp_path / "raw" / "cdv.gb").stat().st_size > 0
+    assert "matched" in (tmp_path / "fetch.log").read_text()
+
+
+def test_fetch_records_dry_run_downloads_nothing(stub_entrez, tmp_path):
+    assert cli.main(_fetch_argv(tmp_path, "--dry-run")) == 0
+    assert stub_entrez["batches"] == 0
+    assert not (tmp_path / "raw" / "cdv.gb").exists()
+
+
+def test_fetch_records_leaves_an_existing_download_alone_without_force(stub_entrez, tmp_path):
+    assert cli.main(_fetch_argv(tmp_path)) == 0
+    assert cli.main(_fetch_argv(tmp_path)) == 0
+    assert stub_entrez["batches"] == 1
+    assert cli.main(_fetch_argv(tmp_path, "--force")) == 0
+    assert stub_entrez["batches"] == 2
+
+
+def test_a_short_download_is_an_error(stub_entrez, tmp_path):
+    """NCBI reports more records than were received: every downstream count would be wrong."""
+    stub_entrez["reported_total"] += 3
+    assert cli.main(_fetch_argv(tmp_path)) == 1
+
+
+# =============================================================================
+# curate metadata — single locus (CDV)
 # =============================================================================
 
 
@@ -275,7 +342,7 @@ def test_keep_vaccines_flag_retains_them(fixtures, tmp_path):
 
 
 # =============================================================================
-# 02 — curation, multi-locus (BTV)
+# curate metadata — multi-locus (BTV)
 # =============================================================================
 
 
@@ -581,3 +648,105 @@ def test_unrecognised_host_is_still_actionable(cdv_out):
     row = rv[rv["accession"] == "AF100009.1"]
     assert len(row) == 1
     assert row.iloc[0]["review_reason"] == "host_unrecognised"
+
+
+# =============================================================================
+# curate metadata — in-process through cli.main
+# =============================================================================
+
+
+def test_curate_metadata_runs_in_process_through_the_cli(fixtures, tmp_path, caplog):
+    caplog.set_level(logging.INFO)  # pytest's handlers stop cli.main configuring the root level
+    out = tmp_path / "interim"
+    argv = [
+        "curate",
+        "metadata",
+        "--config",
+        "config/pathogen/cdv.yaml",
+        "--gb",
+        str(fixtures["cdv"]),
+        "--out-dir",
+        str(out),
+        "--log",
+        str(tmp_path / "curate.log"),
+    ]
+    assert cli.main(argv) == 0
+    assert (out / "H.fasta").is_file()
+    assert (out / "needs_review.tsv").is_file()
+    assert "NEEDS HUMAN REVIEW" in (tmp_path / "curate.log").read_text()
+
+
+def test_curate_metadata_rejects_a_missing_genbank_file(tmp_path):
+    argv = [
+        "curate",
+        "metadata",
+        "--config",
+        "config/pathogen/cdv.yaml",
+        "--gb",
+        str(tmp_path / "absent.gb"),
+        "--out-dir",
+        str(tmp_path / "interim"),
+        "--log",
+        str(tmp_path / "curate.log"),
+    ]
+    assert cli.main(argv) == 2
+
+
+# =============================================================================
+# curate review — the review gate
+# =============================================================================
+
+
+def _review_argv(needs_review: Path, marker: Path, *extra: str) -> list[str]:
+    return [
+        "curate",
+        "review",
+        "--needs-review",
+        str(needs_review),
+        "--marker",
+        str(marker),
+        *extra,
+    ]
+
+
+def test_review_gate_passes_and_writes_the_marker_when_nothing_needs_review(tmp_path):
+    needs_review = tmp_path / "needs_review.tsv"
+    needs_review.write_text("accession\treview_reason\n")
+    marker = tmp_path / "interim" / ".review_ok"
+    assert cli.main(_review_argv(needs_review, marker)) == 0
+    assert marker.is_file()
+
+
+def test_review_gate_refuses_while_records_need_review(tmp_path, caplog):
+    needs_review = tmp_path / "needs_review.tsv"
+    needs_review.write_text("accession\treview_reason\nAF100009.1\thost_unrecognised\n")
+    marker = tmp_path / ".review_ok"
+    assert cli.main(_review_argv(needs_review, marker)) == 1
+    assert not marker.exists()
+    assert "1 records need manual review" in caplog.text
+    assert "--accept-unreviewed" in caplog.text
+
+
+def test_review_gate_refusal_removes_a_stale_marker(tmp_path):
+    needs_review = tmp_path / "needs_review.tsv"
+    needs_review.write_text("accession\treview_reason\nAF100009.1\thost_unrecognised\n")
+    marker = tmp_path / ".review_ok"
+    marker.touch()
+    assert cli.main(_review_argv(needs_review, marker)) == 1
+    assert not marker.exists()
+
+
+def test_review_gate_accept_unreviewed_proceeds_with_a_warning(tmp_path, caplog):
+    needs_review = tmp_path / "needs_review.tsv"
+    needs_review.write_text("accession\treview_reason\nAF100009.1\thost_unrecognised\n")
+    marker = tmp_path / ".review_ok"
+    assert cli.main(_review_argv(needs_review, marker, "--accept-unreviewed")) == 0
+    assert marker.is_file()
+    assert "proceed unreviewed" in caplog.text
+
+
+def test_review_gate_refuses_on_real_curation_output(cdv_out, tmp_path):
+    """The CDV fixture produces actionable records (the grey squirrel), so the gate must stop."""
+    marker = tmp_path / ".review_ok"
+    assert cli.main(_review_argv(cdv_out / "needs_review.tsv", marker)) == 1
+    assert not marker.exists()

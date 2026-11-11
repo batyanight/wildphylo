@@ -156,20 +156,34 @@ def test_qc_cross_checks_labels_against_metadata(curated, tmp_path):
             assert line.rstrip().endswith("0"), line
 
 
+def run_cli(*argv):
+    """Run ``wildphylo <argv>`` in-process; return exit code, stdout and stderr."""
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            code = cli.main([str(a) for a in argv])
+        except SystemExit as exc:
+            code = exc.code if isinstance(exc.code, int) else 1
+            if isinstance(exc.code, str):
+                err.write(exc.code)
+    return SimpleNamespace(returncode=code, stdout=out.getvalue(), stderr=err.getvalue())
+
+
 # --- 06 ---------------------------------------------------------------------
 
 
 def test_subsample_writes_only_where_asked(curated, tmp_path):
     """
-    Regression. 06 wrote a *_dates.tsv to data/processed/ regardless of
+    Regression. subsample wrote a *_dates.tsv to data/processed/ regardless of
     --out-meta, and created that directory on every run even when unused.
     """
     existed_before = (ROOT / "data").exists()
     aln, meta = tmp_path / "s" / "sub.fasta", tmp_path / "s" / "sub_metadata.tsv"
-    r = run(
-        "06_subsample.py",
+    r = run_cli(
+        "beast",
+        "subsample",
         "--config",
-        "config/pathogen/cdv.yaml",
+        str(ROOT / "config/pathogen/cdv.yaml"),
         "--mode",
         "global",
         "--aln",
@@ -192,7 +206,7 @@ def test_subsample_writes_only_where_asked(curated, tmp_path):
     # by the un-ported scripts is not a failure of the port, and asserting on
     # absolute absence made this fail for anyone who had run the old code.
     assert existed_before or not (ROOT / "data").exists(), (
-        "06 created data/ even though explicit outputs were given"
+        "subsample created data/ even though explicit outputs were given"
     )
 
 
@@ -212,20 +226,22 @@ def test_wild_groups_come_from_config_not_the_module_default(curated, tmp_path):
         "--target",
         "4",
     ]
-    cdv = run(
-        "06_subsample.py",
+    cdv = run_cli(
+        "beast",
+        "subsample",
         "--config",
-        "config/pathogen/cdv.yaml",
+        str(ROOT / "config/pathogen/cdv.yaml"),
         *common,
         "--out-aln",
         tmp_path / "c.fasta",
         "--out-meta",
         tmp_path / "c_metadata.tsv",
     )
-    btv = run(
-        "06_subsample.py",
+    btv = run_cli(
+        "beast",
+        "subsample",
         "--config",
-        "config/pathogen/btv.yaml",
+        str(ROOT / "config/pathogen/btv.yaml"),
         *common,
         "--out-aln",
         tmp_path / "b.fasta",
@@ -247,10 +263,11 @@ def test_subsample_is_deterministic(curated, tmp_path):
 
     def labels(tag):
         a = tmp_path / f"{tag}.fasta"
-        run(
-            "06_subsample.py",
+        run_cli(
+            "beast",
+            "subsample",
             "--config",
-            "config/pathogen/cdv.yaml",
+            str(ROOT / "config/pathogen/cdv.yaml"),
             "--mode",
             "global",
             "--aln",
@@ -273,10 +290,11 @@ def test_subsample_is_deterministic(curated, tmp_path):
 
 def test_subsample_output_labels_keep_the_contract(curated, tmp_path):
     aln = tmp_path / "sub.fasta"
-    run(
-        "06_subsample.py",
+    run_cli(
+        "beast",
+        "subsample",
         "--config",
-        "config/pathogen/cdv.yaml",
+        str(ROOT / "config/pathogen/cdv.yaml"),
         "--mode",
         "global",
         "--aln",

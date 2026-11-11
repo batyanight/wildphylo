@@ -489,6 +489,7 @@ STOPS = {"TAA", "TAG", "TGA"}
 BASES = set("ACGT")
 AMBIG = set("NnXx?-.~RYKMSWBDHVryknmswbdhv")
 
+
 def _codon_table() -> dict[str, str]:
     bases = "TCAG"
     aas = "FFLLSSSSYY**CC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG"

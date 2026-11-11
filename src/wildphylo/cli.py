@@ -117,4 +117,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # `python -m wildphylo.cli` runs this file as __main__, a second module object;
+    # stage modules register into the package copy, so dispatch through that one.
+    from wildphylo.cli import main as package_main
+
+    sys.exit(package_main())
