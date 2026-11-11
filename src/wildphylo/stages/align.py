@@ -25,8 +25,9 @@ STOPS = {"TAA", "TAG", "TGA"}
 # Built-in thresholds, used when neither the command line nor the config sets one.
 DEFAULT_GAP_THRESHOLD = 0.5
 DEFAULT_IDENTITY_THRESHOLD = 0.80
+DEFAULT_AMBIGUITY_THRESHOLD = 0.05
 DEFAULT_COVERAGE_THRESHOLD = 0.5
-_CONFIG_KEYS = {"max_gap_fraction", "min_identity_to_consensus"}
+_CONFIG_KEYS = {"max_gap_fraction", "min_identity_to_consensus", "max_ambiguity_fraction"}
 
 
 def _say(text: str = "", *, err: bool = False) -> None:
@@ -190,7 +191,9 @@ def _sequence_table(seqs: dict[str, str], n_cols: int) -> Any:
     return pd.DataFrame(rows)
 
 
-def _flag_sequences(df: Any, seqs: dict[str, str], gap_threshold: float, identity: float) -> None:
+def _flag_sequences(
+    df: Any, seqs: dict[str, str], gap_threshold: float, identity: float, ambiguity: float
+) -> None:
     """Flag suspect sequences in ``df`` and print the flag counts.
 
     The alignment's reading frame is determined from the whole dataset: the
@@ -202,7 +205,7 @@ def _flag_sequences(df: Any, seqs: dict[str, str], gap_threshold: float, identit
     """
     df["flag"] = ""
     n_gap = _flag(df, df["gap_frac"] > gap_threshold, "mostly_gaps")
-    n_amb = _flag(df, df["ambig_frac"] > 0.05, "ambiguous>5%")
+    n_amb = _flag(df, df["ambig_frac"] > ambiguity, f"ambiguous>{ambiguity * 100:g}%")
     n_id = _flag(df, df["identity_to_consensus"] < identity, "low_identity")
     frame_totals = {f: sum(count_stops(s, f) for s in seqs.values()) for f in (0, 1, 2)}
     aln_frame = min(frame_totals, key=lambda f: frame_totals[f])
@@ -211,7 +214,7 @@ def _flag_sequences(df: Any, seqs: dict[str, str], gap_threshold: float, identit
 
     _say("Flagged sequences")
     _say(f"  mostly gaps (>{gap_threshold:.0%})        : {n_gap}")
-    _say(f"  >5% ambiguous bases                : {n_amb}")
+    _say(f"  ambiguous bases (>{ambiguity:.0%})       : {n_amb}")
     _say(f"  identity to consensus <{identity:.0%}      : {n_id}")
     _say(f"  internal stops in frame {aln_frame}          : {n_st}")
     _say()
@@ -351,6 +354,7 @@ def _resolve_thresholds(args: argparse.Namespace) -> None:
     for attr, key, default in (
         ("gap_threshold", "max_gap_fraction", DEFAULT_GAP_THRESHOLD),
         ("identity_threshold", "min_identity_to_consensus", DEFAULT_IDENTITY_THRESHOLD),
+        ("ambiguity_threshold", "max_ambiguity_fraction", DEFAULT_AMBIGUITY_THRESHOLD),
         ("coverage_threshold", None, DEFAULT_COVERAGE_THRESHOLD),
     ):
         if getattr(args, attr) is None:
@@ -456,6 +460,14 @@ def add_arguments_qc(parser: argparse.ArgumentParser) -> None:
         f"{DEFAULT_IDENTITY_THRESHOLD})",
     )
     parser.add_argument(
+        "--ambiguity-threshold",
+        type=float,
+        default=None,
+        help="Flag sequences with more than this fraction ambiguous bases "
+        f"(default: alignment.max_ambiguity_fraction from --config, else "
+        f"{DEFAULT_AMBIGUITY_THRESHOLD})",
+    )
+    parser.add_argument(
         "--coverage-threshold",
         type=float,
         default=None,
@@ -544,7 +556,9 @@ def qc(args: argparse.Namespace) -> int:
     _report_all_gap_columns(cov, good)
 
     df = _sequence_table(seqs, n_cols)
-    _flag_sequences(df, seqs, args.gap_threshold, args.identity_threshold)
+    _flag_sequences(
+        df, seqs, args.gap_threshold, args.identity_threshold, args.ambiguity_threshold
+    )
     _report_duplicates(seqs)
     if args.metadata and args.metadata.is_file():
         _report_label_check(seqs, args.metadata)

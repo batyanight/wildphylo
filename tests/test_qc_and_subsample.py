@@ -141,14 +141,17 @@ def _threshold_fixture(tmp_path):
     ``g`` is 40% gaps: it passes the default (flag above 50%) but fails a config
     with ``alignment.max_gap_fraction`` 0.30. ``m`` is 90% identical to the
     consensus: it passes the default (flag below 80%) but fails a config with
-    ``alignment.min_identity_to_consensus`` 0.95.
+    ``alignment.min_identity_to_consensus`` 0.95. ``n`` is 5% ambiguous: it
+    passes the default (flag above 5%) but fails a config with
+    ``alignment.max_ambiguity_fraction`` 0.02.
     """
     import yaml
 
     core = "ATGGCTGAAGCTGAAGCTGA"
     gappy = "ATGGCTGAAGCT" + "-" * 8
     mismatched = "ATGGCTGAAGCTGAAGCCCC"
-    rows = {"a": core, "b": core, "c": core, "g": gappy, "m": mismatched}
+    ambiguous = "ATGGCTGAAGNTGAAGCTGA"
+    rows = {"a": core, "b": core, "c": core, "g": gappy, "m": mismatched, "n": ambiguous}
     aln = tmp_path / "tiny.fasta"
     aln.write_text("".join(f">{k}|dog|2000\n{v}\n" for k, v in rows.items()))
 
@@ -185,6 +188,21 @@ def test_qc_flags_use_the_config_identity_threshold(tmp_path):
     assert "low_identity" not in _flags(tmp_path, aln)["m|dog|2000"]
     flags = _flags(tmp_path, aln, "--config", config(min_identity_to_consensus=0.95))
     assert "low_identity" in flags["m|dog|2000"]
+
+
+def test_qc_flags_use_the_config_ambiguity_threshold(tmp_path):
+    aln, config = _threshold_fixture(tmp_path)
+    assert "ambiguous" not in _flags(tmp_path, aln)["n|dog|2000"]
+    flags = _flags(tmp_path, aln, "--config", config(max_ambiguity_fraction=0.02))
+    assert "ambiguous>2%" in flags["n|dog|2000"]
+    assert "ambiguous" not in flags["a|dog|2000"]
+
+
+def test_qc_command_line_ambiguity_threshold_beats_the_config(tmp_path):
+    aln, config = _threshold_fixture(tmp_path)
+    strict = config(max_ambiguity_fraction=0.02)
+    flags = _flags(tmp_path, aln, "--config", strict, "--ambiguity-threshold", "0.05")
+    assert "ambiguous" not in flags["n|dog|2000"]
 
 
 def test_qc_command_line_threshold_beats_the_config(tmp_path):
