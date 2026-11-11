@@ -69,6 +69,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import asdict, dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -80,21 +81,22 @@ class DatePolicyRecommendation:
     frac_imprecise: float = 0.0
     mean_uncertainty_years: float = 0.0
     n_precise: int = 0
-    seasonality_R: float | None = None
+    seasonality_R: float | None = None  # noqa: N815 - serialised key; R is the statistic's name
     seasonality_p: float | None = None
     mean_within_year: float | None = None
     implied_shift_years: float | None = None
     subs_per_genome_year: float | None = None
     resolvable_subs: float | None = None
-    reasons: list = field(default_factory=list)
-    caveats: list = field(default_factory=list)
+    reasons: list[str] = field(default_factory=list)
+    caveats: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
 def rayleigh(within_year: list[float]) -> tuple[float, float, float]:
     """Circular uniformity test on within-year positions (each in [0, 1)).
+
     Returns (R, Z, p). R near 0 is uniform; R near 1 is tight clustering.
 
     Note this is a test for UNIMODAL clustering. A bimodal season -- two
@@ -167,7 +169,13 @@ def recommend(
         return rec
 
     # --- test 1: bias -------------------------------------------------------
-    precise_w = [y % 1 for y, p in zip(decimal_years, precisions) if p not in imprecise_kinds]
+    precise_w = [
+        y % 1
+        for y, p in zip(
+            decimal_years, precisions, strict=False
+        )  # callers pass equal lengths; not checked here
+        if p not in imprecise_kinds
+    ]
     rec.n_precise = len(precise_w)
     seasonal = False
     if len(precise_w) >= 8:
@@ -239,7 +247,7 @@ def recommend(
         )
 
     # --- decide -------------------------------------------------------------
-    resolvable = rec.resolvable_subs
+    window_subs = rec.resolvable_subs
 
     if frac < exclude_threshold and not seasonal:
         rec.policy = "midpoint"
@@ -259,7 +267,7 @@ def recommend(
         )
         return rec
 
-    if resolvable is None:
+    if window_subs is None:
         rec.policy = "midpoint"
         rec.confidence = "marginal"
         rec.reasons.append(
@@ -268,17 +276,17 @@ def recommend(
         )
         return rec
 
-    if resolvable >= resolvable_ceiling and frac >= exclude_threshold:
+    if window_subs >= resolvable_ceiling and frac >= exclude_threshold:
         rec.policy = "interval"
         rec.confidence = "moderate" if frac < 0.5 else "strong"
         rec.reasons.append(
-            f"{frac:.0%} of tips are imprecise and the window is resolvable; "
+            f"{frac:.0%} of tips are imprecise and the window is window_subs; "
             "midpoint would report false precision across a majority of the "
             "dataset"
         )
         return rec
 
-    if resolvable < resolvable_floor:
+    if window_subs < resolvable_floor:
         rec.policy = "midpoint"
         rec.confidence = "strong"
         rec.reasons.append(

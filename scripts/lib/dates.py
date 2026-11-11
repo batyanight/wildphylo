@@ -52,10 +52,11 @@ def _fail(raw: str, reason: str) -> ParsedDate:
 
 
 def to_decimal_year(year: int, month: int | None, day: int | None) -> float:
-    """Decimal year, using the midpoint of the known interval when month or day
-    are missing. Midpoint is the honest choice: a year-only date of 2013 is
-    2013.5, not 2013.0, and using 2013.0 biases every year-only tip half a year
-    into the past.
+    """Decimal year, using the midpoint of the known interval when needed.
+
+    Applies when month or day are missing. Midpoint is the honest choice: a
+    year-only date of 2013 is 2013.5, not 2013.0, and using 2013.0 biases every
+    year-only tip half a year into the past.
     """
     start = dt.date(year, 1, 1)
     days_in_year = (dt.date(year + 1, 1, 1) - start).days
@@ -125,7 +126,7 @@ def parse_collection_date(
     if "/" in s:
         parts = [p.strip() for p in s.split("/") if p.strip()]
         sub = [parse_collection_date(p, min_year=min_year, max_year=max_year) for p in parts]
-        vals = [p.decimal_year for p in sub if p.ok]
+        vals = [p.decimal_year for p in sub if p.decimal_year is not None]
         if not vals:
             bad = next((p.reason for p in sub if p.reason), "unparseable_range")
             return _fail(s, bad)

@@ -12,7 +12,7 @@ license = {file = "LICENSE"}
 dependencies = ["biopython>=1.83", "pandas>=2.2", "numpy", "matplotlib", "pyyaml"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-cov", "snakemake>=8"]
+dev = ["pytest>=8", "pytest-cov", "snakemake>=8", "mypy>=1.10"]
 
 [tool.setuptools]
 packages = ["lib"]
@@ -46,7 +46,7 @@ ignore = [
   "N806",     # scientific names (R2, N, Ne) are clearer than lowercase forms
   "PLC0415",  # imports inside functions keep heavy optional deps (matplotlib, Bio) lazy
   "PLR2004",  # thresholds and tolerances in scientific code are not magic numbers
-  "C901", "PLR0912", "PLR0913", "PLR0915", "PLR0917",  # complexity: addressed by the stage refactor, not by lint
+  "C901", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR0917",  # complexity: addressed by the stage refactor, not by lint
   "S311",     # random is used for subsampling and permutation tests, not security
   "S603", "S607",  # subprocess runs known tools with list args; shell=False everywhere
   "S314",     # ElementTree parses XML this pipeline generated itself
@@ -64,3 +64,21 @@ convention = "google"
 "scripts/cdv_h_coords.py" = ["ANN", "T201", "EXE001", "INP001", "D"]
 "tests/*" = ["ANN", "D", "S101", "INP001", "T201", "PT018"]
 "tests/fixtures/*" = ["ALL"]
+# BEAST XML templates are f-strings whose lines must stay verbatim: wrapping
+# them would change the generated XML.
+"scripts/lib/beastxml.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["scripts/lib"]
+strict = true
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = ["Bio.*", "pandas.*", "matplotlib.*", "scipy.*", "yaml"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["lib.segments"]
+# Bio.Phylo's tree methods (get_terminals, distance) ship without annotations.
+disallow_untyped_calls = false

@@ -22,14 +22,15 @@ Nothing here is pathogen-specific; thresholds come from the config.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from typing import Any
 
 
 @dataclass
 class Checks:
     step: str
-    errors: list = field(default_factory=list)
-    warnings: list = field(default_factory=list)
-    notes: list = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -47,14 +48,16 @@ class Checks:
         self.notes.append(msg)
         return self
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     def render(self) -> str:
         lines = [
-            f"[{self.step}] "
-            f"{'FAIL' if self.errors else 'OK'} "
-            f"({len(self.errors)}E {len(self.warnings)}W)"
+            (
+                f"[{self.step}] "
+                f"{'FAIL' if self.errors else 'OK'} "
+                f"({len(self.errors)}E {len(self.warnings)}W)"
+            )
         ]
         lines += [f"  ERROR   {e}" for e in self.errors]
         lines += [f"  WARN    {w}" for w in self.warnings]
@@ -65,9 +68,10 @@ class Checks:
 # --- step 1: fetch ----------------------------------------------------------
 
 
-def check_fetch(cfg: dict, n_records: int, n_previous: int | None = None) -> Checks:
-    """Verify the download before curating it. An empty or wildly changed pull is
-    almost always a query problem, not a discovery.
+def check_fetch(cfg: dict[str, Any], n_records: int, n_previous: int | None = None) -> Checks:
+    """Verify the download before curating it.
+
+    An empty or wildly changed pull is almost always a query problem, not a discovery.
     """
     c = Checks("fetch")
     if n_records == 0:
@@ -105,9 +109,12 @@ def check_fetch(cfg: dict, n_records: int, n_previous: int | None = None) -> Che
 
 
 def check_curation(
-    cfg: dict, n_in: int, n_out: int, n_review: int, exclusion_reasons: dict
+    _cfg: dict[str, Any], n_in: int, n_out: int, n_review: int, exclusion_reasons: dict[str, int]
 ) -> Checks:
-    """Verify that curation kept a defensible fraction and dropped for stated reasons."""
+    """Verify that curation kept a defensible fraction and dropped for stated reasons.
+
+    `_cfg` is unused today; it stays first so every check_* shares one signature.
+    """
     c = Checks("curate")
     if n_out == 0:
         c.error(
@@ -141,7 +148,7 @@ def check_curation(
 # --- step 3: host groups and trait states ----------------------------------
 
 
-def check_trait_states(cfg: dict, group_counts: dict) -> Checks:
+def check_trait_states(cfg: dict[str, Any], group_counts: dict[str, int]) -> Checks:
     """Verify the discrete-trait design BEFORE a multi-day run, not after.
 
     The rate count is the thing that matters. n states gives n(n-1)/2 symmetric
@@ -227,7 +234,7 @@ def check_trait_states(cfg: dict, group_counts: dict) -> Checks:
 # --- step 4: clock prior ----------------------------------------------------
 
 
-def check_clock_prior(cfg: dict, rtt_slope: float | None) -> Checks:
+def check_clock_prior(cfg: dict[str, Any], rtt_slope: float | None) -> Checks:
     """Verify the clock prior against the data and against the genome class.
 
     The failure this exists to prevent: a rate copied from a paper on a
@@ -292,7 +299,10 @@ def check_clock_prior(cfg: dict, rtt_slope: float | None) -> Checks:
 
 
 def check_convergence(
-    cfg: dict, ess: dict, n_chains: int, between_chain_overlap: dict | None = None
+    cfg: dict[str, Any],
+    ess: dict[str, float],
+    n_chains: int,
+    between_chain_overlap: dict[str, float] | None = None,
 ) -> Checks:
     """Verify the MCMC before any number from it is reported."""
     c = Checks("convergence")

@@ -75,8 +75,13 @@ from __future__ import annotations
 import gzip
 import re
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, TextIO, cast
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator, Sequence
 
 # ---------------------------------------------------------------------------
 # Newick / NEXUS parsing
@@ -165,8 +170,8 @@ def parse_newick(nk: str) -> Topology:
     postorder: list[int] = []
     n_poly = 0
 
-    def new_node(l: int, r: int, lab: str | None) -> int:
-        left.append(l)
+    def new_node(lc: int, r: int, lab: str | None) -> int:
+        left.append(lc)
         right.append(r)
         labels.append(lab)
         idx = len(left) - 1
@@ -216,7 +221,7 @@ def parse_newick(nk: str) -> Topology:
     parse_node()
 
     # Renumber so tips occupy 0..n_tips-1: the state vector is indexed by tip.
-    is_tip = [l == -1 for l in left]
+    is_tip = [lc == -1 for lc in left]
     n_tips = sum(is_tip)
     remap = np.empty(len(left), dtype=np.int64)
     t = 0
@@ -237,7 +242,10 @@ def parse_newick(nk: str) -> Topology:
             L[remap[idx]] = remap[left[idx]]
             R[remap[idx]] = remap[right[idx]]
 
-    tip_index = {labels[idx]: int(remap[idx]) for idx in range(n) if is_tip[idx]}
+    # An unlabelled tip keys as None, exactly as before; the type is narrowed for callers.
+    tip_index = cast(
+        "dict[str, int]", {labels[idx]: int(remap[idx]) for idx in range(n) if is_tip[idx]}
+    )
     if len(tip_index) != n_tips:
         raise ValueError("duplicate tip labels in tree")
 
@@ -251,14 +259,17 @@ def parse_newick(nk: str) -> Topology:
     )
 
 
-def _open(path):
-    p = str(path)
-    return gzip.open(p, "rt") if p.endswith(".gz") else open(p)
+def _open(path: Path | str) -> TextIO:
+    p = Path(path)
+    return gzip.open(p, "rt") if p.name.endswith(".gz") else p.open()
 
 
-def iter_trees(path, burnin: float = 0.10, thin: int = 1, max_trees: int | None = None):
-    """Yield Topology objects from a NEXUS .trees file (BEAST) or a plain newick
-    file, resolving the Translate block if present.
+def iter_trees(
+    path: Path | str, burnin: float = 0.10, thin: int = 1, max_trees: int | None = None
+) -> Iterator[Topology]:
+    """Yield Topology objects from a NEXUS .trees file (BEAST) or plain newick.
+
+    Resolves the Translate block if present.
 
     burnin is a FRACTION of the trees in the file, applied per file. Callers
     passing several files must apply it per file, which is what read_posterior
@@ -294,7 +305,7 @@ def iter_trees(path, burnin: float = 0.10, thin: int = 1, max_trees: int | None 
                 newicks.append(s)
 
     n = len(newicks)
-    start = int(round(burnin * n))
+    start = round(burnin * n)
     kept = newicks[start :: max(1, thin)]
     if max_trees and len(kept) > max_trees:
         step = int(np.ceil(len(kept) / max_trees))
@@ -311,7 +322,7 @@ def iter_trees(path, burnin: float = 0.10, thin: int = 1, max_trees: int | None 
 
 
 def read_posterior(
-    paths, burnin: float = 0.10, thin: int = 1, max_trees: int | None = None
+    paths: Sequence[Path | str], burnin: float = 0.10, thin: int = 1, max_trees: int | None = None
 ) -> list[Topology]:
     """Read several chains, applying burnin and thinning within each."""
     per_file = None if max_trees is None else max(1, max_trees // max(1, len(paths)))
@@ -333,7 +344,7 @@ def read_posterior(
 # ---------------------------------------------------------------------------
 
 
-def parsimony_score(top: Topology, states: np.ndarray, n_states: int) -> np.ndarray:
+def parsimony_score(top: Topology, states: np.ndarray, _n_states: int) -> np.ndarray:
     """Fitch small-parsimony, as bitmasks. Returns shape (R,).
 
     Fitch: at each internal node take the intersection of its children's state
@@ -345,12 +356,12 @@ def parsimony_score(top: Topology, states: np.ndarray, n_states: int) -> np.ndar
     sets[: top.n_tips] = np.int64(1) << states.T.astype(np.int64)
     changes = np.zeros(R, dtype=np.int64)
     for node in top.postorder:
-        l, r = top.left[node], top.right[node]
-        if l < 0:
+        lc, r = top.left[node], top.right[node]
+        if lc < 0:
             continue
-        inter = sets[l] & sets[r]
+        inter = sets[lc] & sets[r]
         empty = inter == 0
-        sets[node] = np.where(empty, sets[l] | sets[r], inter)
+        sets[node] = np.where(empty, sets[lc] | sets[r], inter)
         changes += empty
     return changes
 
@@ -363,18 +374,20 @@ def _descendant_counts(top: Topology, states: np.ndarray, n_states: int) -> np.n
     for t in range(top.n_tips):
         counts[t, rows, states[:, t]] = 1
     for node in top.postorder:
-        l, r = top.left[node], top.right[node]
-        if l < 0:
+        lc, r = top.left[node], top.right[node]
+        if lc < 0:
             continue
-        counts[node] = counts[l] + counts[r]
+        counts[node] = counts[lc] + counts[r]
     return counts
 
 
 def association_index(
     top: Topology, states: np.ndarray, n_states: int, counts: np.ndarray | None = None
 ) -> np.ndarray:
-    """AI = sum over internal nodes of (1 - f) / 2^(n-1), where f is the frequency
-    of the most common tip state below the node and n the number of tips below.
+    """Association index: sum over internal nodes of (1 - f) / 2^(n-1).
+
+    f is the frequency of the most common tip state below the node and n the
+    number of tips below.
 
     The 2^(n-1) denominator is the point of the statistic: a node with many
     descendants contributes almost nothing, so AI measures mixing in the SMALL
@@ -455,7 +468,7 @@ class TraitSignalResult:
     reasons: list[str] = field(default_factory=list)
     polytomies: int = 0
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["ai"] = asdict(self.ai) if self.ai else None
         d["ps"] = asdict(self.ps) if self.ps else None
@@ -464,9 +477,10 @@ class TraitSignalResult:
 
 
 def _pvalue(observed: float, null: np.ndarray, direction: str) -> float:
-    """Davison-Hinkley corrected permutation p. The smallest value obtainable
-    from R permutations is 1/(R+1); reporting 0 would overstate the resolution
-    the test actually has.
+    """Davison-Hinkley corrected permutation p.
+
+    The smallest value obtainable from R permutations is 1/(R+1); reporting 0
+    would overstate the resolution the test actually has.
     """
     if direction == "lower":
         extreme = int(np.sum(null <= observed))
@@ -546,7 +560,7 @@ def trait_signal(
     mc_sum = np.zeros((R + 1, S), dtype=np.float64)
     polytomies = 0
 
-    for top, idx in zip(trees, counts_index):
+    for top, idx in zip(trees, counts_index, strict=True):
         polytomies += top.n_polytomies
         # Build a (R+1, n_tips) state array where kept tips carry their code
         # and pruned tips carry a sentinel handled per statistic.
@@ -559,9 +573,9 @@ def trait_signal(
         for j, tip in enumerate(idx):
             cnt[tip, rows, perms[:, j]] = 1
         for node in top.postorder:
-            l, r = top.left[node], top.right[node]
-            if l >= 0:
-                cnt[node] = cnt[l] + cnt[r]
+            lc, r = top.left[node], top.right[node]
+            if lc >= 0:
+                cnt[node] = cnt[lc] + cnt[r]
 
         ai_sum += association_index(top, full, S, counts=cnt)
         mc_sum += monophyletic_clades(top, full, S, counts=cnt)
@@ -572,12 +586,12 @@ def trait_signal(
         sets[idx] = np.int64(1) << perms.T.astype(np.int64)
         changes = np.zeros(R + 1, dtype=np.int64)
         for node in top.postorder:
-            l, r = top.left[node], top.right[node]
-            if l < 0:
+            lc, r = top.left[node], top.right[node]
+            if lc < 0:
                 continue
-            inter = sets[l] & sets[r]
+            inter = sets[lc] & sets[r]
             empty = inter == 0
-            sets[node] = np.where(empty, sets[l] | sets[r], inter)
+            sets[node] = np.where(empty, sets[lc] | sets[r], inter)
             changes += empty
         ps_sum += changes
 
@@ -714,12 +728,13 @@ def format_report(res: TraitSignalResult, width: int = 78) -> str:
         "  " + "-" * (width - 4),
     ]
 
-    for st in (res.ai, res.ps):
-        L.append(
-            f"  {st.name:<16}{st.observed:>10.4f}{st.null_mean:>11.4f}"
-            f"{st.null_lo:>10.4f}{st.null_hi:>10.4f}{st.p:>9.4f}"
-            + ("  *" if st.significant else "")
-        )
+    if res.ai is None or res.ps is None:
+        raise ValueError("format_report needs a result with both AI and PS statistics")
+    L.extend(
+        f"  {st.name:<16}{st.observed:>10.4f}{st.null_mean:>11.4f}"
+        f"{st.null_lo:>10.4f}{st.null_hi:>10.4f}{st.p:>9.4f}" + ("  *" if st.significant else "")
+        for st in (res.ai, res.ps)
+    )
     L.append("")
     L.append("  maximum monophyletic clade size, per state")
     for s in res.states:

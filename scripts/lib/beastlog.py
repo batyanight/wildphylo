@@ -14,9 +14,13 @@ the pipeline numbering changes. The numbers are a reading order for humans.
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from pathlib import Path
 
 __all__ = [
     "CLOCK_CANDIDATES",
@@ -40,8 +44,10 @@ NON_PARAMETERS = {"Sample", "state", "STATE"}
 
 
 def read_beast_log(path: Path) -> tuple[list[str], np.ndarray]:
-    """Parse a BEAST .log: '#' comment lines, then a tab-separated header whose
-    first column is Sample, then numeric rows.
+    """Parse a BEAST .log into its header and a numeric matrix.
+
+    The format is '#' comment lines, then a tab-separated header whose first
+    column is Sample, then numeric rows.
 
     A truncated final line is dropped rather than raising: a log from a chain
     still running, or killed mid-write, is a normal thing to look at, and
@@ -49,7 +55,7 @@ def read_beast_log(path: Path) -> tuple[list[str], np.ndarray]:
     """
     header: list[str] | None = None
     rows: list[list[float]] = []
-    with open(path) as fh:
+    with path.open() as fh:
         for line in fh:
             s = line.rstrip("\n")
             if not s.strip() or s.lstrip().startswith("#"):
@@ -123,8 +129,9 @@ def hpd(x: np.ndarray, level: float = 0.95) -> tuple[float, float]:
 
 
 def overlap(a: np.ndarray, b: np.ndarray, bins: int = 100) -> float:
-    """Overlapping coefficient of two samples: sum of min(p, q) over a shared
-    histogram grid. 1.0 identical, 0.0 disjoint.
+    """Overlapping coefficient of two samples.
+
+    Sum of min(p, q) over a shared histogram grid. 1.0 identical, 0.0 disjoint.
 
     The grid spans both samples, so two chains that explored different regions
     get a low value by construction rather than by a tuning choice.
@@ -159,7 +166,7 @@ CLOCK_CANDIDATES = (
 )
 
 
-def find_clock_parameter(header, preferred=None):
+def find_clock_parameter(header: Sequence[str], preferred: str | None = None) -> str:
     """Pick the column holding the clock rate.
 
     Matching is exact first, then by prefix, because BEAST appends the
@@ -183,7 +190,7 @@ def find_clock_parameter(header, preferred=None):
             h for h in usable if h.split(".")[0] == cand or h.split(":")[0].rstrip(".c") == cand
         ]
         if hits:
-            return sorted(hits, key=len)[0]
+            return min(hits, key=len)
     raise ValueError(
         "no clock-rate column found. Tried "
         + ", ".join(CLOCK_CANDIDATES)

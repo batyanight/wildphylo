@@ -31,6 +31,7 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import asdict, dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -50,17 +51,17 @@ class TemporalReport:
     span_years: float
     earliest: float
     latest: float
-    precision_counts: dict = field(default_factory=dict)
+    precision_counts: dict[str, int] = field(default_factory=dict)
     frac_year_only: float = 0.0
     occupancy: float = 0.0  # fraction of year-bins in the span with >=1 tip
     concentration: float = 0.0  # largest fraction of tips in any 10-year window
-    regressions: list = field(default_factory=list)
+    regressions: list[Any] = field(default_factory=list)
     permutation_p: float | None = None
     permutation_n: int = 0
     verdict: str = "unknown"
-    notes: list = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["regressions"] = [asdict(r) if not isinstance(r, dict) else r for r in self.regressions]
         return d
@@ -73,7 +74,9 @@ def _linreg(xs: list[float], ys: list[float]) -> tuple[float, float, float, floa
     mx, my = sum(xs) / n, sum(ys) / n
     sxx = sum((x - mx) ** 2 for x in xs)
     syy = sum((y - my) ** 2 for y in ys)
-    sxy = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    sxy = sum(
+        (x - mx) * (y - my) for x, y in zip(xs, ys, strict=False)
+    )  # private helper; callers build xs, ys together but length is not checked
     if sxx == 0 or syy == 0:
         return 0.0, my, 0.0, 0.0
     slope = sxy / sxx
@@ -94,8 +97,10 @@ def root_to_tip(
 def permutation_test(
     dates: list[float], distances: list[float], n_perm: int = 1000, seed: int = 12345
 ) -> float:
-    """One-sided p: how often does a random date assignment produce a slope at
-    least as steep as the observed one? A p above ~0.05 means the apparent
+    """One-sided p for the root-to-tip slope under random date assignment.
+
+    How often does a random date assignment produce a slope at least as steep
+    as the observed one? A p above ~0.05 means the apparent
     clock signal is indistinguishable from noise, and any TMRCA estimated
     from these dates is an artefact of the tree shape, not of time.
     """
@@ -111,9 +116,12 @@ def permutation_test(
     return (hits + 1) / (n_perm + 1)
 
 
-def sampling_diagnostics(dates: list[float], precisions: list[str] | None = None) -> dict:
-    """Describe the temporal design of the dataset. These are the numbers that
-    decide whether a deep TMRCA is inference or extrapolation.
+def sampling_diagnostics(
+    dates: list[float], precisions: list[str] | None = None
+) -> dict[str, Any]:
+    """Describe the temporal design of the dataset.
+
+    These are the numbers that decide whether a deep TMRCA is inference or extrapolation.
     """
     if not dates:
         return {}
@@ -135,7 +143,7 @@ def sampling_diagnostics(dates: list[float], precisions: list[str] | None = None
     else:
         concentration = 1.0
 
-    out = {
+    out: dict[str, Any] = {
         "earliest": lo,
         "latest": hi,
         "span_years": span,

@@ -47,51 +47,65 @@ analysis from being run unnoticed, which is the common failure.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict, dataclass, field
 from itertools import combinations
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from Bio.Phylo.BaseTree import Tree
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
 class CongruenceResult:
-    segments: list = field(default_factory=list)
+    segments: list[str] = field(default_factory=list)
     n_shared_taxa: int = 0
-    pairwise_rf: dict = field(default_factory=dict)  # "seg2|seg6" -> normalised RF
+    pairwise_rf: dict[str, float] = field(default_factory=dict)  # "seg2|seg6" -> normalised RF
     mean_rf: float = 0.0
     max_rf: float = 0.0
-    reassortant_candidates: list = field(default_factory=list)
+    reassortant_candidates: list[dict[str, Any]] = field(default_factory=list)
     concatenate: bool = False
     verdict: str = "unknown"  # congruent | mixed | decoupled
-    notes: list = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
-def splits(tree, taxa: set[str], collapse_support: float | None = None) -> set[frozenset]:
-    """Every non-trivial bipartition of an unrooted tree, as a frozenset of the
-    smaller side. Restricted to `taxa` so trees with different sampling can be
-    compared.
+def splits(
+    tree: Tree, taxa: set[str], collapse_support: float | None = None
+) -> set[frozenset[str]]:
+    """Every non-trivial bipartition of an unrooted tree.
+
+    Each split is a frozenset of the smaller side. Restricted to `taxa` so
+    trees with different sampling can be compared.
 
     collapse_support ignores clades whose support falls below the threshold,
     so that unresolved nodes are not counted as topological disagreement.
     """
-    out: set[frozenset] = set()
+    out: set[frozenset[str]] = set()
     for clade in tree.get_nonterminals():
         if collapse_support is not None:
             conf = getattr(clade, "confidence", None)
             if conf is not None and float(conf) < collapse_support:
                 continue
-        side = {t.name for t in clade.get_terminals()} & taxa
+        side: set[str] = {t.name for t in clade.get_terminals()} & taxa
         other = taxa - side
         if len(side) < 2 or len(other) < 2:
             continue
-        out.add(frozenset(min(side, other, key=lambda s: (len(s), sorted(s)))))
+        smaller = min((side, other), key=lambda s: (len(s), sorted(s)))
+        out.add(frozenset(smaller))
     return out
 
 
-def normalised_rf(tree_a, tree_b, taxa: set[str], collapse_support: float | None = None) -> float:
-    """Robinson-Foulds distance scaled to [0, 1]. 0 = identical topology on the
-    shared taxa; 1 = no split in common.
+def normalised_rf(
+    tree_a: Tree, tree_b: Tree, taxa: set[str], collapse_support: float | None = None
+) -> float:
+    """Robinson-Foulds distance scaled to [0, 1].
+
+    0 = identical topology on the shared taxa; 1 = no split in common.
     """
     sa = splits(tree_a, taxa, collapse_support)
     sb = splits(tree_b, taxa, collapse_support)
@@ -101,10 +115,12 @@ def normalised_rf(tree_a, tree_b, taxa: set[str], collapse_support: float | None
     return len(sa ^ sb) / total
 
 
-def neighbour_sets(tree, taxa: set[str], k: int = 5) -> dict[str, set[str]]:
-    """For each taxon, its k nearest other taxa by patristic distance. Comparing
-    these across segments localises incongruence to individual taxa, which
-    pairwise RF cannot do -- RF says the trees differ, not which tip moved.
+def neighbour_sets(tree: Tree, taxa: set[str], k: int = 5) -> dict[str, set[str]]:
+    """For each taxon, its k nearest other taxa by patristic distance.
+
+    Comparing these across segments localises incongruence to individual
+    taxa, which pairwise RF cannot do -- RF says the trees differ, not which
+    tip moved.
     """
     terms = [t for t in tree.get_terminals() if t.name in taxa]
     out: dict[str, set[str]] = {}
@@ -115,7 +131,8 @@ def neighbour_sets(tree, taxa: set[str], k: int = 5) -> dict[str, set[str]]:
                 continue
             try:
                 d.append((tree.distance(t, u), u.name))
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 - Bio.Phylo raises assorted types for tips with no path
+                log.debug("no patristic distance %s-%s: %s", t.name, u.name, exc)
                 continue
         d.sort()
         out[t.name] = {name for _, name in d[:k]}
@@ -123,8 +140,8 @@ def neighbour_sets(tree, taxa: set[str], k: int = 5) -> dict[str, set[str]]:
 
 
 def find_reassortant_candidates(
-    trees: dict, taxa: set[str], k: int = 5, threshold: float = 0.6
-) -> list[dict]:
+    trees: dict[str, Tree], taxa: set[str], k: int = 5, threshold: float = 0.6
+) -> list[dict[str, Any]]:
     """Score each taxon by how unstable its neighbourhood is across segments.
 
     score = 1 - (mean Jaccard similarity of its neighbour set between all
@@ -158,7 +175,7 @@ def find_reassortant_candidates(
 
 
 def assess_congruence(
-    trees: dict,
+    trees: dict[str, Tree],
     *,
     collapse_support: float | None = 70.0,
     congruent_max_rf: float = 0.15,
@@ -166,8 +183,7 @@ def assess_congruence(
     neighbour_k: int = 5,
     reassortant_threshold: float = 0.6,
 ) -> CongruenceResult:
-    """Decide whether segment trees may be concatenated, and flag reassortant
-    candidates.
+    """Decide whether segment trees may be concatenated; flag reassortants.
 
     trees: {segment_name: Bio.Phylo tree}
     """

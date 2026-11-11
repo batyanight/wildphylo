@@ -9,10 +9,17 @@ is exactly why they need checking up front.
 
 from __future__ import annotations
 
+import argparse
 import datetime as dt
+import logging
+import os
+import sys
 from pathlib import Path
+from typing import Any
 
 import yaml
+
+log = logging.getLogger(__name__)
 
 REQUIRED = ["id", "name", "fetch", "dates", "hosts", "tree", "beast"]
 # Exactly one of these must be present: `locus` for an unsegmented pathogen,
@@ -29,7 +36,7 @@ class ConfigError(Exception):
     pass
 
 
-def load(path: str | Path) -> dict:
+def load(path: str | Path) -> dict[str, Any]:
     path = Path(path)
     if not path.is_file():
         raise ConfigError(f"config not found: {path}")
@@ -44,7 +51,7 @@ def load(path: str | Path) -> dict:
     return cfg
 
 
-def resolve_path(cfg: dict, value) -> Path:
+def resolve_path(cfg: dict[str, Any], value: str | Path) -> Path:
     """Turn a path in a config into one that resolves from ANY working directory.
 
     Paths in the shipped configs are written relative to the repository root
@@ -80,14 +87,12 @@ def resolve_path(cfg: dict, value) -> Path:
     return p
 
 
-def validate(cfg: dict) -> tuple[list[str], list[str]]:
+def validate(cfg: dict[str, Any]) -> tuple[list[str], list[str]]:
     """Return (errors, warnings). Errors block the run; warnings do not."""
     errors: list[str] = []
     warnings: list[str] = []
 
-    for key in REQUIRED:
-        if key not in cfg:
-            errors.append(f"missing required section: {key}")
+    errors.extend(f"missing required section: {key}" for key in REQUIRED if key not in cfg)
     has = [k for k in REQUIRED_LOCUS if k in cfg]
     if not has:
         errors.append("missing required section: 'locus' (unsegmented) or 'loci' (segmented)")
@@ -130,10 +135,10 @@ def validate(cfg: dict) -> tuple[list[str], list[str]]:
         if not isinstance(loci, list) or not loci:
             errors.append("loci must be a non-empty list")
             return errors, warnings
-        names = [l.get("name") for l in loci]
+        names = [entry.get("name") for entry in loci]
         if len(set(names)) != len(names):
             errors.append(f"duplicate locus names in loci: {names}")
-        analysed = [l for l in loci if l.get("analyse")]
+        analysed = [entry for entry in loci if entry.get("analyse")]
         if not analysed:
             errors.append("no locus has analyse: true; nothing would be built")
         if not segmented:
@@ -177,29 +182,29 @@ def validate(cfg: dict) -> tuple[list[str], list[str]]:
                 )
 
         # Per-locus clock priors get the same scrutiny as a global one.
-        for l in analysed:
-            lr = l.get("clock_rate_prior")
+        for entry in analysed:
+            lr = entry.get("clock_rate_prior")
             if lr is not None:
                 try:
                     lr = float(lr)
                 except (TypeError, ValueError):
                     errors.append(
-                        f"loci[{l.get('name')}].clock_rate_prior is not a number: {lr!r}"
+                        f"loci[{entry.get('name')}].clock_rate_prior is not a number: {lr!r}"
                     )
                     continue
                 if not (RATE_FLOOR <= lr <= RATE_CEILING):
                     errors.append(
-                        f"loci[{l.get('name')}].clock_rate_prior {lr:g} is "
+                        f"loci[{entry.get('name')}].clock_rate_prior {lr:g} is "
                         f"outside [{RATE_FLOOR:g}, {RATE_CEILING:g}]"
                     )
-                elif not l.get("clock_rate_source"):
+                elif not entry.get("clock_rate_source"):
                     warnings.append(
-                        f"loci[{l.get('name')}] sets a clock prior with no clock_rate_source"
+                        f"loci[{entry.get('name')}] sets a clock prior with no clock_rate_source"
                     )
-            pol = l.get("imprecise_date_policy")
+            pol = entry.get("imprecise_date_policy")
             if pol and pol not in {"midpoint", "interval", "exclude"}:
                 errors.append(
-                    f"loci[{l.get('name')}].imprecise_date_policy must be "
+                    f"loci[{entry.get('name')}].imprecise_date_policy must be "
                     f"midpoint|interval|exclude, got {pol!r}"
                 )
 
@@ -220,9 +225,11 @@ def validate(cfg: dict) -> tuple[list[str], list[str]]:
                 "rather than where the virus is maintained"
             )
 
-        for l in loci:
-            if not l.get("aliases"):
-                errors.append(f"loci[{l.get('name')}].aliases must list at least one name")
+        errors.extend(
+            f"loci[{entry.get('name')}].aliases must list at least one name"
+            for entry in loci
+            if not entry.get("aliases")
+        )
         return _finish(cfg, errors, warnings)
 
     if segmented:
@@ -269,7 +276,9 @@ def validate(cfg: dict) -> tuple[list[str], list[str]]:
     return _finish(cfg, errors, warnings)
 
 
-def _finish(cfg: dict, errors: list, warnings: list) -> tuple[list, list]:
+def _finish(
+    cfg: dict[str, Any], errors: list[str], warnings: list[str]
+) -> tuple[list[str], list[str]]:
     """Checks that apply to segmented and unsegmented configs alike."""
     # --- hosts ---
     h = cfg["hosts"]
@@ -282,23 +291,23 @@ def _finish(cfg: dict, errors: list, warnings: list) -> tuple[list, list]:
             rules = load_host_table(table_path)
             declared_groups = {r.group for r in rules}
             warnings.extend(f"host table: {w}" for w in audit_host_table(rules))
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 - any parse failure becomes a reported config error
             errors.append(f"hosts.table could not be parsed: {e}")
     else:
         errors.append(f"hosts.table not found: {table_path}")
 
     if declared_groups:
-        for g in h.get("wild_groups", []):
-            if g not in declared_groups:
-                warnings.append(
-                    f"hosts.wild_groups lists {g!r}, which no rule in the host "
-                    "table produces; it will never match anything"
-                )
-        for g in h.get("reservoir_candidates", []):
-            if g not in declared_groups:
-                warnings.append(
-                    f"hosts.reservoir_candidates lists {g!r}, not produced by any host rule"
-                )
+        warnings.extend(
+            f"hosts.wild_groups lists {g!r}, which no rule in the host "
+            "table produces; it will never match anything"
+            for g in h.get("wild_groups", [])
+            if g not in declared_groups
+        )
+        warnings.extend(
+            f"hosts.reservoir_candidates lists {g!r}, not produced by any host rule"
+            for g in h.get("reservoir_candidates", [])
+            if g not in declared_groups
+        )
 
     # --- beast ---
     b = cfg["beast"]
@@ -468,9 +477,24 @@ def main(argv: list[str] | None = None) -> int:
     which is how ci.yml was silently made invalid, meaning no CI ran at all.
     Emits GitHub Actions annotations when running under Actions.
     """
-    import argparse
-    import os
+    # Output is the CLI's product (read by CI), so it goes to stdout verbatim:
+    # a message-only handler on the module logger, removed on exit.
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    log.addHandler(handler)
+    previous = (log.level, log.propagate)
+    log.setLevel(logging.INFO)
+    log.propagate = False
+    try:
+        return _run_cli(argv)
+    finally:
+        log.removeHandler(handler)
+        log.setLevel(previous[0])
+        log.propagate = previous[1]
 
+
+def _run_cli(argv: list[str] | None) -> int:
+    """Run the validation loop; split out so main() can own the log handler."""
     ap = argparse.ArgumentParser(description="Validate pathogen configs.")
     ap.add_argument("configs", nargs="+")
     ap.add_argument("--strict", action="store_true", help="Treat warnings as failures.")
@@ -481,24 +505,22 @@ def main(argv: list[str] | None = None) -> int:
     for path in a.configs:
         name = Path(path).name
         if name.startswith("_"):
-            print(f"skip     {path} (template)")
+            log.info("skip     %s (template)", path)
             continue
         try:
             cfg = load(path)
         except ConfigError as e:
             failed += 1
             msg = str(e).replace("\n", " ")
-            print(f"::error file={path}::{msg}" if gha else f"INVALID  {path}\n{e}")
+            log.info(f"::error file={path}::{msg}" if gha else f"INVALID  {path}\n{e}")
             continue
-        print(f"valid    {path}  ({cfg['name']})")
+        log.info("valid    %s  (%s)", path, cfg["name"])
         for w in cfg.get("_warnings", []):
-            print(f"::warning file={path}::{w}" if gha else f"  warn   {w}")
+            log.info(f"::warning file={path}::{w}" if gha else f"  warn   {w}")
             if a.strict:
                 failed += 1
     return 1 if failed else 0
 
 
 if __name__ == "__main__":
-    import sys as _sys
-
-    _sys.exit(main())
+    sys.exit(main())

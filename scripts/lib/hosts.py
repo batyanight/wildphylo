@@ -41,7 +41,7 @@ class HostRule:
     pattern: str
     canonical: str
     group: str
-    regex: re.Pattern
+    regex: re.Pattern[str]
     is_regex: bool
     lineno: int
 
@@ -68,7 +68,7 @@ def normalize_text(raw: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
-def _compile(pattern: str) -> tuple[re.Pattern, bool]:
+def _compile(pattern: str) -> tuple[re.Pattern[str], bool]:
     if len(pattern) > 1 and pattern.startswith("/") and pattern.endswith("/"):
         return re.compile(pattern[1:-1], re.IGNORECASE), True
     # Word-boundary match. \b is wrong at non-word edges (e.g. a pattern ending
@@ -87,12 +87,13 @@ def _compile(pattern: str) -> tuple[re.Pattern, bool]:
 
 def load_host_table(path: Path) -> list[HostRule]:
     """Load a TSV of  pattern <TAB> canonical_host <TAB> host_group.
+
     Blank lines and lines starting with # are ignored. Order matters: the
     first matching rule wins.
     """
     rules: list[HostRule] = []
-    for i, line in enumerate(Path(path).read_text().splitlines(), start=1):
-        line = line.rstrip("\n")
+    for i, raw_line in enumerate(Path(path).read_text().splitlines(), start=1):
+        line = raw_line.rstrip("\n")
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         parts = [p.strip() for p in line.split("\t")]
@@ -110,8 +111,10 @@ def load_host_table(path: Path) -> list[HostRule]:
 
 
 def audit_host_table(rules: list[HostRule]) -> list[str]:
-    """Return human-readable warnings about a host table. Called at load time by
-    the curation step; failing to act on these is a choice, but an informed one.
+    """Return human-readable warnings about a host table.
+
+    Called at load time by the curation step; failing to act on these is a
+    choice, but an informed one.
     """
     warnings: list[str] = []
 
@@ -155,6 +158,7 @@ def audit_host_table(rules: list[HostRule]) -> list[str]:
 
 def normalize_host(raw: str, rules: list[HostRule]) -> HostMatch:
     """Map a free-text /host qualifier onto a canonical name and functional group.
+
     Unmatched input is returned as ambiguous rather than guessed at, so it
     lands in needs_review.tsv instead of silently becoming 'unknown' in a tree.
     """

@@ -20,11 +20,13 @@ population size and the dates that depend on it.
 
 from __future__ import annotations
 
+from typing import Any
+
 # --- clock rate prior -------------------------------------------------------
 
 
 def resolve_clock_rate(
-    cfg: dict, measured_slope: float | None, locus: dict | None = None
+    cfg: dict[str, Any], measured_slope: float | None, locus: dict[str, Any] | None = None
 ) -> tuple[float, str]:
     """(rate, provenance) for the clock prior.
 
@@ -59,8 +61,10 @@ def resolve_clock_rate(
 
 
 def tree_prior_blocks(kind: str, prefix: str, n_tips: int) -> dict[str, str]:
-    """XML for one tree prior: state parameters, the prior distribution, its
-    operators, and what to log.
+    """XML for one tree prior.
+
+    Covers state parameters, the prior distribution, its operators, and what
+    to log.
     """
     if kind == "coalescent_constant":
         return {
@@ -168,7 +172,7 @@ def tip_date_blocks(
     prefix: str,
     uncertainties: dict[str, float],
     dates: dict[str, float] | None = None,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Sample imprecise tip dates WITHIN their uncertainty window.
 
     Fixing a year-only date at the midpoint asserts precision the record does
@@ -285,7 +289,7 @@ def trait_blocks(
     symmetric: bool = True,
     bssvs: bool = True,
     poisson_lambda: float | None = None,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """XML for a discrete trait analysis (BEAST_CLASSIC), with optional BSSVS.
 
     WHY ASYMMETRIC IS NOT FREE. A symmetric model asserts that the rate from
@@ -319,7 +323,7 @@ def trait_blocks(
 
     # '?' is a declared value, not a missing one: it means the tip's state is
     # unknown and BEAST should treat it as ambiguous across all states.
-    missing = sorted({v for v in tip_states.values()} - set(states) - {"?"})
+    missing = sorted(set(tip_states.values()) - set(states) - {"?"})
     if missing:
         raise ValueError(
             f"tips carry trait values absent from the declared states: "

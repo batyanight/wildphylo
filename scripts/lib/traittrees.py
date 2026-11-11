@@ -44,8 +44,19 @@ and a node split 35/33 between two states contributes exactly as much as one at
 
 from __future__ import annotations
 
+import contextlib
 import gzip
 import re
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, TextIO
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+# One node of the flat list NewickParser builds. Values are heterogeneous (parent
+# index, state string, float length, child list, optional annotation dict), so
+# Any is the truthful value type.
+Node = dict[str, Any]
 
 __all__ = [
     "NUMBER_RE",
@@ -72,19 +83,20 @@ TREE_LINE_RE = re.compile(r"^\s*tree\s+\S+\s*(?:\[[^\]]*\]\s*)?=\s*(.*;)\s*$", r
 TRANSLATE_ROW_RE = re.compile(r"^\s*(\S+)\s+(.+?)[,;]?\s*$")
 
 
-def smart_open(path):
-    path = str(path)
-    if path.endswith(".gz"):
-        return gzip.open(path, "rt")
-    return open(path)
+def smart_open(path: Path | str) -> TextIO:
+    p = Path(path)
+    if p.name.endswith(".gz"):
+        return gzip.open(p, "rt")
+    return p.open()
 
 
-def read_bracket(s, i):
+def read_bracket(s: str, i: int) -> tuple[str, int]:
     """Read a [...] comment starting at s[i] == '['. Returns (content, next_i).
 
     Quote-aware so that a ']' inside a quoted annotation value does not end it.
     """
-    assert s[i] == "["
+    if s[i] != "[":
+        raise ValueError(f"expected '[' at offset {i}")
     i += 1
     start = i
     in_quote = False
@@ -98,7 +110,7 @@ def read_bracket(s, i):
     raise ValueError("unterminated [ annotation ]")
 
 
-def annotation_value(content, key):
+def annotation_value(content: str, key: str) -> str | None:
     """Pull key=value out of a BEAST annotation body.
 
     Anchored on start-of-string or a comma so that `location=` does not also
@@ -120,11 +132,11 @@ class NewickParser:
     so a single forward pass over the list is enough to accumulate depths.
     """
 
-    def __init__(self, s, tag, keep_annotations=False):
+    def __init__(self, s: str, tag: str, keep_annotations: bool = False) -> None:
         self.s = s
         self.i = 0
         self.tag = tag
-        self.nodes = []
+        self.nodes: list[Node] = []
         # An MCC tree carries far more per node than the state: height, its
         # 95% HPD, clade posterior, rate. The posterior-tree analyses want one
         # key across thousands of trees and would waste memory keeping the
@@ -133,13 +145,12 @@ class NewickParser:
         self.keep_annotations = keep_annotations
 
     # -- low-level ---------------------------------------------------------- #
-    def peek(self):
+    def peek(self) -> str:
         while self.i < len(self.s) and self.s[self.i] in " \t\n\r":
             self.i += 1
         return self.s[self.i] if self.i < len(self.s) else ""
 
-    def read_label(self):
-        start = self.i
+    def read_label(self) -> str | None:
         out = []
         if self.peek() in ("'", '"'):
             q = self.s[self.i]
@@ -152,9 +163,9 @@ class NewickParser:
         while self.i < len(self.s) and self.s[self.i] not in "[]():,;":
             out.append(self.s[self.i])
             self.i += 1
-        return "".join(out).strip() or (None if self.i == start else None)
+        return "".join(out).strip() or None
 
-    def read_number(self):
+    def read_number(self) -> float:
         m = NUMBER_RE.match(self.s, self.i)
         if not m:
             return 0.0
@@ -162,7 +173,7 @@ class NewickParser:
         return float(m.group(0))
 
     # -- grammar ------------------------------------------------------------ #
-    def node(self, parent):
+    def node(self, parent: int | None) -> int:
         idx = len(self.nodes)
         self.nodes.append(
             {
@@ -212,7 +223,7 @@ class NewickParser:
                 self._absorb(idx, content)
         return idx
 
-    def _absorb(self, idx, content):
+    def _absorb(self, idx: int, content: str) -> None:
         if self.keep_annotations:
             self.nodes[idx]["ann"].update(parse_all_annotations(content))
         if self.nodes[idx]["state"] is None:
@@ -222,12 +233,10 @@ class NewickParser:
         if self.nodes[idx]["prob"] is None:
             p = annotation_value(content, self.tag + ".prob")
             if p is not None:
-                try:
+                with contextlib.suppress(ValueError):
                     self.nodes[idx]["prob"] = float(p)
-                except ValueError:
-                    pass
 
-    def parse(self):
+    def parse(self) -> list[Node]:
         self.node(None)
         return self.nodes
 
@@ -238,7 +247,7 @@ ANN_PAIR = re.compile(
 )
 
 
-def parse_all_annotations(content):
+def parse_all_annotations(content: str) -> dict[str, str]:
     """Every key=value in a BEAST annotation body, as strings.
 
     Set-valued entries ({1950,1972}) keep their braces stripped and are
@@ -246,13 +255,13 @@ def parse_all_annotations(content):
     a given key is a pair of HPD bounds or a list of states -- guessing here
     would turn a two-element HPD into a two-state set.
     """
-    out = {}
+    out: dict[str, str] = {}
     for key, q, brace, bare in ANN_PAIR.findall(content):
         out[key] = (q or brace or bare or "").strip()
     return out
 
 
-def strip_leading_comment(newick):
+def strip_leading_comment(newick: str) -> str:
     """Drop the [&R] / [&U] rooting comment that precedes the Newick string."""
     s = newick.lstrip()
     while s.startswith("["):
@@ -261,7 +270,7 @@ def strip_leading_comment(newick):
     return s
 
 
-def detect_tag(newick, preferred=None):
+def detect_tag(newick: str, preferred: str | None = None) -> str:
     """Find the annotation key that carries the discrete state.
 
     beastclassic writes whatever `tag=` was set on AncestralStateTreeLikelihood
@@ -271,21 +280,21 @@ def detect_tag(newick, preferred=None):
     if preferred:
         return preferred
     i = newick.find("[")
-    seen = []
+    seen: list[str] = []
     while i != -1 and len(seen) < 5:
         content, j = read_bracket(newick, i)
         seen.append(content)
         i = newick.find("[", j)
     for content in seen:
         for key, raw in re.findall(r'(?:^|,)\s*&?\s*([A-Za-z_][\w.]*)=\s*("?[^,"]*"?)', content):
-            if key.endswith(".prob") or key.endswith(".set") or "." in key:
+            if key.endswith((".prob", ".set")) or "." in key:
                 continue
             if key.lower() in {"rate", "length", "height", "posterior", "r"}:
                 continue
             val = raw.strip('"')
             if NUMBER_RE.fullmatch(val) and "." in val:
                 continue
-            return key
+            return str(key)
     raise SystemExit(
         "Could not auto-detect the state annotation key. Pass --tag explicitly "
         "(it is the `tag=` attribute on AncestralStateTreeLikelihood in the XML; "
@@ -293,13 +302,13 @@ def detect_tag(newick, preferred=None):
     )
 
 
-def iter_trees(path, tag=None):
+def iter_trees(path: Path | str, tag: str | None = None) -> Iterator[tuple[int, list[Node], str]]:
     """Yield (tree_index, node_list) for each tree in a NEXUS tree file.
 
     Streams line by line; posterior tree files get large and there is no reason
     to hold 2000 trees in memory at once.
     """
-    translate = {}
+    translate: dict[str, str] = {}
     in_translate = False
     tree_i = -1
     resolved_tag = tag
@@ -344,7 +353,7 @@ def iter_trees(path, tag=None):
 # --------------------------------------------------------------------------- #
 
 
-def node_depths(nodes):
+def node_depths(nodes: list[Node]) -> list[float]:
     """Root-to-node distance for every node (parents precede children)."""
     depth = [0.0] * len(nodes)
     for i, nd in enumerate(nodes):
@@ -353,7 +362,7 @@ def node_depths(nodes):
     return depth
 
 
-def label_date(label):
+def label_date(label: str | None) -> float | None:
     """Decimal year from ACCESSION|host|year tip labels."""
     if not label:
         return None
