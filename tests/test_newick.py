@@ -432,3 +432,72 @@ def test_a_polytomy_is_one_node_in_the_list_and_counted_in_the_topology():
     top = tt.parse_topology(nk)
     assert top.n_polytomies == 1
     assert top.n_tips == 4
+
+
+# --- --build-dir defaults ---------------------------------------------------
+
+
+def _trait_build(tmp_path):
+    """A build dir whose two chains (beast.seeds of the config) each hold the known posterior."""
+    import yaml
+
+    from wildphylo.layout import BuildLayout
+
+    cfg_path = ROOT / "tests/fixtures/configs/cdv-1200.yaml"
+    cfg = yaml.safe_load(cfg_path.read_text())
+    build = tmp_path / "builds" / cfg["id"] / "20260101"
+    layout = BuildLayout.at(build, cfg)
+    for seed in cfg["beast"]["seeds"]:
+        f = layout.beast_trait_trees("H", str(seed))
+        f.parent.mkdir(parents=True)
+        f.write_text(nexus([KNOWN] * 20, translate=False))
+    return cfg_path, build, layout
+
+
+def test_jumps_default_to_every_seed_under_build_dir(tmp_path):
+    cfg, build, _ = _trait_build(tmp_path)
+    out = tmp_path / "jumps.tsv"
+    r = run_cli(
+        "beast",
+        *("jumps", "--config", cfg, "--build-dir", build, "--locus", "H"),
+        *("--burnin", "0.0", "--out", out),
+    )
+    assert r.returncode == 0, r.stderr[-2000:]
+    rows = [line for line in out.read_text().splitlines()[1:] if line.strip()]
+    assert len(rows) == 80, "2 seeds x 20 trees x 2 transitions"
+
+
+def test_jumps_explicit_trees_override_build_dir(tmp_path):
+    cfg, build, layout = _trait_build(tmp_path)
+    out = tmp_path / "jumps.tsv"
+    r = run_cli(
+        "beast",
+        *("jumps", "--config", cfg, "--build-dir", build, "--locus", "H"),
+        *("--trees", layout.beast_trait_trees("H", "12345")),
+        *("--burnin", "0.0", "--out", out),
+    )
+    assert r.returncode == 0, r.stderr[-2000:]
+    rows = [line for line in out.read_text().splitlines()[1:] if line.strip()]
+    assert len(rows) == 40, "one seed only"
+
+
+def test_state_through_time_defaults_to_every_seed_under_build_dir(tmp_path):
+    cfg, build, _ = _trait_build(tmp_path)
+    out = tmp_path / "stt.tsv"
+    r = run_cli(
+        "beast",
+        *("state-through-time", "--config", cfg, "--build-dir", build, "--locus", "H"),
+        *("--burnin", "0.0", "--thin", "1", "--out", out),
+    )
+    assert r.returncode == 0, r.stderr[-2000:]
+    assert "year" in out.read_text().splitlines()[0].lower()
+
+
+def test_build_dir_without_locus_or_config_is_a_clear_error(tmp_path):
+    cfg, build, _ = _trait_build(tmp_path)
+    no_locus = run_cli("beast", "jumps", "--config", cfg, "--build-dir", build)
+    assert no_locus.returncode == 1
+    assert "--locus" in no_locus.stderr
+    no_cfg = run_cli("beast", "jumps", "--build-dir", build, "--locus", "H")
+    assert no_cfg.returncode == 1
+    assert "--config" in no_cfg.stderr

@@ -485,3 +485,60 @@ def test_qc_reports_a_missing_alignment_and_fails(tmp_path):
     r = run_qc("--aln", tmp_path / "nope.fasta", "--out-tsv", tmp_path / "q.tsv")
     assert r.returncode == 1
     assert "Alignment not found" in r.stderr
+
+
+# --- subsample --build-dir ---------------------------------------------------
+
+
+def _subsample_build(curated, tmp_path):
+    import shutil
+
+    import yaml
+
+    from wildphylo.layout import BuildLayout
+
+    cfg_path = ROOT / "tests/fixtures/configs/cdv.yaml"
+    layout = BuildLayout.at(
+        tmp_path / "builds" / "cdv" / "20260101", yaml.safe_load(cfg_path.read_text())
+    )
+    layout.alignment("H").parent.mkdir(parents=True)
+    shutil.copy(curated["aln"], layout.alignment("H"))
+    layout.metadata().parent.mkdir(parents=True)
+    shutil.copy(curated["meta"], layout.metadata())
+    return cfg_path, layout
+
+
+def test_subsample_build_dir_reads_and_writes_the_layout(curated, tmp_path):
+    cfg, layout = _subsample_build(curated, tmp_path)
+    r = run_cli(
+        "beast",
+        *("subsample", "--config", cfg, "--build-dir", layout.root, "--locus", "H"),
+        *("--mode", "global", "--target", "4"),
+    )
+    assert r.returncode == 0, r.stderr[-1500:]
+    assert layout.subsample("H").is_file()
+    assert layout.subsample_metadata("H").is_file()
+
+
+def test_subsample_explicit_outputs_override_the_build_dir(curated, tmp_path):
+    cfg, layout = _subsample_build(curated, tmp_path)
+    aln = tmp_path / "elsewhere" / "sub.fasta"
+    r = run_cli(
+        "beast",
+        *("subsample", "--config", cfg, "--build-dir", layout.root, "--locus", "H"),
+        *("--mode", "global", "--target", "4", "--out-aln", aln),
+    )
+    assert r.returncode == 0, r.stderr[-1500:]
+    assert aln.is_file()
+    assert not layout.subsample("H").exists()
+    assert layout.subsample_metadata("H").is_file()
+
+
+def test_subsample_build_dir_needs_locus(curated, tmp_path):
+    cfg, layout = _subsample_build(curated, tmp_path)
+    r = run_cli(
+        "beast",
+        *("subsample", "--config", cfg, "--build-dir", layout.root, "--mode", "global"),
+    )
+    assert r.returncode == 1
+    assert "--locus" in r.stderr

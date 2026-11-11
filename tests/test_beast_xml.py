@@ -374,3 +374,75 @@ def test_xml_header_records_where_the_rate_came_from(aln, report, tmp_path):
     header = out.read_text()[:1200]
     assert "rate provenance" in header
     assert "measured root-to-tip" in header
+
+
+# --- --build-dir defaults ---------------------------------------------------
+
+
+@pytest.fixture
+def build(aln, tmp_path):
+    """A build dir for the cdv fixture config holding the locus H subsample."""
+    from wildphylo.layout import BuildLayout
+
+    cfg = cfg_variant(tmp_path)
+    layout = BuildLayout.at(
+        tmp_path / "builds" / "cdv" / "20260101", yaml.safe_load(cfg.read_text())
+    )
+    sub = layout.subsample("H")
+    sub.parent.mkdir(parents=True)
+    sub.write_text(aln.read_text())
+    return cfg, layout
+
+
+def test_build_dir_places_a_chain_xml_and_traits_by_seed(build):
+    cfg, layout = build
+    r = run_cli(
+        "beast",
+        *("xml", "--config", cfg, "--build-dir", layout.root, "--locus", "H"),
+        *("--seed", 12345, "--chain", 100000),
+    )
+    assert r.returncode == 0, r.stderr[-800:]
+    ET.fromstring(layout.beast_xml("H", "12345").read_text())
+    assert layout.beast_traits("H", "12345").is_file()
+
+
+def test_build_dir_places_a_drt_replicate_by_rep(build):
+    cfg, layout = build
+    r = run_cli(
+        "beast",
+        *("xml", "--config", cfg, "--build-dir", layout.root, "--locus", "H"),
+        *("--randomize-dates", "--replicate", 2, "--chain", 100000),
+    )
+    assert r.returncode == 0, r.stderr[-800:]
+    out = layout.drt_xml("H", "2")
+    assert "DATE-RANDOMISED REPLICATE 2" in out.read_text()
+    assert sorted(p.name for p in out.parent.iterdir()) == [out.name], "no undeclared traits file"
+    r = run_cli(
+        "beast",
+        *("xml", "--config", cfg, "--build-dir", layout.root, "--locus", "H"),
+        *("--rep", 3, "--chain", 100000),
+    )
+    assert r.returncode == 0, r.stderr[-800:]
+    assert "DATE-RANDOMISED REPLICATE 3" in layout.drt_xml("H", "3").read_text()
+
+
+def test_explicit_out_xml_overrides_the_build_dir_default(build, tmp_path):
+    cfg, layout = build
+    out = tmp_path / "elsewhere" / "x.xml"
+    r = run_cli(
+        "beast",
+        *("xml", "--config", cfg, "--build-dir", layout.root, "--locus", "H"),
+        *("--seed", 1, "--chain", 100000, "--out-xml", out),
+    )
+    assert r.returncode == 0, r.stderr[-800:]
+    assert out.is_file()
+    assert not layout.beast_xml("H", "1").exists()
+    assert layout.beast_traits("H", "1").is_file(), "the traits default still applies"
+
+
+def test_build_dir_xml_needs_locus_and_seed(build):
+    cfg, layout = build
+    r = run_cli("beast", "xml", "--config", cfg, "--build-dir", layout.root, "--seed", 1)
+    assert r.returncode == 1 and "--locus" in r.stderr
+    r = run_cli("beast", "xml", "--config", cfg, "--build-dir", layout.root, "--locus", "H")
+    assert r.returncode == 1 and "--seed" in r.stderr
