@@ -1,22 +1,6 @@
 """align stage: look at an alignment before spending compute on a tree.
 
-``wildphylo align qc`` is the "look at your alignment" step. On a desktop you
-would open the alignment in AliView or Jalview; on a hosted kernel you probably
-cannot, so this reports the same things numerically and as a coverage plot.
-
-What it checks:
-
-* per-sequence gap and ambiguity fractions, with outliers flagged
-* per-column coverage, and suggested trim points for ragged ends
-* identity of each sequence to the consensus (catches misaligned or wrong-gene records)
-* in-frame stop codons (catches frameshifts and wrong reading frames)
-* exact duplicate sequences
-* all-gap columns, which shift every downstream column coordinate
-* tip labels against the metadata table, so a stale host group cannot survive
-* host-group composition of what survives
-
-Nothing here decides anything for you. It tells you which sequences are worth
-looking at by eye and which columns are mostly gaps.
+``wildphylo align qc`` is the only step; its docstring says what it checks.
 """
 
 from __future__ import annotations
@@ -492,7 +476,29 @@ def add_arguments_qc(parser: argparse.ArgumentParser) -> None:
     "align", "qc", "Inspect an alignment (gaps, ambiguity, identity, stops, labels) before treeing"
 )
 def qc(args: argparse.Namespace) -> int:
-    """Run alignment QC; write the per-sequence table and coverage plot."""
+    """Inspect an alignment before spending compute on a tree.
+
+    This is the "look at your alignment" step. On a desktop you would open the
+    alignment in AliView or Jalview; on a hosted kernel you probably cannot, so
+    this reports the same things numerically and as a coverage plot.
+
+    What it checks:
+
+      * per-sequence gap and ambiguity fractions, with outliers flagged
+      * per-column coverage, and suggested trim points for ragged ends
+      * identity of each sequence to the consensus (catches misaligned or
+        wrong-gene records)
+      * in-frame stop codons (catches frameshifts and wrong reading frames)
+      * exact duplicate sequences
+      * all-gap columns, which shift every downstream column coordinate
+      * tip labels against the metadata table, so a stale host group cannot survive
+      * host-group composition of what survives
+
+    Nothing here decides anything for you. It tells you which sequences are worth
+    looking at by eye and which columns are mostly gaps. Use ``--trim-to START END
+    --write-trimmed`` once you have chosen trim points from the coverage plot.
+    Exit code is 1 when the alignment is missing, empty or not aligned.
+    """
     if not args.aln.is_file():
         _report_missing_alignment(args.aln)
         return 1

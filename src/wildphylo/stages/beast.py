@@ -358,7 +358,24 @@ def add_arguments_subsample(parser: argparse.ArgumentParser) -> None:
     "Stratified subsample of an alignment (or one clade) sized for BEAST",
 )
 def subsample(args: argparse.Namespace) -> int:
-    """Subsample an alignment to a BEAST-tractable size, or pull one clade.
+    """Reduce an alignment to a BEAST-tractable size, or pull one clade.
+
+    Two modes:
+
+      global   stratified subsample across the whole dataset, preserving clade,
+               host-group and temporal structure
+      clade    extract all tips belonging to one clade, optionally subsampled
+
+    Why stratify: a random subsample of a dataset that is 52% domestic dog will be
+    52% domestic dog, discarding most of the rare host groups your host-jump
+    analysis depends on. Stratifying by clade x host x time bin keeps the
+    informative tips and drops the redundant ones.
+
+    Sampling within a stratum is deliberate, not random:
+
+      1. sequences with day-precision dates before year-only dates
+      2. longer ungapped sequences before shorter ones
+      3. one representative per identical-sequence set
 
     Writes the subset FASTA, a metadata table for the subset, and a dates table.
     The selection is deterministic given the inputs (ranking, not random draws);
@@ -998,7 +1015,22 @@ def _randomised_xml(
 
 @step("beast", "xml", "Generate a BEAST 2 XML (and DRT replicates) from a labelled alignment")
 def xml(args: argparse.Namespace) -> int:
-    """Generate the BEAST XML, a traits file, and optionally date-randomised replicates."""
+    """Generate a BEAST 2 XML from a labelled alignment, plus a traits file.
+
+    A tip-dated analysis with tip dates parsed from the labels
+    (``ACCESSION|host_group|decimal_year``). The tree prior, clock model and
+    substitution model come from the ``beast:`` block of ``--config`` (defaults:
+    constant-size coalescent, uncorrelated relaxed lognormal clock), with the clock
+    rate prior from the config or the measured root-to-tip slope. A traits file
+    (taxon -> host group) is written for the discrete trait analysis, which
+    ``--no-trait`` omits. ``--randomize-dates N`` writes N date-randomised
+    replicates for the date-randomisation test.
+
+    IMPORTANT: open the generated XML in BEAUti before running it (File > Load).
+    BEAUti reports any incompatibility with your BEAST version and lets you inspect
+    every prior. Do not run a chain for days without that check. This step targets
+    BEAST 2.7.x namespaces.
+    """
     try:
         return _xml(args)
     except BeastStepError as exc:
@@ -1719,7 +1751,52 @@ def _require_jumps(scan: _JumpScan) -> None:
 
 @step("beast", "jumps", "Date every host-state transition in a posterior of BEAST trait trees")
 def jumps(args: argparse.Namespace) -> int:
-    """Count host-state transitions in BEAST trait trees and record when each happened."""
+    """Count host-state transitions in BEAST trait trees and record WHEN each happened.
+
+    Counting transitions alone (X -> Y happened N times) cannot distinguish a real
+    transmission pattern from a sampling artefact. If the oldest tips in a dataset
+    all carry one host label, ancestral reconstruction pulls the deep nodes toward
+    that label, and every lineage descending from those deep nodes is scored as an
+    outbound transition from it. The count is identical either way; only the
+    *timing* of the transitions separates the two cases:
+
+      - jumps concentrated near the root, around the oldest sample dates:
+        consistent with deep-node anchoring by the oldest tips
+      - jumps spread through the tree, including recent internal nodes:
+        consistent with ongoing transmission between those hosts
+
+    This parses the ``.host.trees`` file written by beastclassic's
+    TreeWithTraitLogger (AncestralStateTreeLikelihood), walks every branch of every
+    posterior tree, and writes one row per state change with the calendar year of
+    the parent node, the child node, and the branch midpoint.
+
+    It is a branch-level counter, not a full Markov-jump history. A branch whose two
+    endpoints differ is scored as ONE transition even if the underlying
+    continuous-time process made three. Counts are therefore a lower bound and
+    slightly biased against long branches. For exact jump histories you need BEAST's
+    complete history logger; this is the diagnostic you can run on output you
+    already have.
+
+    What it reports:
+
+      * tip-date consistency check (parser sanity: reconstructed tip dates vs the
+        dates embedded in the tip labels)
+      * a TIP CENSUS: how many tips carry each state and over what date range. This
+        is the comparison that makes the root state interpretable: a state held by
+        few, old tips that nonetheless wins the root is anchoring.
+      * posterior distribution of the ROOT state
+      * transitions ranked by frequency, with median and IQR of jump year
+      * for each transition, the share of its jumps older than a cutoff year and the
+        share falling on TERMINAL branches. A jump on a terminal branch describes
+        one tip's own label and carries no information about onward transmission; a
+        transition that is mostly terminal is not a corridor.
+      * optional focus block (``--focus FROM:TO``) comparing one transition against
+        all others, with a by-decade breakdown that exposes bimodal (mixture) timing
+
+    If the annotation stores numeric codes instead of names, pass the codeMap string
+    straight out of the BEAST XML with ``--code-map``. The most recent tip date is
+    taken from the tip labels unless ``--most-recent`` is given.
+    """
     try:
         scan = _scan_jumps(args, expand_tree_files(args.trees))
         _require_jumps(scan)
@@ -2037,7 +2114,49 @@ def add_arguments_state_through_time(parser: argparse.ArgumentParser) -> None:
     "Lineages carrying each host state, year by year, across a posterior of trait trees",
 )
 def state_through_time(args: argparse.Namespace) -> int:
-    """Count lineages in each discrete state on a yearly grid and report enrichment."""
+    """Count how many lineages carry each host state, year by year.
+
+    ``beast jumps`` counts transitions and dates them. It cannot tell you whether a
+    state that dominates the deep tree is a root-era phenomenon or a persistent
+    feature of the reconstruction, because a count has no denominator: a state can
+    emit many transitions early simply because that is where the tree is narrow and
+    every emission is visible.
+
+    This supplies the denominator. It slices the posterior trees at fixed time
+    points and counts, at each slice, how many lineages are painted with each state:
+    the discrete-trait version of a lineages-through-time plot. Read it as:
+
+      * a state ENRICHED relative to its tip share only in the deep tree, decaying to
+        roughly its tip share once more lineages exist, is being driven by the root,
+        not by ongoing presence in the tree
+      * a state that holds enrichment above its tip share across decades is a
+        structural feature of the topology, which a randomisation test then has to
+        rule in or out as signal
+
+    Enrichment, not raw share, is the quantity to read. A state holding 20% of
+    lineages means nothing on its own; 20% against a 10% tip share is a 2x
+    enrichment, and against a 40% tip share is a depletion.
+
+    Slices where the tree holds only one or two lineages cannot support a proportion
+    at all ("40% of 2 lineages" is one lineage), so slices below ``--min-lineages``
+    are excluded from both the table and the verdict.
+
+    Method: each branch spans [parent_year, child_year] and has a state at each end.
+    For a slice falling in the older half of a branch the parent's state is used, for
+    the younger half the child's. That is the standard midpoint convention and it is
+    an approximation: a branch whose endpoints differ made its transition at some
+    unknown point along its length, and the midpoint is the expectation under a
+    uniform prior, not the truth. Branches with identical endpoints (the large
+    majority) are unaffected. Counts are averaged over the retained posterior trees,
+    so a "mean lineages" of 3.4 means that at that moment the average tree had 3.4
+    lineages in that state.
+
+    Performance: cost scales with trees x branches x slices. ``--thin 10`` (the
+    default) keeps every 10th tree, which for a 10,000-tree run leaves about 900 per
+    seed and is far more than enough: adjacent logged trees are highly
+    autocorrelated and add almost nothing. Use ``--thin 1`` for the full file.
+    ``--focus STATE`` focuses the verdict lines on one state.
+    """
     import numpy as np
 
     try:

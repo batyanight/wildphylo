@@ -1,6 +1,7 @@
 """The ``wildphylo`` command dispatches to registered stage steps."""
 
 import argparse
+import inspect
 
 import pytest
 
@@ -13,6 +14,16 @@ def _add_arguments_echo(parser: argparse.ArgumentParser) -> None:
 
 def _run_echo(args: argparse.Namespace) -> int:
     print(f"echo {args.value}")
+    return 0
+
+
+def _run_documented(_args: argparse.Namespace) -> int:
+    """Explain why this step exists.
+
+    Second paragraph, with an indented block that must keep its layout:
+
+        wildphylo gates documented --value 1
+    """
     return 0
 
 
@@ -77,3 +88,42 @@ def test_the_decorator_needs_an_add_arguments_hook():
         @cli.step("gates", "orphan", "no hook")
         def _orphan(_args: argparse.Namespace) -> int:
             return 0
+
+
+def _help_text(capsys: pytest.CaptureFixture[str], *argv: str) -> str:
+    """The ``--help`` output for ``wildphylo <argv>``."""
+    with pytest.raises(SystemExit) as exc:
+        cli.main([*argv, "--help"])
+    assert exc.value.code == 0
+    return capsys.readouterr().out
+
+
+@pytest.mark.usefixtures("registry")
+def test_step_help_prints_the_run_functions_docstring(capsys):
+    cli.register(
+        cli.Step("gates", "documented", "one-liner", _add_arguments_echo, _run_documented)
+    )
+    out = _help_text(capsys, "gates", "documented")
+    assert inspect.getdoc(_run_documented) in out  # verbatim: layout is not re-wrapped
+    # The one-liner stays the entry in the stage's step list.
+    listing = _help_text(capsys, "gates")
+    assert "one-liner" in listing
+    assert "Explain why this step exists" not in listing
+
+
+@pytest.mark.usefixtures("registry")
+def test_step_help_falls_back_to_the_one_liner_without_a_docstring(capsys):
+    assert "echo the value" in _help_text(capsys, "gates", "echo")
+
+
+@pytest.mark.parametrize(
+    ("stage", "name"),
+    [(stage, name) for stage in cli.STAGES for name in cli.steps(stage)],
+)
+def test_every_real_step_documents_its_rationale(capsys, stage, name):
+    """Each shipped step's ``--help`` carries more than its one-line summary."""
+    item = cli.steps(stage)[name]
+    doc = inspect.getdoc(item.run)
+    assert doc, f"{stage} {name}: run function has no docstring"
+    assert doc.strip() != item.help.strip()
+    assert doc in _help_text(capsys, stage, name)

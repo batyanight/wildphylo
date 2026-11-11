@@ -1,47 +1,7 @@
 """auspice stage: BEAST MCC tree to an Auspice dataset, then the entropy panel.
 
-``wildphylo auspice dataset`` converts a BEAST MCC tree to an Auspice v2 JSON.
-It does what ``augur import beast`` + ``augur export v2`` would do, without the
-augur dependency chain (which pulls cvxopt and a compiler toolchain for features
-this project does not use).
-
-``wildphylo auspice entropy`` adds the entropy panel to an existing Auspice
-dataset: per-node mutations from Fitch-parsimony ancestral reconstruction,
-expressed in coordinate-reference nucleotide positions, plus amino-acid
-mutations for every CDS in the dataset's genome annotation.
-
-Everything that names the pathogen comes from the pathogen config
-------------------------------------------------------------------
-Title, maintainer, build URL, which attributes are colourable and the trait key
-are read from ``nextstrain:`` and ``beast.discrete_trait:``. Nothing naming a
-pathogen is hardcoded: in a pathogen-agnostic pipeline that would publish a BTV
-build described as canine distemper, and the JSON is valid and renders, so
-nothing downstream would catch it.
-
-The time axis is checked before anything is written
----------------------------------------------------
-Every tip's reconstructed height must agree with the date in its own label. If
-they disagree the time axis is wrong, and a figure built from it is wrong in a
-way that looks entirely normal. The step refuses to write rather than warning.
-``--most-recent`` is derived from the tip labels rather than being required:
-supply last year's value against this year's tree and every node moves
-together, so nothing looks wrong.
-
-Gate verdicts travel with the build
------------------------------------
-``--gates`` takes the JSON written by any gate and folds its verdict into the
-Auspice description. A trait colouring that failed its signal test is
-indistinguishable from one that passed unless the build says so.
-
-Coordinates for the entropy step
---------------------------------
-Auspice reads a CDS in *coordinate reference* nucleotide positions, not
-alignment columns. An alignment span is only a valid CDS if the reference has no
-gaps inside it; an insertion in any other sequence would make the span a
-non-multiple of 3 and Auspice silently drops the feature. So ``nuc`` runs
-1..len(ungapped reference), codons are assembled from the columns holding the
-reference's own bases, and mutations at insertion columns (which have no
-coordinate) are dropped and counted. This is also what augur does.
+Steps: ``dataset`` (MCC tree to Auspice v2 JSON) and ``entropy`` (per-node
+mutations and the entropy panel). Each step's docstring carries its rationale.
 """
 
 from __future__ import annotations
@@ -292,7 +252,34 @@ def add_arguments_dataset(parser: argparse.ArgumentParser) -> None:
 
 @step("auspice", "dataset", "Convert a BEAST MCC tree to an Auspice v2 dataset")
 def dataset(args: argparse.Namespace) -> int:
-    """Write the Auspice dataset; non-zero if the MCC tree or its time axis is unusable."""
+    """Convert a BEAST MCC tree to an Auspice v2 dataset.
+
+    It does what ``augur import beast`` + ``augur export v2`` would do, without the
+    augur dependency chain (which pulls cvxopt and a compiler toolchain for features
+    this project does not use).
+
+    Everything that names the pathogen comes from the pathogen config: title,
+    maintainer, build URL, which attributes are colourable and the trait key are
+    read from ``nextstrain:`` and ``beast.discrete_trait:``. Nothing naming a
+    pathogen is hardcoded: in a pathogen-agnostic pipeline that would publish a BTV
+    build described as canine distemper, and the JSON is valid and renders, so
+    nothing downstream would catch it.
+
+    The time axis is checked before anything is written. Every tip's reconstructed
+    height must agree with the date in its own label. If they disagree the time
+    axis is wrong, and a figure built from it is wrong in a way that looks entirely
+    normal. The step refuses to write rather than warning. ``--most-recent`` is
+    derived from the tip labels rather than being required: supply last year's
+    value against this year's tree and every node moves together, so nothing looks
+    wrong.
+
+    Gate verdicts travel with the build. ``--gates`` takes the JSON written by any
+    gate and folds its verdict into the Auspice description. A trait colouring that
+    failed its signal test is indistinguishable from one that passed unless the
+    build says so.
+
+    Exit code is non-zero if the MCC tree or its time axis is unusable.
+    """
     if not args.mcc.is_file():
         log.error("MCC tree not found: %s", args.mcc)
         return 1
@@ -812,7 +799,22 @@ def add_arguments_entropy(parser: argparse.ArgumentParser) -> None:
 
 @step("auspice", "entropy", "Add the entropy panel and per-node mutations to an Auspice dataset")
 def entropy(args: argparse.Namespace) -> int:
-    """Reconstruct ancestral states and write mutations; non-zero on a failed check."""
+    """Add the entropy panel and per-node mutations to an Auspice dataset.
+
+    Per-node mutations come from Fitch-parsimony ancestral reconstruction,
+    expressed in coordinate-reference nucleotide positions, plus amino-acid
+    mutations for every CDS in the dataset's genome annotation.
+
+    Auspice reads a CDS in *coordinate reference* nucleotide positions, not
+    alignment columns. An alignment span is only a valid CDS if the reference has no
+    gaps inside it; an insertion in any other sequence would make the span a
+    non-multiple of 3 and Auspice silently drops the feature. So ``nuc`` runs
+    1..len(ungapped reference), codons are assembled from the columns holding the
+    reference's own bases, and mutations at insertion columns (which have no
+    coordinate) are dropped and counted. This is also what augur does.
+
+    Exit code is non-zero on a failed check.
+    """
     if args.gene_start is not None or args.cds:
         log.warning(
             "note: --gene-start and --cds are ignored — CDS extents now come from "

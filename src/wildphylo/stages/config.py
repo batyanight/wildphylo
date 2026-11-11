@@ -23,6 +23,10 @@ def add_arguments_validate(parser: argparse.ArgumentParser) -> None:
     "Validate pathogen configs; non-zero on errors (or warnings with --strict)",
 )
 def validate(args: argparse.Namespace) -> int:
-    """Delegate to :func:`wildphylo.config.main` with the same arguments."""
+    """Validate pathogen configs without running anything.
+
+    Delegates to :func:`wildphylo.config.main` with the same arguments. Exit code is
+    non-zero on errors, or on warnings too with ``--strict``.
+    """
     argv = list(args.configs) + (["--strict"] if args.strict else [])
     return config.main(argv)

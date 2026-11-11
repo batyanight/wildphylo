@@ -1,29 +1,6 @@
 """tree stage: cut the ML tree into clades and test each for temporal signal.
 
-``wildphylo tree clades`` exists because a global tree of one gene across every
-lineage of a pathogen is usually NOT a tip-dating dataset. Root-to-tip
-regression on the full CDV H tree returned R^2 = 0.024 with an implied root of
-1656: significant by permutation only because 1,126 tips make a trivial
-correlation significant, and nonsensical because the tree is saturated (total
-length 16.5 subs/site, with IQ-TREE warning about long pairwise distances).
-
-Clock signal lives WITHIN lineages, below saturation. This step finds those
-clades from the tree itself rather than from a reference panel, because a
-reference panel that covers only part of the diversity leaves most of the data
-unclassified and gives confidently wrong calls for the rest.
-
-How clades are cut: descend from the root and take each maximal subtree whose
-internal diversity (maximum tip-to-tip patristic distance) falls below
-``--max-diversity``. That threshold is the operational definition of "below
-saturation": groups tight enough that distance still tracks time approximately
-linearly. Subtrees smaller than ``--min-size`` are reported but not carried
-forward; a clade with a handful of tips cannot support a clock estimate however
-clean it looks.
-
-This is a data-driven grouping, not a taxonomy. Name the clades afterwards by
-seeing which reference sequences land in which group (``--references``). Naming
-them before you know which groups exist is how a partial reference panel
-produces a confident mislabelling.
+``wildphylo tree clades`` is the only step; its docstring says why it exists.
 """
 
 from __future__ import annotations
@@ -297,7 +274,33 @@ def add_arguments_clades(parser: argparse.ArgumentParser) -> None:
 
 @step("tree", "clades", "Cut the ML tree into clades and test each for temporal signal")
 def clades(args: argparse.Namespace) -> int:
-    """Cut clades from the ML tree, fit root-to-tip in each, write the summary table."""
+    """Split the ML tree into clades and test each for temporal signal.
+
+    A global tree of one gene across every lineage of a pathogen is usually NOT a
+    tip-dating dataset. Root-to-tip regression on the full CDV H tree returned
+    R^2 = 0.024 with an implied root of 1656: significant by permutation only
+    because 1,126 tips make a trivial correlation significant, and nonsensical
+    because the tree is saturated (total length 16.5 subs/site, with IQ-TREE
+    warning about long pairwise distances).
+
+    Clock signal lives WITHIN lineages, below saturation. This step finds those
+    clades from the tree itself rather than from a reference panel, because a
+    reference panel that covers only part of the diversity leaves most of the data
+    unclassified and gives confidently wrong calls for the rest.
+
+    How clades are cut: descend from the root and take each maximal subtree whose
+    internal diversity (maximum tip-to-tip patristic distance) falls below
+    ``--max-diversity``. That threshold is the operational definition of "below
+    saturation": groups tight enough that distance still tracks time approximately
+    linearly. Subtrees smaller than ``--min-size`` are reported but not carried
+    forward; a clade with a handful of tips cannot support a clock estimate however
+    clean it looks.
+
+    This is a data-driven grouping, not a taxonomy. Name the clades afterwards by
+    seeing which reference sequences land in which group (``--references``). Naming
+    them before you know which groups exist is how a partial reference panel
+    produces a confident mislabelling.
+    """
     from Bio import Phylo
 
     # Bio.Phylo ships neither an explicit export of `read` nor annotations for it.

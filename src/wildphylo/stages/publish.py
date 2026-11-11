@@ -1,48 +1,7 @@
 """publish stage: decide whether to rebuild, and hand a finished dataset to its pathogen repo.
 
-``check-updates`` -- should the scheduled rebuild actually run?
-
-Asks GenBank how many records the configured query matches NOW, compares that
-against the accession list of the most recent build, and decides per pathogen
-whether a rebuild is worth the compute.
-
-Why a counting step exists at all: a monthly rebuild that downloads, curates,
-aligns and rebuilds a tree for zero new sequences produces a new dated build
-directory, a new provenance record and a new Auspice JSON that are identical in
-content to last month's. That makes ``builds/`` a log of the cron schedule
-rather than a log of when the dataset changed, and it buries the rebuilds that
-did change something. The count is one esearch with retmax=0. It downloads
-nothing.
-
-The query comes from :func:`wildphylo.stages.fetch.build_query` rather than
-being reimplemented, so the count can never be of a different query than the
-download. A second copy would drift, and the symptom of drift here is a delta
-that looks like a real change in GenBank.
-
-Decisions::
-
-    delta < 0            LOST records. GenBank withdraws records very rarely, so
-                         this is almost always a changed query or a truncated
-                         previous download. Reported as an error and the rebuild
-                         does NOT proceed: rebuilding would quietly replace a
-                         larger dataset with a smaller one.
-    delta = 0            nothing to do.
-    0 < delta < min      below nextstrain.update.min_new_accessions: not worth a
-                         rebuild, but recorded so the count is visible.
-    min <= delta <= max  proceed.
-    delta > max          proceed, flagged. A bulk submission is exactly when a
-                         rebuild is most worth doing and most worth looking at.
-    no previous build    proceed. There is nothing to compare against, and the
-                         first build has to happen somehow.
-
-Environment: ``NCBI_EMAIL`` and ``NCBI_API_KEY`` are credentials, never read
-from a config file. ``FORCE=true`` proceeds regardless of the delta.
-``ONLY=<id>`` restricts the check to one pathogen.
-
-``dataset`` -- copy a finished Auspice JSON and its provenance record into the
-local checkout of the per-pathogen repo, unless the build comparison says the
-build regressed. It never runs git: committing and pushing the pathogen repo is
-a reviewed, deliberate act.
+Steps: ``check-updates`` (should the scheduled rebuild run?) and ``dataset``
+(copy a finished dataset into the pathogen repo).
 """
 
 from __future__ import annotations
@@ -258,7 +217,45 @@ def add_arguments_check_updates(parser: argparse.ArgumentParser) -> None:
 
 @step("publish", "check-updates", "Should the scheduled rebuild run? Counts new GenBank records")
 def check_updates(args: argparse.Namespace) -> int:
-    """Count records per pathogen, decide which rebuild, and report."""
+    """Should the scheduled rebuild actually run? Count new GenBank records per pathogen.
+
+    Asks GenBank how many records the configured query matches NOW, compares that
+    against the accession list of the most recent build, and decides per pathogen
+    whether a rebuild is worth the compute.
+
+    Why a counting step exists at all: a monthly rebuild that downloads, curates,
+    aligns and rebuilds a tree for zero new sequences produces a new dated build
+    directory, a new provenance record and a new Auspice JSON that are identical in
+    content to last month's. That makes ``builds/`` a log of the cron schedule
+    rather than a log of when the dataset changed, and it buries the rebuilds that
+    did change something. The count is one esearch with retmax=0. It downloads
+    nothing.
+
+    The query comes from :func:`wildphylo.stages.fetch.build_query` rather than
+    being reimplemented, so the count can never be of a different query than the
+    download. A second copy would drift, and the symptom of drift here is a delta
+    that looks like a real change in GenBank.
+
+    Decisions::
+
+        delta < 0            LOST records. GenBank withdraws records very rarely, so
+                             this is almost always a changed query or a truncated
+                             previous download. Reported as an error and the rebuild
+                             does NOT proceed: rebuilding would quietly replace a
+                             larger dataset with a smaller one.
+        delta = 0            nothing to do.
+        0 < delta < min      below nextstrain.update.min_new_accessions: not worth a
+                             rebuild, but recorded so the count is visible.
+        min <= delta <= max  proceed.
+        delta > max          proceed, flagged. A bulk submission is exactly when a
+                             rebuild is most worth doing and most worth looking at.
+        no previous build    proceed. There is nothing to compare against, and the
+                             first build has to happen somehow.
+
+    Environment: ``NCBI_EMAIL`` and ``NCBI_API_KEY`` are credentials, never read
+    from a config file. ``FORCE=true`` proceeds regardless of the delta.
+    ``ONLY=<id>`` restricts the check to one pathogen.
+    """
     only = args.only or (os.environ.get("ONLY") or "").strip() or None
     force = args.force or os.environ.get("FORCE", "").lower() in ("1", "true", "yes")
 
@@ -396,7 +393,13 @@ def add_arguments_dataset(parser: argparse.ArgumentParser) -> None:
 
 @step("publish", "dataset", "Copy a finished dataset and its provenance into the pathogen repo")
 def dataset(args: argparse.Namespace) -> int:
-    """Refuse a regressed build unless ``--force``; otherwise copy dataset and provenance."""
+    """Copy a finished Auspice dataset and its provenance into the pathogen repo.
+
+    The copy goes into the local checkout of the per-pathogen repo, unless the build
+    comparison says the build regressed; ``--force`` overrides a regression. It
+    never runs git: committing and pushing the pathogen repo is a reviewed,
+    deliberate act.
+    """
     for label, path in (
         ("dataset", args.dataset),
         ("comparison", args.comparison),

@@ -1,21 +1,6 @@
-r"""fetch stage: download records from GenBank for any taxon.
+"""fetch stage: download records from GenBank for any taxon.
 
-Config-driven. The Entrez query is built from ``fetch.taxid`` and
-``fetch.query_filter``, so switching pathogens means switching config files
-rather than editing code.
-
-    wildphylo fetch records --config config/pathogen/cdv.yaml \
-        --out data/raw/cdv.gb --acc data/raw/cdv.acc
-
-    # how many records match, without downloading
-    wildphylo fetch records --config config/pathogen/btv.yaml --dry-run
-
-Email is required by NCBI. Pass ``--email`` or set ``NCBI_EMAIL``. An API key
-(free, from https://www.ncbi.nlm.nih.gov/account/) raises the rate limit from
-3/s to 10/s; set ``NCBI_API_KEY`` or pass ``--api-key``. Neither belongs in a
-config file, which is why both are read from the environment.
-
-Exit codes: 0 success, 1 nothing matched or the download was short, 2 bad usage.
+``wildphylo fetch records`` is the only step; its docstring says how it is driven.
 """
 
 from __future__ import annotations
@@ -168,7 +153,24 @@ def add_arguments_records(parser: argparse.ArgumentParser) -> None:
 
 @step("fetch", "records", "Download GenBank records for the configured taxon")
 def records(args: argparse.Namespace) -> int:
-    """Download the records matching the pathogen config's query and list their accessions."""
+    """Download the records matching the pathogen config's query and list their accessions.
+
+    Config-driven. The Entrez query is built from ``fetch.taxid`` and
+    ``fetch.query_filter``, so switching pathogens means switching config files
+    rather than editing code.
+
+        wildphylo fetch records --config config/pathogen/cdv.yaml --out cdv.gb --acc cdv.acc
+
+        # how many records match, without downloading
+        wildphylo fetch records --config config/pathogen/btv.yaml --dry-run
+
+    Email is required by NCBI. Pass ``--email`` or set ``NCBI_EMAIL``. An API key
+    (free, from https://www.ncbi.nlm.nih.gov/account/) raises the rate limit from
+    3/s to 10/s; set ``NCBI_API_KEY`` or pass ``--api-key``. Neither belongs in a
+    config file, which is why both are read from the environment.
+
+    Exit codes: 0 success, 1 nothing matched or the download was short, 2 bad usage.
+    """
     try:
         cfg = load(args.config)
     except ConfigError as e:

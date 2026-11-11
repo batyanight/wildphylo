@@ -1181,9 +1181,38 @@ def add_arguments_drt(parser: argparse.ArgumentParser) -> None:
 def drt(args: argparse.Namespace) -> int:
     """Summarise and judge the date-randomisation test.
 
-    The verdict is ``pass``, ``weak``, ``fail`` or ``inconclusive``; the exit
-    code is 1 on ``fail`` only with ``--exit-nonzero-on-fail``, and 1 on
-    unreadable input.
+    Root-to-tip regression (``gates temporal``) asks whether genetic distance
+    increases with sampling date. It is a screen, and it can be passed by a dataset
+    with no clock signal at all: with enough tips, a trivial correlation is
+    significant, and population structure alone produces one when older samples
+    happen to belong to a diverged lineage. The CDV H tree passed by permutation at
+    R^2 = 0.024.
+
+    The date-randomisation test asks the question properly. Shuffle the sampling
+    dates among the tips, so the tree and the sequences are untouched and only the
+    date-to-tip assignment is destroyed, then re-estimate the clock rate. If the
+    real rate is indistinguishable from rates estimated on randomised dates, the
+    rate is being driven by tree shape rather than by time, and every date in the
+    analysis (TMRCA, node ages, the whole timescale) is unidentifiable.
+
+    Two criteria are in use and they disagree, so both are reported:
+
+      STRICT (Duan et al. 2016; Murray et al. 2016)
+          the real rate's 95% HPD must not overlap the HPD of ANY replicate.
+
+      PERMISSIVE (Ramsden et al. 2008, as originally applied)
+          the real point estimate must fall outside the range of the replicate
+          point estimates.
+
+    The verdict uses the strict form, because the permissive one is passed routinely
+    by datasets that go on to produce unstable TMRCAs: comparing a point estimate
+    against point estimates ignores that the replicate posteriors are often very
+    wide, and a real rate sitting just outside a cloud of overlapping intervals is
+    not distinguishable from them.
+
+    The verdict is ``pass``, ``weak``, ``fail`` or ``inconclusive``; the exit code
+    is 1 on ``fail`` only with ``--exit-nonzero-on-fail``, and 1 on unreadable
+    input.
     """
     missing = [p for p in [args.real, *args.reps] if not p.is_file()]
     if missing:
@@ -1567,11 +1596,43 @@ def add_arguments_compare(parser: argparse.ArgumentParser) -> None:
 
 @step("gates", "compare", "What changed since the last build, and is it a finding")
 def compare(args: argparse.Namespace) -> int:
-    """Compare the newest dated build against the one before it.
+    """Compare the newest dated build against the one before it: what changed, and is it a finding?
 
-    Exit code is non-zero when something regressed, so CI opens an issue rather
-    than publishing quietly. A first build has nothing to compare against and
-    exits 0; ``--exit-zero`` forces 0.
+    A scheduled rebuild produces a new tree every month, and a new tree always
+    differs from the old one. Without a comparison step the only signal available is
+    whether the pipeline exited zero, and a pipeline exits zero just as happily when
+    a curation rule change has silently dropped two hundred sequences or when the
+    TMRCA has moved forty years.
+
+    The framing that matters: a large change between builds is a CURATION REGRESSION
+    until shown otherwise. New data arriving monthly moves a TMRCA by months, not
+    decades. A dataset that shrinks has almost always lost records to a changed
+    query rather than to GenBank withdrawals. Treating these as discoveries is how a
+    pipeline publishes its own bugs.
+
+    What is compared is whatever both builds have, because CI and a full local run
+    leave different artefacts behind:
+
+      accession lists   count, and WHICH accessions came and went. A count can be
+                        unchanged while the composition turns over completely, and
+                        that is invisible to a count-only check.
+      temporal signal   the gate verdict, R^2 and the clock slope. A verdict that
+                        drops from pass to fail between builds is the single most
+                        informative regression available, because everything
+                        downstream is conditioned on it.
+      gate verdicts     convergence, trait signal, date randomisation, per clade.
+      TMRCA             from the Auspice JSON when there is one, against
+                        alert_on_tmrca_shift_years.
+
+    Deliberately NOT compared: tree topology. Two trees built from overlapping data
+    differ in ways that are mostly reordering of equally-supported splits, so a
+    topological distance between builds is large, noisy, and uninformative about
+    whether anything is wrong. The quantities above are the ones where a change has
+    an interpretation.
+
+    Exit code is non-zero when something regressed, so CI opens an issue rather than
+    publishing quietly. A first build has nothing to compare against and exits 0;
+    ``--exit-zero`` forces 0.
     """
     pathogen = args.pathogen or args.builds_dir.name
     builds = dated_builds(args.builds_dir)

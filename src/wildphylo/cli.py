@@ -7,14 +7,18 @@ dispatches. See ``docs/PLAN-stages.md`` for the interface and ``GLOSSARY.md``
 for the terms.
 
 Every step is a function ``run(args: argparse.Namespace) -> int`` paired with
-an ``add_arguments(parser)`` hook. The exit code is the gate verdict: 0 for
-pass or warn, non-zero for fail, so Snakemake stops on a failing gate.
+an ``add_arguments(parser)`` hook. The run function's docstring is the step's
+``--help`` description, so it carries the rationale, not just a summary.
+
+The exit code is the gate verdict: 0 for pass or warn, non-zero for fail, so
+Snakemake stops on a failing gate.
 """
 
 from __future__ import annotations
 
 import argparse
 import importlib
+import inspect
 import logging
 import sys
 from collections.abc import Callable, Sequence
@@ -87,6 +91,16 @@ def steps(stage: str) -> dict[str, Step]:
     return dict(_REGISTRY[stage])
 
 
+def _description(item: Step) -> str:
+    """The step's ``--help`` text: its run function's docstring, else the one-liner.
+
+    The docstring is where a step's rationale lives (why it exists, what it
+    checks, how to read the output), so ``wildphylo <stage> <step> --help`` shows
+    it. ``help`` stays the one-line entry in the stage's step list.
+    """
+    return inspect.getdoc(item.run) or item.help
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the full parser: every stage, every step."""
     parser = argparse.ArgumentParser(
@@ -99,7 +113,12 @@ def build_parser() -> argparse.ArgumentParser:
         stage_parser = by_stage.add_parser(stage, help=f"{stage} stage")
         by_step = stage_parser.add_subparsers(dest="step", metavar="STEP", required=True)
         for item in steps(stage).values():
-            step_parser = by_step.add_parser(item.name, help=item.help, description=item.help)
+            step_parser = by_step.add_parser(
+                item.name,
+                help=item.help,
+                description=_description(item),
+                formatter_class=argparse.RawDescriptionHelpFormatter,
+            )
             item.add_arguments(step_parser)
             step_parser.set_defaults(_run=item.run)
     return parser

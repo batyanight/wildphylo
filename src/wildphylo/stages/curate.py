@@ -1,34 +1,7 @@
-r"""curate stage: normalise metadata and extract loci, for any taxon.
+"""curate stage: normalise metadata and extract loci, for any taxon.
 
-Config-driven and multi-locus. Host table, locus aliases, date plausibility
-bounds and exclusion thresholds all come from the pathogen config, so a new
-taxon needs a new config rather than code edits. A segmented pathogen declares
-``loci`` and gets one FASTA per analysed segment.
-
-    wildphylo curate metadata --config config/pathogen/cdv.yaml \
-        --gb data/raw/cdv.gb --out-dir data/interim
-
-Outputs, all in ``--out-dir``:
-
-    metadata_all.tsv      every parsed record, nothing dropped
-    metadata_clean.tsv    records that survived exclusion
-    exclusions.tsv        what was dropped, with a machine-readable reason
-    needs_review.tsv      records a human should adjudicate
-    flagged.tsv           sequence-property flags that need no decision
-    <locus>.fasta         one per analysed locus, tip labels already built
-    <locus>_anchors.fasta reference anchors for the locus (possibly empty)
-
-Tip labels are ``ACCESSION|host_group|decimal_year``, which is the contract
-every downstream step reads.
-
-Nothing is dropped silently. Every exclusion carries a reason and lands in
-exclusions.tsv; anything ambiguous lands in needs_review.tsv rather than being
-guessed at.
-
-``wildphylo curate review`` is the review gate: it refuses to proceed while
-needs_review.tsv is non-empty.
-
-Exit codes of ``curate metadata``: 0 success, 1 nothing usable, 2 bad usage.
+Steps: ``metadata`` (records to tables and per-locus FASTA files) and ``review``
+(the gate that refuses to proceed while ``needs_review.tsv`` has rows).
 """
 
 from __future__ import annotations
@@ -315,7 +288,35 @@ def add_arguments_metadata(parser: argparse.ArgumentParser) -> None:
 
 @step("curate", "metadata", "Normalise hosts, parse dates and extract loci from GenBank records")
 def metadata(args: argparse.Namespace) -> int:
-    """Curate a GenBank flat file into metadata tables and per-locus FASTA files."""
+    """Normalise metadata and extract loci from GenBank records, for any taxon.
+
+    Config-driven and multi-locus. Host table, locus aliases, date plausibility
+    bounds and exclusion thresholds all come from the pathogen config, so a new
+    taxon needs a new config rather than code edits. A segmented pathogen declares
+    ``loci`` and gets one FASTA per analysed segment.
+
+        wildphylo curate metadata --config config/pathogen/cdv.yaml --gb cdv.gb --out-dir DIR
+
+    Outputs, all in ``--out-dir``:
+
+        metadata_all.tsv      every parsed record, nothing dropped
+        metadata_clean.tsv    records that survived exclusion
+        exclusions.tsv        what was dropped, with a machine-readable reason
+        needs_review.tsv      records a human should adjudicate
+        flagged.tsv           sequence-property flags that need no decision
+        <locus>.fasta         one per analysed locus, tip labels already built
+        <locus>_anchors.fasta reference anchors for the locus (possibly empty)
+
+    Tip labels are ``ACCESSION|host_group|decimal_year``, which is the contract
+    every downstream step reads.
+
+    Nothing is dropped silently. Every exclusion carries a reason and lands in
+    exclusions.tsv; anything ambiguous lands in needs_review.tsv rather than being
+    guessed at. ``wildphylo curate review`` then refuses to proceed while
+    needs_review.tsv is non-empty.
+
+    Exit codes: 0 success, 1 nothing usable, 2 bad usage.
+    """
     try:
         cfg = load(args.config)
     except ConfigError as e:
