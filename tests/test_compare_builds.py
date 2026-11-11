@@ -14,8 +14,11 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from wildphylo import cli
+from wildphylo import config as cfgmod
+from wildphylo.layout import BuildLayout
 from wildphylo.stages import gates
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -306,3 +309,64 @@ def test_cli_help_works(capsys):
     rc = exc.value.code
     assert rc == 0
     assert "usage:" in capsys.readouterr().out.lower()
+
+
+# --- --build-dir ------------------------------------------------------------
+
+CDV_CONFIG = ROOT / "tests" / "fixtures" / "configs" / "cdv.yaml"
+
+
+def _two_builds(tmp_path):
+    """Two dated builds of the cdv fixture config; the newer one has its Auspice dataset."""
+    cfg = cfgmod.load(CDV_CONFIG)
+    root = tmp_path / "builds" / cfg["id"]
+    make_build(root, "20260901", accs=["A"], tmrca=1965.0)
+    make_build(root, "20261001", accs=["A"])
+    layout = BuildLayout.at(root / "20261001", cfg)
+    layout.auspice_dataset(cfg["nextstrain"]["build_name"]).parent.mkdir(parents=True)
+    layout.auspice_dataset(cfg["nextstrain"]["build_name"]).write_text(json.dumps(auspice(1964.8)))
+    return layout
+
+
+def test_build_dir_compares_against_the_sibling_builds_and_writes_into_the_build(tmp_path):
+    layout = _two_builds(tmp_path)
+    rc = cli.main(
+        ["gates", "compare", "--config", str(CDV_CONFIG), "--build-dir", str(layout.root)]
+    )
+    assert rc == 0
+    assert "TMRCA" in layout.build_comparison().read_text(), "the build's own dataset was used"
+    assert json.loads(layout.build_comparison_json().read_text())
+
+
+def test_build_dir_without_an_auspice_dataset_still_compares(tmp_path):
+    layout = _two_builds(tmp_path)
+    for path in layout.root.joinpath("auspice").iterdir():
+        path.unlink()
+    rc = cli.main(
+        ["gates", "compare", "--config", str(CDV_CONFIG), "--build-dir", str(layout.root)]
+    )
+    assert rc == 0
+    assert layout.build_comparison().is_file()
+
+
+def test_an_explicit_flag_beats_the_build_dir_default(tmp_path):
+    layout = _two_builds(tmp_path)
+    elsewhere = tmp_path / "elsewhere.md"
+    argv = ["gates", "compare", "--config", str(CDV_CONFIG), "--build-dir", str(layout.root)]
+    assert cli.main([*argv, "--out", str(elsewhere)]) == 0
+    assert elsewhere.is_file()
+    assert not layout.build_comparison().exists()
+    assert layout.build_comparison_json().is_file()
+
+
+def test_the_sequence_loss_policy_follows_the_config_unless_a_flag_overrides_it(tmp_path):
+    cfg = yaml.safe_load(CDV_CONFIG.read_text())
+    cfg["nextstrain"]["update"]["alert_on_sequence_loss"] = False
+    config = tmp_path / "cdv.yaml"
+    config.write_text(yaml.safe_dump(cfg))
+    root = tmp_path / "builds" / cfg["id"]
+    make_build(root, "20260901", accs=["A", "B", "C"])
+    make_build(root, "20261001", accs=["A"])
+    argv = ["gates", "compare", "--config", str(config), "--build-dir", str(root / "20261001")]
+    assert cli.main(argv) == 0, "alert_on_sequence_loss: false in the config"
+    assert cli.main([*argv, "--alert-on-sequence-loss"]) == 1

@@ -25,8 +25,11 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import yaml
 
 from wildphylo import cli
+from wildphylo import config as cfgmod
+from wildphylo.layout import BuildLayout
 from wildphylo.stages import gates
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -255,3 +258,61 @@ def test_cli_help_works(capsys):
     rc = exc.value.code
     assert rc == 0
     assert "usage:" in capsys.readouterr().out.lower()
+
+
+# --- --build-dir ------------------------------------------------------------
+
+CDV_CONFIG = ROOT / "tests" / "fixtures" / "configs" / "cdv.yaml"
+
+
+def _drt_build(tmp_path, n_reps=6):
+    """A build whose real rate sits among its replicates' rates, so the DRT fails.
+
+    cdv.yaml asks for 20 replicates; a config copy asks for ``n_reps`` to keep this quick.
+    """
+    cfg = yaml.safe_load(CDV_CONFIG.read_text())
+    cfg["beast"]["date_randomisation"]["replicates"] = n_reps
+    config = tmp_path / "cdv.yaml"
+    config.write_text(yaml.safe_dump(cfg))
+    layout = BuildLayout.at(tmp_path / "cdv" / "20261101", cfgmod.load(config))
+    layout.combined_log("H").parent.mkdir(parents=True)
+    write_log(layout.combined_log("H"), 2.0e-4, 3e-5, seed=1)
+    rng = np.random.default_rng(7)
+    for rep in range(1, n_reps + 1):
+        layout.drt_log("H", str(rep)).parent.mkdir(parents=True)
+        write_log(layout.drt_log("H", str(rep)), rng.normal(2.0e-4, 2.5e-5), 3e-5, seed=100 + rep)
+    return layout, config
+
+
+def test_build_dir_finds_the_combined_log_and_every_replicate(tmp_path):
+    layout, config = _drt_build(tmp_path)
+    argv = ["gates", "drt", "--config", str(config), "--build-dir", str(layout.root)]
+    rc = cli.main([*argv, "--locus", "H"])
+    doc = json.loads(layout.drt_summary("H").read_text())
+    assert len(doc["replicates"]) == 6, "beast.date_randomisation.replicates, numbered from 1"
+    assert doc["verdict"] == "fail"
+    assert rc == 1, "date_randomisation.on_fail is 'stop' in cdv.yaml"
+    assert layout.drt_plot("H").is_file()
+
+
+def test_explicit_flags_beat_the_build_dir_defaults(tmp_path):
+    layout, config = _drt_build(tmp_path)
+    elsewhere = tmp_path / "elsewhere.json"
+    argv = ["gates", "drt", "--config", str(config), "--build-dir", str(layout.root)]
+    argv += ["--locus", "H", "--out-json", str(elsewhere), "--no-exit-nonzero-on-fail"]
+    assert cli.main(argv) == 0
+    assert elsewhere.is_file()
+    assert not layout.drt_summary("H").exists()
+
+
+def test_build_dir_with_a_missing_replicate_log_is_an_error(tmp_path):
+    layout, config = _drt_build(tmp_path)
+    layout.drt_log("H", "3").unlink()
+    argv = ["gates", "drt", "--config", str(config), "--build-dir", str(layout.root)]
+    assert cli.main([*argv, "--locus", "H"]) == 1
+
+
+def test_build_dir_without_a_locus_is_a_usage_error(tmp_path):
+    layout, config = _drt_build(tmp_path)
+    argv = ["gates", "drt", "--config", str(config), "--build-dir", str(layout.root)]
+    assert cli.main(argv) == 2

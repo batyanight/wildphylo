@@ -9,16 +9,21 @@ localised rather than just registering as "the trees differ".
 
 import io
 import json
+from pathlib import Path
 
 from Bio import Phylo
 
 from wildphylo import cli
+from wildphylo import config as cfgmod
+from wildphylo.layout import BuildLayout
 from wildphylo.segments import (
     assess_congruence,
     find_reassortant_candidates,
     normalised_rf,
     splits,
 )
+
+BTV_CONFIG = Path(__file__).parents[1] / "config" / "pathogen" / "btv.yaml"
 
 
 def t(newick):
@@ -253,3 +258,45 @@ def test_cli_refuses_a_single_tree_and_mismatched_names(tmp_path):
     assert cli.main(["gates", "congruence", "--trees", trees[0], "--out-json", out]) == 2
     args = ["gates", "congruence", "--trees", *trees, "--names", "only_one", "--out-json", out]
     assert cli.main(args) == 2
+
+
+# --- gates congruence --build-dir ---------------------------------------------
+
+
+def _segmented_build(tmp_path):
+    """A build of the shipped BTV config holding an ML tree for every analysed locus."""
+    cfg = cfgmod.load(BTV_CONFIG)
+    layout = BuildLayout.at(tmp_path / "btv" / "20261101", cfg)
+    loci = [item["name"] for item in cfg["loci"] if item.get("analyse")]
+    for locus in loci:
+        layout.ml_tree(locus).parent.mkdir(parents=True, exist_ok=True)
+        layout.ml_tree(locus).write_text(CONGRUENT)
+    return layout, loci
+
+
+def test_cli_build_dir_compares_the_analysed_loci_and_writes_into_the_build(tmp_path):
+    layout, loci = _segmented_build(tmp_path)
+    rc = cli.main(
+        ["gates", "congruence", "--config", str(BTV_CONFIG), "--build-dir", str(layout.root)]
+    )
+    assert rc == 0
+    doc = json.loads(layout.congruence_report().read_text())
+    assert all(locus in json.dumps(doc) for locus in loci), "trees must be named by locus"
+    assert layout.congruence_md().is_file()
+    assert layout.reassortant_candidates().is_file()
+
+
+def test_cli_explicit_trees_beat_the_build_dir_default(tmp_path):
+    layout, _ = _segmented_build(tmp_path)
+    trees = _write_trees(tmp_path, CONGRUENT, CONGRUENT)
+    out = tmp_path / "elsewhere.json"
+    argv = ["gates", "congruence", "--config", str(BTV_CONFIG), "--build-dir", str(layout.root)]
+    assert cli.main([*argv, "--trees", *trees, "--out-json", str(out)]) == 0
+    doc = json.loads(out.read_text())
+    assert "seg0" in json.dumps(doc), "explicit trees keep the filename-derived names"
+    assert not layout.congruence_report().exists()
+
+
+def test_cli_build_dir_needs_a_config(tmp_path):
+    layout, _ = _segmented_build(tmp_path)
+    assert cli.main(["gates", "congruence", "--build-dir", str(layout.root)]) == 2

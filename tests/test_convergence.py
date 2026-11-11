@@ -16,6 +16,8 @@ import numpy as np
 import pytest
 
 from wildphylo import beastlog, cli
+from wildphylo import config as cfgmod
+from wildphylo.layout import BuildLayout
 from wildphylo.stages import gates
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -308,3 +310,50 @@ def test_cli_help_works(capsys):
     rc = exc.value.code
     assert rc == 0
     assert "usage:" in capsys.readouterr().out.lower()
+
+
+# --- --build-dir ------------------------------------------------------------
+
+CDV_CONFIG = ROOT / "tests" / "fixtures" / "configs" / "cdv.yaml"
+
+
+def _chains(tmp_path):
+    """Two healthy chains laid out as the build expects: one log per ``beast.seeds`` entry."""
+    cfg = cfgmod.load(CDV_CONFIG)
+    layout = BuildLayout.at(tmp_path / "cdv" / "20261101", cfg)
+    for i, seed in enumerate(cfg["beast"]["seeds"]):
+        layout.beast_log("H", str(seed)).parent.mkdir(parents=True, exist_ok=True)
+        write_log(layout.beast_log("H", str(seed)), ["posterior", "clockRate"], seed=i + 1)
+    return layout
+
+
+def test_build_dir_reads_every_seeds_log_and_writes_beside_them(tmp_path):
+    layout = _chains(tmp_path)
+    argv = ["gates", "convergence", "--config", str(CDV_CONFIG), "--build-dir", str(layout.root)]
+    rc = cli.main([*argv, "--locus", "H"])
+    assert rc == 0
+    doc = json.loads(layout.convergence_report("H").read_text())
+    assert doc["n_chains"] == 2
+    assert doc["burnin"] == pytest.approx(0.10), "from beast.burnin_fraction"
+    assert layout.combined_log("H").is_file()
+
+
+def test_build_dir_explicit_flags_win_including_min_ess(tmp_path):
+    layout = _chains(tmp_path)
+    elsewhere = tmp_path / "elsewhere.json"
+    argv = ["gates", "convergence", "--config", str(CDV_CONFIG), "--build-dir", str(layout.root)]
+    rc = cli.main([*argv, "--locus", "H", "--out-json", str(elsewhere), "--min-ess", "100000"])
+    assert rc == 1, "an explicit --min-ess beats beast.min_ess under --build-dir"
+    assert json.loads(elsewhere.read_text())["min_ess"] == 100000
+    assert not layout.convergence_report("H").exists()
+    assert layout.combined_log("H").is_file(), "outputs not overridden still use the layout"
+
+
+def test_build_dir_without_a_locus_is_a_usage_error(tmp_path):
+    layout = _chains(tmp_path)
+    argv = ["gates", "convergence", "--config", str(CDV_CONFIG), "--build-dir", str(layout.root)]
+    assert cli.main(argv) == 2
+
+
+def test_without_build_dir_the_logs_are_still_required():
+    assert cli.main(["gates", "convergence"]) == 2

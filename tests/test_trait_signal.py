@@ -15,12 +15,15 @@ module docstring describes.
 from __future__ import annotations
 
 import random
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 from wildphylo import cli, newick
+from wildphylo import config as cfgmod
 from wildphylo import traitsignal as ts
+from wildphylo.layout import BuildLayout
 from wildphylo.stages import gates
 
 FOUR = "((A:1,B:1):1,(C:1,D:1):1);"
@@ -480,3 +483,63 @@ def test_beast_run_declares_the_trait_tree_file(repo_root):
     """
     sf = (repo_root / "workflow" / "Snakefile").read_text()
     assert "trait_trees" in sf
+
+
+# --- --build-dir ------------------------------------------------------------
+
+CDV_CONFIG = Path(__file__).parent / "fixtures" / "configs" / "cdv.yaml"
+
+
+def _trait_build(tmp_path):
+    """Trait trees for each ``beast.seeds`` chain, where the layout puts them."""
+    cfg = cfgmod.load(CDV_CONFIG)
+    layout = BuildLayout.at(tmp_path / "cdv" / "20261101", cfg)
+    for seed in cfg["beast"]["seeds"]:
+        path = layout.beast_trait_trees("H", str(seed))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(NEXUS)
+    return layout
+
+
+def test_build_dir_reads_each_chains_trait_trees_and_writes_the_reports(tmp_path):
+    import json
+
+    layout = _trait_build(tmp_path)
+    argv = ["gates", "trait-signal", "--config", str(CDV_CONFIG)]
+    rc = cli.main([*argv, "--build-dir", str(layout.root), "--locus", "H"])
+    doc = json.loads(layout.trait_signal_report("H").read_text())
+    assert layout.trait_signal_md("H").is_file()
+    # on_no_signal is 'stop' in cdv.yaml, so a fail verdict exits 1 and any other 0
+    assert rc == (1 if doc["verdict"] == "fail" else 0)
+
+
+def test_build_dir_exit_policy_follows_the_config_unless_a_flag_overrides_it(tmp_path):
+    layout = _trait_build(tmp_path)
+    base = ["gates", "trait-signal", "--config", str(CDV_CONFIG)]
+    base += ["--build-dir", str(layout.root), "--locus", "H"]
+    # permutations=1 makes the smallest p 0.5, so the 4-tip tree cannot be a 'pass'
+    out = tmp_path / "ts.json"
+    args = [*base, "--permutations", "1", "--out-json", str(out)]
+    rc = cli.main(args)
+    verdict_fail = __import__("json").loads(out.read_text())["verdict"] == "fail"
+    assert rc == (1 if verdict_fail else 0)
+    assert cli.main([*args, "--no-exit-nonzero-on-fail"]) == 0
+
+
+def test_an_explicit_trees_flag_beats_the_build_dir_default(tmp_path):
+    layout = _trait_build(tmp_path)
+    one = tmp_path / "one.trees"
+    one.write_text(NEXUS)
+    out = tmp_path / "elsewhere.json"
+    argv = ["gates", "trait-signal", "--config", str(CDV_CONFIG), "--build-dir", str(layout.root)]
+    args = [*argv, "--locus", "H", "--trees", str(one), "--out-json", str(out)]
+    cli.main([*args, "--no-exit-nonzero-on-fail"])
+    assert out.is_file()
+    assert not layout.trait_signal_report("H").exists()
+    assert layout.trait_signal_md("H").is_file(), "outputs not overridden still use the layout"
+
+
+def test_build_dir_without_a_locus_is_a_usage_error(tmp_path):
+    layout = _trait_build(tmp_path)
+    argv = ["gates", "trait-signal", "--config", str(CDV_CONFIG), "--build-dir", str(layout.root)]
+    assert cli.main(argv) == 2

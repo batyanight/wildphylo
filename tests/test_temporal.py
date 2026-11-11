@@ -7,10 +7,13 @@ a guess into a result.
 """
 
 import random
+from pathlib import Path
 
 import pytest
 
 from wildphylo import cli
+from wildphylo import config as cfgmod
+from wildphylo.layout import BuildLayout
 from wildphylo.temporal import (
     assess,
     permutation_test,
@@ -205,3 +208,61 @@ def test_exit_code_can_be_opted_into_for_shell_use(tmp_path):
     )
     assert rc == 1
     assert out.is_file(), "the report must survive even when exiting non-zero"
+
+
+# --- --build-dir ------------------------------------------------------------
+
+CDV_CONFIG = Path(__file__).parent / "fixtures" / "configs" / "cdv.yaml"
+SIX_TIPS = "((A:0.9,B:0.1):0.5,(C:0.8,D:0.2):0.4,(E:0.7,F:0.3):0.6);"
+
+
+def _temporal_build(tmp_path):
+    """A build directory holding what ``gates temporal`` reads: the ML tree and the metadata."""
+    layout = BuildLayout.at(tmp_path / "cdv" / "20261101", cfgmod.load(CDV_CONFIG))
+    layout.ml_tree("H").parent.mkdir(parents=True)
+    layout.ml_tree("H").write_text(SIX_TIPS)
+    layout.metadata().parent.mkdir(parents=True)
+    rows = ["name\tdecimal_year"] + [f"{n}\t{2001 + i}.0" for i, n in enumerate("ABCDEF")]
+    layout.metadata().write_text("\n".join(rows) + "\n")
+    return layout
+
+
+def test_build_dir_finds_inputs_and_writes_outputs_where_the_layout_says(tmp_path):
+    layout = _temporal_build(tmp_path)
+    argv = ["gates", "temporal", "--config", str(CDV_CONFIG)]
+    rc = cli.main([*argv, "--build-dir", str(layout.root), "--locus", "H"])
+    assert rc == 0
+    assert layout.temporal_report("H").is_file()
+    assert layout.temporal_report_md("H").is_file()
+    assert layout.temporal_plot("H").is_file()
+
+
+def test_build_dir_takes_thresholds_from_the_config(tmp_path):
+    import json
+
+    layout = _temporal_build(tmp_path)
+    argv = ["gates", "temporal", "--config", str(CDV_CONFIG)]
+    cli.main([*argv, "--build-dir", str(layout.root), "--locus", "H"])
+    # cdv.yaml: permutations 1000, so the report records 1000 shuffles
+    assert json.loads(layout.temporal_report("H").read_text())["permutation_n"] == 1000
+
+
+def test_an_explicit_flag_beats_the_build_dir_default(tmp_path):
+    layout = _temporal_build(tmp_path)
+    elsewhere = tmp_path / "elsewhere.json"
+    argv = ["gates", "temporal", "--config", str(CDV_CONFIG), "--build-dir", str(layout.root)]
+    rc = cli.main([*argv, "--locus", "H", "--out-json", str(elsewhere), "--permutations", "50"])
+    assert rc == 0
+    assert elsewhere.is_file()
+    assert not layout.temporal_report("H").exists()
+
+
+def test_build_dir_without_a_locus_or_config_is_a_usage_error(tmp_path):
+    layout = _temporal_build(tmp_path)
+    assert cli.main(["gates", "temporal", "--build-dir", str(layout.root), "--locus", "H"]) == 2
+    argv = ["gates", "temporal", "--config", str(CDV_CONFIG), "--build-dir", str(layout.root)]
+    assert cli.main(argv) == 2
+
+
+def test_without_build_dir_the_tree_and_output_are_still_required(tmp_path):
+    assert cli.main(["gates", "temporal", "--out-json", str(tmp_path / "r.json")]) == 2

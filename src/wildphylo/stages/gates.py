@@ -13,10 +13,15 @@ Steps:
 Exit codes follow each gate's own rule (documented on the step function); the
 temporal, trait-signal and drt gates return 0 on a ``fail`` verdict unless
 ``--exit-nonzero-on-fail`` is given, so the report always survives.
+
+Every step takes ``--build-dir`` (with ``--config``): each input, output and
+tuning flag not given explicitly then defaults to the build layout
+(:class:`wildphylo.layout.BuildLayout`) or the config. See :func:`_resolve`.
 """
 
 from __future__ import annotations
 
+import argparse
 import contextlib
 import csv
 import json
@@ -39,16 +44,151 @@ from wildphylo.beastlog import (
 )
 from wildphylo.cli import step
 from wildphylo.config import ConfigError, load
+from wildphylo.layout import BuildLayout
 from wildphylo.preflight import Checks, check_convergence
 from wildphylo.segments import assess_congruence
 from wildphylo.temporal import assess as assess_temporal_signal
 
 if TYPE_CHECKING:
-    import argparse
+    from collections.abc import Callable, Iterable
 
     from Bio.Phylo.BaseTree import Tree
 
 log = logging.getLogger(__name__)
+
+
+# ===========================================================================
+# --build-dir: defaults from the build layout and the config
+# ===========================================================================
+
+
+class _UsageError(Exception):
+    """A flag combination a step cannot act on; the message names the fix."""
+
+
+@dataclass(frozen=True)
+class _Build:
+    """What ``--build-dir`` resolves against: the layout, the config and the flags given."""
+
+    layout: BuildLayout
+    cfg: dict[str, Any]
+    args: argparse.Namespace
+
+    def need(self, flag: str) -> str:
+        """The value of a per-locus flag such as ``locus``; an error when it was not given."""
+        value = getattr(self.args, flag, None)
+        if not value:
+            msg = f"--{flag} is needed"
+            raise _UsageError(msg)
+        return str(value)
+
+    def setting(self, *keys: str) -> Any:
+        """``cfg[k1][k2]...``, or None when any level is absent."""
+        node: Any = self.cfg
+        for key in keys:
+            if not isinstance(node, dict):
+                return None
+            node = node.get(key)
+        return node
+
+    def loci(self) -> list[str]:
+        """Analysed loci as the Snakefile lists them: ``loci`` with ``analyse``, else ``locus``."""
+        if "loci" in self.cfg:
+            return [str(item["name"]) for item in self.cfg["loci"] if item.get("analyse")]
+        return [str(self.cfg["locus"]["name"])]
+
+    def seeds(self) -> list[str]:
+        """``beast.seeds``, one BEAST chain each."""
+        seeds = self.setting("beast", "seeds") or []
+        if not seeds:
+            msg = "beast.seeds is empty in the config"
+            raise _UsageError(msg)
+        return [str(seed) for seed in seeds]
+
+
+def _add_build_arguments(
+    parser: argparse.ArgumentParser, *, config: bool = True, locus: bool = True
+) -> None:
+    """``--build-dir``, ``--config`` (unless the step already has one) and ``--locus``."""
+    parser.add_argument(
+        "--build-dir",
+        type=Path,
+        help="Build directory (builds/<id>/<YYYYMMDD>). Every path flag not given "
+        "explicitly defaults to its place in the build layout; needs --config.",
+    )
+    if config:
+        parser.add_argument(
+            "--config",
+            type=Path,
+            help="Pathogen config. Required with --build-dir, which takes tuning "
+            "defaults from it too.",
+        )
+    if locus:
+        parser.add_argument(
+            "--locus",
+            help="Locus whose files --build-dir selects (needed unless paths are given).",
+        )
+
+
+def _given(value: object) -> bool:
+    return value is not None and value != []
+
+
+def _flag(name: str) -> str:
+    return "--" + name.replace("_", "-")
+
+
+def _resolve(
+    args: argparse.Namespace,
+    *,
+    derived: dict[str, Callable[[_Build], Any]] | None = None,
+    required: Iterable[str] = (),
+    fallbacks: dict[str, Any] | None = None,
+) -> bool:
+    """Fill the flags a step was not given; False (error logged) when it cannot run.
+
+    Precedence for each flag: the value on the command line; else, with
+    ``--build-dir``, ``derived[name](build)`` (a layout path or a config
+    value; None means "no default"); else ``fallbacks[name]``. A flag in
+    ``required`` still unset at the end is an error, which is what
+    ``required=True`` on the argparse flag used to be. Without ``--build-dir``
+    nothing is derived, so behaviour is exactly the explicit flags.
+    """
+    try:
+        if args.build_dir is not None:
+            if args.config is None:
+                msg = "--build-dir needs --config"
+                raise _UsageError(msg)  # noqa: TRY301 -- one handler for every usage error
+            try:
+                cfg = load(args.config)
+            except ConfigError as e:
+                raise _UsageError(str(e)) from e
+            build = _Build(BuildLayout.at(args.build_dir, cfg), cfg, args)
+            for name, default in (derived or {}).items():
+                if _given(getattr(args, name)):
+                    continue
+                try:
+                    value = default(build)
+                except (_UsageError, ValueError) as e:
+                    msg = f"cannot default {_flag(name)} from --build-dir: {e}"
+                    raise _UsageError(msg) from e
+                if value is not None:
+                    setattr(args, name, value)
+                    log.debug("%s defaults to %s", _flag(name), value)
+                    if name.startswith("out"):
+                        # Snakemake made output directories for us; a bare --build-dir run must.
+                        Path(value).parent.mkdir(parents=True, exist_ok=True)
+        for name, value in (fallbacks or {}).items():
+            if getattr(args, name) is None:
+                setattr(args, name, value)
+        missing = [_flag(name) for name in required if not _given(getattr(args, name))]
+        if missing:
+            msg = f"missing {', '.join(missing)} (or give --build-dir with --config)"
+            raise _UsageError(msg)  # noqa: TRY301
+    except _UsageError as e:
+        log.error("%s", e)  # noqa: TRY400 -- message only, no traceback
+        return False
+    return True
 
 
 # ===========================================================================
@@ -83,14 +223,21 @@ def midpoint_root(tree: Tree) -> Tree:
 
 def add_arguments_temporal(parser: argparse.ArgumentParser) -> None:
     """Flags of ``wildphylo gates temporal``."""
-    parser.add_argument("--tree", required=True)
+    _add_build_arguments(parser)
+    parser.add_argument("--tree", help="Required unless --build-dir.")
     parser.add_argument("--tree-format", default="newick")
     parser.add_argument("--metadata", help="TSV with columns name/strain and decimal_year")
-    parser.add_argument("--permutations", type=int, default=1000)
-    parser.add_argument("--min-r2", type=float, default=0.10)
-    parser.add_argument("--min-span", type=float, default=5.0)
+    parser.add_argument(
+        "--permutations", type=int, help="Default 1000, or temporal_signal.permutations."
+    )
+    parser.add_argument(
+        "--min-r2", type=float, help="Default 0.10, or temporal_signal.min_r_squared."
+    )
+    parser.add_argument(
+        "--min-span", type=float, help="Default 5.0, or temporal_signal.min_span_years."
+    )
     parser.add_argument("--no-midpoint-root", action="store_true")
-    parser.add_argument("--out-json", required=True)
+    parser.add_argument("--out-json", help="Required unless --build-dir.")
     parser.add_argument("--out-md")
     # A FAIL verdict is a result, not a crash. Exiting non-zero made Snakemake
     # treat the rule as failed and DELETE the report -- which is the single
@@ -144,6 +291,7 @@ def _plot_root_to_tip(
         fig.tight_layout()
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(path, dpi=150)
+        plt.close(fig)
     except Exception as e:  # noqa: BLE001 -- a missing plot must never fail the gate
         log.info("NOTE: plot skipped (%s)", e)
 
@@ -156,8 +304,28 @@ def temporal(args: argparse.Namespace) -> int:
     ACCESSION|group|decimal_year, or dates can be supplied via ``--metadata``.
 
     Exit code is 0 on pass/weak and also on fail unless ``--exit-nonzero-on-fail``
-    is given; 1 when fewer than three tips carry a usable date.
+    is given; 1 when fewer than three tips carry a usable date; 2 for unusable flags.
+
+    With ``--build-dir`` and ``--config`` (and ``--locus``) the tree, metadata,
+    outputs and thresholds default to the build layout and ``temporal_signal``.
     """
+    if not _resolve(
+        args,
+        derived={
+            "tree": lambda b: b.layout.ml_tree(b.need("locus")),
+            "metadata": lambda b: b.layout.metadata(),
+            "out_json": lambda b: b.layout.temporal_report(b.need("locus")),
+            "out_md": lambda b: b.layout.temporal_report_md(b.need("locus")),
+            "out_plot": lambda b: b.layout.temporal_plot(b.need("locus")),
+            "permutations": lambda b: b.setting("temporal_signal", "permutations"),
+            "min_r2": lambda b: b.setting("temporal_signal", "min_r_squared"),
+            "min_span": lambda b: b.setting("temporal_signal", "min_span_years"),
+        },
+        required=("tree", "out_json"),
+        fallbacks={"permutations": 1000, "min_r2": 0.10, "min_span": 5.0},
+    ):
+        return 2
+
     from Bio import Phylo
 
     tree = Phylo.read(args.tree, args.tree_format)  # type: ignore[attr-defined,no-untyped-call]
@@ -261,30 +429,40 @@ def temporal(args: argparse.Namespace) -> int:
 
 def add_arguments_congruence(parser: argparse.ArgumentParser) -> None:
     """Flags of ``wildphylo gates congruence``."""
-    parser.add_argument("--trees", nargs="+", required=True)
+    _add_build_arguments(parser, locus=False)
+    parser.add_argument(
+        "--trees",
+        nargs="+",
+        help="Segment trees. Required unless --build-dir, which takes the ML tree of "
+        "every analysed locus.",
+    )
     parser.add_argument(
         "--names",
         nargs="+",
-        help="Segment names, in the same order as --trees. Defaults to the tree filenames.",
+        help="Segment names, in the same order as --trees. Defaults to the tree "
+        "filenames, or to the locus names when --trees came from --build-dir.",
     )
     parser.add_argument("--tree-format", default="newick")
     parser.add_argument(
         "--collapse-support",
         type=float,
-        default=70.0,
         help="Ignore splits below this support before comparing. "
-        "Set to a negative number to disable.",
+        "Set to a negative number to disable. Default 70, or segments.collapse_support.",
     )
     parser.add_argument("--congruent-max-rf", type=float, default=0.15)
     parser.add_argument("--decoupled-min-rf", type=float, default=0.40)
     parser.add_argument("--neighbour-k", type=int, default=5)
-    parser.add_argument("--reassortant-threshold", type=float, default=0.6)
+    parser.add_argument(
+        "--reassortant-threshold",
+        type=float,
+        help="Default 0.6, or segments.reassortant_threshold.",
+    )
     parser.add_argument(
         "--require-concatenation",
         action="store_true",
         help="Fail if the segments cannot legitimately be joined.",
     )
-    parser.add_argument("--out-json", required=True)
+    parser.add_argument("--out-json", help="Required unless --build-dir.")
     parser.add_argument("--out-md")
     parser.add_argument("--out-tsv", help="Reassortant candidates, one per row.")
 
@@ -300,7 +478,28 @@ def congruence(args: argparse.Namespace) -> int:
     mixed, and 1 when segments are decoupled AND ``--require-concatenation`` is
     given. Being decoupled is not itself an error -- for BTV it is the expected
     result. Exit code 2 means unusable input.
+
+    With ``--build-dir`` and ``--config`` the trees are the ML trees of the
+    analysed loci (named by locus), the thresholds come from ``segments`` and the
+    reports go under ``segments/``.
     """
+    # Locus names label the trees only when the trees came from the layout too.
+    trees_from_layout = args.trees is None
+    if not _resolve(
+        args,
+        derived={
+            "trees": lambda b: [b.layout.ml_tree(name) for name in b.loci()],
+            "names": lambda b: b.loci() if trees_from_layout else None,
+            "collapse_support": lambda b: b.setting("segments", "collapse_support"),
+            "reassortant_threshold": lambda b: b.setting("segments", "reassortant_threshold"),
+            "out_json": lambda b: b.layout.congruence_report(),
+            "out_md": lambda b: b.layout.congruence_md(),
+            "out_tsv": lambda b: b.layout.reassortant_candidates(),
+        },
+        required=("trees", "out_json"),
+        fallbacks={"collapse_support": 70.0, "reassortant_threshold": 0.6},
+    ):
+        return 2
     names = args.names or [Path(t).stem for t in args.trees]
     if len(names) != len(args.trees):
         log.error("%d trees but %d names", len(args.trees), len(names))
@@ -578,17 +777,26 @@ def convergence_report(res: dict[str, Any], checks: Checks) -> str:
 
 def add_arguments_convergence(parser: argparse.ArgumentParser) -> None:
     """Flags of ``wildphylo gates convergence``."""
+    _add_build_arguments(parser, config=False)
     parser.add_argument(
-        "--logs", nargs="+", required=True, help="BEAST .log files, one per chain."
+        "--logs",
+        nargs="+",
+        help="BEAST .log files, one per chain. Required unless --build-dir, which "
+        "takes one per beast.seeds entry.",
     )
     parser.add_argument(
         "--burnin",
         type=float,
-        default=0.10,
         help="Fraction discarded from the head of EACH chain. "
-        "Applied per chain, not to the pooled set.",
+        "Applied per chain, not to the pooled set. Default 0.10, or "
+        "beast.burnin_fraction with --build-dir.",
     )
-    parser.add_argument("--min-ess", type=int, default=200)
+    parser.add_argument(
+        "--min-ess",
+        type=int,
+        help="Default 200. A config's beast.min_ess overrides this flag, except with "
+        "--build-dir, where the flag wins.",
+    )
     parser.add_argument(
         "--config",
         type=Path,
@@ -617,23 +825,41 @@ def convergence(args: argparse.Namespace) -> int:
 
     Exit code is non-zero when the gate fails, so a workflow stops rather than
     handing an unconverged chain to TreeAnnotator.
+
+    With ``--build-dir`` and ``--config`` (and ``--locus``) the logs are the
+    chains of ``beast.seeds``, the thresholds come from ``beast`` and the
+    reports go to the locus's BEAST directory.
     """
+    if not _resolve(
+        args,
+        derived={
+            "logs": lambda b: [b.layout.beast_log(b.need("locus"), s) for s in b.seeds()],
+            "out_json": lambda b: b.layout.convergence_report(b.need("locus")),
+            "out_combined": lambda b: b.layout.combined_log(b.need("locus")),
+            "burnin": lambda b: b.setting("beast", "burnin_fraction"),
+        },
+        required=("logs",),
+        fallbacks={"burnin": 0.10},
+    ):
+        return 2
     paths = [Path(p) for p in args.logs]
     missing = [p for p in paths if not p.is_file()]
     if missing:
         log.error("no such log file: %s", missing[0])
         return 1
 
-    cfg: dict[str, Any] = {"beast": {"min_ess": args.min_ess}}
+    cfg: dict[str, Any] = {}
     if args.config:
         try:
             cfg = load(args.config)
         except ConfigError as e:
             log.error("%s", e)  # noqa: TRY400 -- message only, no traceback
             return 1
-        cfg.setdefault("beast", {})["min_ess"] = (
-            cfg.get("beast", {}).get("min_ess") or args.min_ess
-        )
+    # Without --build-dir the config's value beats the flag, as it always did;
+    # with it, an explicit flag wins like every other flag.
+    config_min_ess = cfg.get("beast", {}).get("min_ess")
+    order = (args.min_ess, config_min_ess) if args.build_dir else (config_min_ess, args.min_ess)
+    cfg.setdefault("beast", {})["min_ess"] = next((v for v in order if v), 200)
 
     try:
         res = analyse_convergence(paths, args.burnin, cfg["beast"]["min_ess"])
@@ -722,12 +948,13 @@ def states_from_labels(labels: list[str], field: int, sep: str) -> dict[str, str
 
 def add_arguments_trait_signal(parser: argparse.ArgumentParser) -> None:
     """Flags of ``wildphylo gates trait-signal``."""
+    _add_build_arguments(parser, config=False)
     parser.add_argument(
         "--trees",
         nargs="+",
-        required=True,
         help="Posterior tree files, one per chain. Burn-in is "
-        "applied within each file, not to the pooled set.",
+        "applied within each file, not to the pooled set. Required unless "
+        "--build-dir, which takes the trait trees of every beast.seeds chain.",
     )
     parser.add_argument(
         "--traits", type=Path, help="Two-column TSV of taxon and state (what 07 writes)."
@@ -748,7 +975,9 @@ def add_arguments_trait_signal(parser: argparse.ArgumentParser) -> None:
         "collapse host groups onto the trait states BEAST "
         "actually estimated rates between.",
     )
-    parser.add_argument("--burnin", type=float, default=0.10)
+    parser.add_argument(
+        "--burnin", type=float, help="Default 0.10, or beast.burnin_fraction with --build-dir."
+    )
     parser.add_argument("--thin", type=int, default=1)
     parser.add_argument(
         "--max-trees",
@@ -762,8 +991,8 @@ def add_arguments_trait_signal(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--permutations",
         type=int,
-        default=1000,
-        help="Null replicates. The smallest p obtainable is 1/(permutations+1).",
+        help="Null replicates. The smallest p obtainable is 1/(permutations+1). "
+        "Default 1000, or beast.discrete_trait.signal_permutations with --build-dir.",
     )
     parser.add_argument("--seed", type=int, default=12345)
     parser.add_argument("--alpha", type=float, default=0.05)
@@ -771,9 +1000,10 @@ def add_arguments_trait_signal(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--out-md", type=Path)
     parser.add_argument(
         "--exit-nonzero-on-fail",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         help="Exit 1 when the verdict is fail, so a workflow "
-        "stops rather than publishing an unsupported table.",
+        "stops rather than publishing an unsupported table. Off by default; with "
+        "--build-dir, on unless beast.discrete_trait.on_no_signal is warn.",
     )
 
 
@@ -794,7 +1024,28 @@ def trait_signal(args: argparse.Namespace) -> int:
 
     The statistics use topology and tip labels only, never BEAST's
     reconstructed ancestral states; see :mod:`wildphylo.traitsignal`.
+
+    With ``--build-dir`` and ``--config`` (and ``--locus``) the trees are the
+    trait trees of every ``beast.seeds`` chain, the tip states come from the
+    tip labels collapsed through ``hosts.dta_states``, and thresholds and
+    outputs default from ``beast`` and the layout.
     """
+    if not _resolve(
+        args,
+        derived={
+            "trees": lambda b: [b.layout.beast_trait_trees(b.need("locus"), s) for s in b.seeds()],
+            "out_json": lambda b: b.layout.trait_signal_report(b.need("locus")),
+            "out_md": lambda b: b.layout.trait_signal_md(b.need("locus")),
+            "burnin": lambda b: b.setting("beast", "burnin_fraction"),
+            "permutations": lambda b: b.setting("beast", "discrete_trait", "signal_permutations"),
+            "exit_nonzero_on_fail": lambda b: (
+                (b.setting("beast", "discrete_trait", "on_no_signal") or "stop") == "stop"
+            ),
+        },
+        required=("trees",),
+        fallbacks={"burnin": 0.10, "permutations": 1000, "exit_nonzero_on_fail": False},
+    ):
+        return 2
     paths = [Path(p) for p in args.trees]
     missing = [p for p in paths if not p.is_file()]
     if missing:
@@ -1135,28 +1386,38 @@ def drt_report(real: dict[str, Any], reps: list[dict[str, Any]], res: dict[str, 
     return "\n".join(lines)
 
 
+def _drt_logs(b: _Build) -> list[Path]:
+    """The date-randomised replicates' logs, replicates numbered from 1 as the Snakefile does."""
+    n_reps = b.setting("beast", "date_randomisation", "replicates")
+    if not n_reps:
+        msg = "beast.date_randomisation.replicates is not set in the config"
+        raise _UsageError(msg)
+    return [b.layout.drt_log(b.need("locus"), str(rep)) for rep in range(1, int(n_reps) + 1)]
+
+
 def add_arguments_drt(parser: argparse.ArgumentParser) -> None:
     """Flags of ``wildphylo gates drt``."""
+    _add_build_arguments(parser)
     parser.add_argument(
         "--real",
-        required=True,
         type=Path,
-        help="Combined post-burn-in log from the real analysis (what `gates convergence` writes).",
+        help="Combined post-burn-in log from the real analysis (what `gates convergence` "
+        "writes). Required unless --build-dir.",
     )
     parser.add_argument(
         "--reps",
         nargs="+",
-        required=True,
         type=Path,
-        help="One log per date-randomised replicate.",
+        help="One log per date-randomised replicate. Required unless --build-dir, which "
+        "takes replicates 1..beast.date_randomisation.replicates.",
     )
     parser.add_argument(
         "--burnin",
         type=float,
-        default=0.10,
         help="Applied to the replicates. The combined real log is "
         "already post-burn-in, so 0 is used for it unless "
-        "--real-burnin says otherwise.",
+        "--real-burnin says otherwise. Default 0.10, or beast.burnin_fraction "
+        "with --build-dir.",
     )
     parser.add_argument("--real-burnin", type=float, default=0.0)
     parser.add_argument(
@@ -1174,7 +1435,12 @@ def add_arguments_drt(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--out-json", type=Path)
     parser.add_argument("--out-plot", type=Path)
     parser.add_argument("--out-md", type=Path)
-    parser.add_argument("--exit-nonzero-on-fail", action="store_true")
+    parser.add_argument(
+        "--exit-nonzero-on-fail",
+        action=argparse.BooleanOptionalAction,
+        help="Off by default; with --build-dir, on unless "
+        "beast.date_randomisation.on_fail is warn.",
+    )
 
 
 @step("gates", "drt", "Date-randomisation test, summarised and judged")
@@ -1213,7 +1479,27 @@ def drt(args: argparse.Namespace) -> int:
     The verdict is ``pass``, ``weak``, ``fail`` or ``inconclusive``; the exit code
     is 1 on ``fail`` only with ``--exit-nonzero-on-fail``, and 1 on unreadable
     input.
+
+    With ``--build-dir`` and ``--config`` (and ``--locus``) the real log is the
+    locus's combined log, the replicates are its DRT logs, and the burn-in,
+    outputs and fail policy default from ``beast`` and the layout.
     """
+    if not _resolve(
+        args,
+        derived={
+            "real": lambda b: b.layout.combined_log(b.need("locus")),
+            "reps": _drt_logs,
+            "burnin": lambda b: b.setting("beast", "burnin_fraction"),
+            "out_json": lambda b: b.layout.drt_summary(b.need("locus")),
+            "out_plot": lambda b: b.layout.drt_plot(b.need("locus")),
+            "exit_nonzero_on_fail": lambda b: (
+                (b.setting("beast", "date_randomisation", "on_fail") or "stop") == "stop"
+            ),
+        },
+        required=("real", "reps"),
+        fallbacks={"burnin": 0.10, "exit_nonzero_on_fail": False},
+    ):
+        return 2
     missing = [p for p in [args.real, *args.reps] if not p.is_file()]
     if missing:
         log.error("no such log file: %s", missing[0])
@@ -1558,13 +1844,28 @@ def render_comparison(c: Comparison) -> str:
     return "\n".join(lines)
 
 
+def _current_dataset(b: _Build) -> Path | None:
+    """The build's Auspice JSON, if it exists: one locus has the bare dataset name."""
+    build_name = b.setting("nextstrain", "build_name")
+    if not build_name:
+        msg = "nextstrain.build_name is not set in the config"
+        raise _UsageError(msg)
+    loci = b.loci()
+    path = b.layout.auspice_dataset(str(build_name), None if len(loci) == 1 else b.need("locus"))
+    if not path.is_file():
+        log.info("no Auspice dataset at %s; comparing without a TMRCA", path)
+        return None
+    return path
+
+
 def add_arguments_compare(parser: argparse.ArgumentParser) -> None:
     """Flags of ``wildphylo gates compare``."""
+    _add_build_arguments(parser)
     parser.add_argument(
         "--builds-dir",
         type=Path,
-        required=True,
-        help="builds/<pathogen>, holding dated build directories.",
+        help="builds/<pathogen>, holding dated build directories. Required unless "
+        "--build-dir, whose parent it is.",
     )
     parser.add_argument(
         "--pathogen",
@@ -1574,7 +1875,9 @@ def add_arguments_compare(parser: argparse.ArgumentParser) -> None:
         "--current",
         type=Path,
         help="Auspice JSON from the current build, when there is "
-        "one. CI stops at the temporal gate and has none.",
+        "one. CI stops at the temporal gate and has none. With --build-dir it "
+        "defaults to the build's dataset when that exists (--locus picks one "
+        "when several loci are analysed).",
     )
     parser.add_argument(
         "--previous",
@@ -1583,8 +1886,16 @@ def add_arguments_compare(parser: argparse.ArgumentParser) -> None:
         "comparison. Found in the previous build directory "
         "when not given.",
     )
-    parser.add_argument("--max-tmrca-shift", type=float, default=5.0)
-    parser.add_argument("--no-alert-on-sequence-loss", action="store_true")
+    parser.add_argument(
+        "--max-tmrca-shift",
+        type=float,
+        help="Default 5.0, or nextstrain.update.alert_on_tmrca_shift_years with --build-dir.",
+    )
+    parser.add_argument(
+        "--alert-on-sequence-loss",
+        action=argparse.BooleanOptionalAction,
+        help="Default on, or nextstrain.update.alert_on_sequence_loss with --build-dir.",
+    )
     parser.add_argument("--out", type=Path)
     parser.add_argument("--out-json", type=Path)
     parser.add_argument(
@@ -1633,7 +1944,30 @@ def compare(args: argparse.Namespace) -> int:
     Exit code is non-zero when something regressed, so CI opens an issue rather than
     publishing quietly. A first build has nothing to compare against and exits 0;
     ``--exit-zero`` forces 0.
+
+    With ``--build-dir`` and ``--config`` the builds directory is the build's
+    parent, the pathogen its id, the current dataset the build's Auspice JSON,
+    the thresholds come from ``nextstrain.update`` and the reports go in the build.
     """
+    if not _resolve(
+        args,
+        derived={
+            "builds_dir": lambda b: b.layout.pathogen_dir(),
+            "pathogen": lambda b: b.layout.pathogen,
+            "current": _current_dataset,
+            "max_tmrca_shift": lambda b: b.setting(
+                "nextstrain", "update", "alert_on_tmrca_shift_years"
+            ),
+            "alert_on_sequence_loss": lambda b: b.setting(
+                "nextstrain", "update", "alert_on_sequence_loss"
+            ),
+            "out": lambda b: b.layout.build_comparison(),
+            "out_json": lambda b: b.layout.build_comparison_json(),
+        },
+        required=("builds_dir",),
+        fallbacks={"max_tmrca_shift": 5.0, "alert_on_sequence_loss": True},
+    ):
+        return 2
     pathogen = args.pathogen or args.builds_dir.name
     builds = dated_builds(args.builds_dir)
 
@@ -1669,7 +2003,7 @@ def compare(args: argparse.Namespace) -> int:
         curr,
         pathogen,
         max_tmrca_shift=args.max_tmrca_shift,
-        alert_on_loss=not args.no_alert_on_sequence_loss,
+        alert_on_loss=args.alert_on_sequence_loss,
         current_auspice=cur_doc,
         previous_auspice=prev_doc,
     )
