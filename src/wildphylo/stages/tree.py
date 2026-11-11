@@ -7,15 +7,20 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from wildphylo.cli import step
+from wildphylo.config import ConfigError, load
+from wildphylo.layout import BuildLayout
 from wildphylo.temporal import assess
 
 if TYPE_CHECKING:
     import argparse
+
+log = logging.getLogger(__name__)
 
 
 def _say(text: str = "") -> None:
@@ -236,11 +241,58 @@ def _report_clades(rows: list[dict[str, Any]], min_support: float | None) -> Non
     )
 
 
+class _UsageError(Exception):
+    """A command line that cannot be resolved to paths; reported, exit code 2."""
+
+
+def _resolve_paths(args: argparse.Namespace) -> None:
+    """Fill in the input paths the command line left out, in place.
+
+    Without ``--build-dir`` nothing is derived and ``--tree`` is required. With
+    it, ``--tree`` and ``--qc`` default to the build layout's ML tree and
+    alignment QC table for ``--locus``; explicit flags win. The clade outputs
+    (``--out-tsv``, ``--out-json``, ``--out-dir``) have no place in the layout
+    yet, so they stay explicit.
+    """
+    if args.build_dir is None:
+        if args.locus is not None:
+            msg = "--locus only applies together with --build-dir"
+            raise _UsageError(msg)
+        if args.tree is None:
+            msg = "--tree is required unless --build-dir is given"
+            raise _UsageError(msg)
+        return
+
+    if args.config is None:
+        msg = "--build-dir needs --config (the layout depends on the pathogen id)"
+        raise _UsageError(msg)
+    try:
+        layout = BuildLayout.at(args.build_dir, load(args.config))
+    except ConfigError as exc:
+        raise _UsageError(str(exc)) from exc
+
+    # The QC table is only read when tips are filtered by --min-ungapped.
+    needs_qc = args.qc is None and args.min_ungapped > 0
+    if args.locus is None and (args.tree is None or needs_qc):
+        wanted = ["--tree"] * (args.tree is None) + ["--qc"] * needs_qc
+        msg = f"--build-dir needs --locus to derive {', '.join(wanted)} (or give them)"
+        raise _UsageError(msg)
+
+    if args.tree is None:
+        args.tree = str(layout.ml_tree(args.locus))
+    if args.qc is None and args.locus is not None:
+        args.qc = str(layout.alignment_qc(args.locus))
+    log.debug("resolved: tree=%s qc=%s", args.tree, args.qc)
+
+
 def add_arguments_clades(parser: argparse.ArgumentParser) -> None:
-    """``wildphylo tree clades --tree TREE --out-tsv TSV [--max-diversity D] [...]``."""
-    parser.add_argument("--tree", required=True)
+    """``wildphylo tree clades (--tree T | --config C --build-dir B --locus L) --out-tsv TSV``."""
+    parser.add_argument("--tree", help="ML tree (default with --build-dir: layout)")
     parser.add_argument("--tree-format", default="newick")
-    parser.add_argument("--qc", help="alignment QC TSV, to filter by coverage first")
+    parser.add_argument(
+        "--qc",
+        help="alignment QC TSV, to filter by coverage first (default with --build-dir: layout)",
+    )
     parser.add_argument(
         "--min-ungapped",
         type=int,
@@ -270,6 +322,22 @@ def add_arguments_clades(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--out-tsv", required=True)
     parser.add_argument("--out-json")
     parser.add_argument("--out-dir", help="Write one tip list per clade here.")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="Pathogen config; needed with --build-dir to locate the build layout.",
+    )
+    parser.add_argument(
+        "--build-dir",
+        type=Path,
+        default=None,
+        help="Build directory (builds/<id>/<date>). --tree and --qc not given explicitly "
+        "default to their place in the build layout. Needs --config and --locus.",
+    )
+    parser.add_argument(
+        "--locus", default=None, help="Locus whose files to use; required with --build-dir"
+    )
 
 
 @step("tree", "clades", "Cut the ML tree into clades and test each for temporal signal")
@@ -300,7 +368,18 @@ def clades(args: argparse.Namespace) -> int:
     seeing which reference sequences land in which group (``--references``). Naming
     them before you know which groups exist is how a partial reference panel
     produces a confident mislabelling.
+
+    Inputs: give ``--tree`` explicitly, or give ``--config`` with ``--build-dir`` and
+    ``--locus`` and the tree (and the alignment QC table) come from the build
+    layout. Outputs are always explicit (``--out-tsv`` and optionally ``--out-json``,
+    ``--out-dir``). Exit code 2 when the command line cannot be resolved to paths.
     """
+    try:
+        _resolve_paths(args)
+    except _UsageError as exc:
+        log.error("wildphylo tree clades: %s", exc)  # noqa: TRY400 -- user error; no traceback
+        return 2
+
     from Bio import Phylo
 
     # Bio.Phylo ships neither an explicit export of `read` nor annotations for it.

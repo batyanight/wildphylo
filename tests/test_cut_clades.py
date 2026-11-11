@@ -276,3 +276,95 @@ def test_strong_support_produces_no_warning(tmp_path):
     t = supported_tree(tmp_path / "g.nwk", value=99)
     r = run(t, tmp_path / "c.tsv", "--max-diversity", 0.10, "--min-size", 20, "--min-support", 95)
     assert "stem support below" not in r.stdout
+
+
+# --- --build-dir ------------------------------------------------------------
+
+
+def _build_layout(tmp_path):
+    from wildphylo.config import load
+    from wildphylo.layout import BuildLayout
+
+    cfg = Path(__file__).resolve().parents[1] / "tests/fixtures/configs/cdv.yaml"
+    return cfg, BuildLayout.at(tmp_path / "builds" / "cdv" / "20260101", load(cfg))
+
+
+def test_build_dir_finds_the_tree_where_the_layout_says(tmp_path):
+    """--config --build-dir --locus replace --tree; the clade outputs stay explicit."""
+    cfg, layout = _build_layout(tmp_path)
+    layout.ml_tree("H").parent.mkdir(parents=True)
+    structured_tree(layout.ml_tree("H"))
+    out = tmp_path / "c.tsv"
+    r = run(
+        layout.ml_tree("H"),
+        out,
+        "--max-diversity", 0.10, "--min-size", 20,
+        "--config", cfg, "--build-dir", layout.root, "--locus", "H",
+    )  # fmt: skip
+    # run() always passes --tree, so also run without it through the CLI directly.
+    assert r.returncode == 0, r.stderr[-1500:]
+    out.unlink()
+    code = cli.main(
+        [
+            *["tree", "clades", "--config", str(cfg), "--build-dir", str(layout.root)],
+            *["--locus", "H", "--out-tsv", str(out)],
+            *["--max-diversity", "0.10", "--min-size", "20", "--permutations", "50"],
+        ]
+    )
+    assert code == 0
+    assert len(rows(out)) == 3
+
+
+def test_build_dir_filters_by_the_layouts_qc_table(tmp_path):
+    pd = pytest.importorskip("pandas")
+    from Bio import Phylo
+
+    cfg, layout = _build_layout(tmp_path)
+    layout.ml_tree("H").parent.mkdir(parents=True)
+    structured_tree(layout.ml_tree("H"))
+    layout.alignment_qc("H").parent.mkdir(parents=True)
+    names = [x.name for x in Phylo.read(str(layout.ml_tree("H")), "newick").get_terminals()]
+    pd.DataFrame(
+        {"name": names, "ungapped_len": [1800 if n.startswith("A") else 500 for n in names]}
+    ).to_csv(layout.alignment_qc("H"), sep="\t", index=False)
+    out = tmp_path / "c.tsv"
+    stdout = io.StringIO()
+    with contextlib.redirect_stdout(stdout):
+        code = cli.main(
+            [
+                *["tree", "clades", "--config", str(cfg), "--build-dir", str(layout.root)],
+                *["--locus", "H", "--out-tsv", str(out), "--min-ungapped", "1500"],
+                *["--max-diversity", "0.10", "--min-size", "20", "--permutations", "50"],
+            ]
+        )
+    assert code == 0
+    assert "pruned 80 tips" in stdout.getvalue()
+    assert len(rows(out)) == 1
+
+
+def test_explicit_tree_overrides_the_layout(tmp_path):
+    cfg, layout = _build_layout(tmp_path)
+    # Nothing at layout.ml_tree("H"): the explicit tree must be the one used.
+    t = structured_tree(tmp_path / "t.nwk")
+    out = tmp_path / "c.tsv"
+    r = run(
+        t, out, "--max-diversity", 0.10, "--min-size", 20,
+        "--config", cfg, "--build-dir", layout.root, "--locus", "H",
+    )  # fmt: skip
+    assert r.returncode == 0, r.stderr[-1500:]
+    assert len(rows(out)) == 3
+    assert not layout.ml_tree("H").exists()
+
+
+def test_build_dir_without_locus_is_a_usage_error(tmp_path, caplog):
+    cfg, layout = _build_layout(tmp_path)
+    argv = ["tree", "clades", "--config", str(cfg), "--build-dir", str(layout.root)]
+    code = cli.main([*argv, "--out-tsv", str(tmp_path / "c.tsv")])
+    assert code == 2
+    assert "--locus" in caplog.text
+
+
+def test_no_tree_and_no_build_dir_is_a_usage_error(tmp_path, caplog):
+    code = cli.main(["tree", "clades", "--out-tsv", str(tmp_path / "c.tsv")])
+    assert code == 2
+    assert "--tree" in caplog.text

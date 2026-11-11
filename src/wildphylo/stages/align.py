@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from collections import Counter
 from pathlib import Path
@@ -13,10 +14,14 @@ from typing import TYPE_CHECKING, Any
 import pandas as pd
 
 from wildphylo.cli import step
+from wildphylo.config import ConfigError
 from wildphylo.config import load as load_config
+from wildphylo.layout import BuildLayout
 
 if TYPE_CHECKING:
     import argparse
+
+log = logging.getLogger(__name__)
 
 AMBIG = set("NnXx?")
 GAP = set("-.")
@@ -27,6 +32,7 @@ DEFAULT_GAP_THRESHOLD = 0.5
 DEFAULT_IDENTITY_THRESHOLD = 0.80
 DEFAULT_AMBIGUITY_THRESHOLD = 0.05
 DEFAULT_COVERAGE_THRESHOLD = 0.5
+DEFAULT_OUTDIR = Path("data/processed")
 _CONFIG_KEYS = {"max_gap_fraction", "min_identity_to_consensus", "max_ambiguity_fraction"}
 
 
@@ -423,11 +429,100 @@ def _trim_columns(seqs: dict[str, str], args: argparse.Namespace) -> None:
         _say("(add --write-trimmed to save it)")
 
 
+class _UsageError(Exception):
+    """A command line that cannot be resolved to paths; reported, exit code 2."""
+
+
+def _resolve_paths(args: argparse.Namespace) -> None:
+    """Fill in the paths the command line left out, in place.
+
+    Without ``--build-dir`` nothing is derived: ``--aln`` is required and the
+    other paths behave as before. With it, every path flag not given explicitly
+    defaults to the matching :class:`BuildLayout` method, so
+    ``--config C --build-dir B --locus L`` is a complete invocation. An explicit
+    flag always wins. ``--plot`` counts as an explicit ``--out-png``.
+    """
+    if args.build_dir is None:
+        if args.locus is not None:
+            msg = "--locus only applies together with --build-dir"
+            raise _UsageError(msg)
+        if args.aln is None:
+            msg = "--aln is required unless --build-dir is given"
+            raise _UsageError(msg)
+        if args.outdir is None:
+            args.outdir = DEFAULT_OUTDIR
+        return
+
+    if args.config is None:
+        msg = "--build-dir needs --config (the layout depends on the pathogen id)"
+        raise _UsageError(msg)
+    try:
+        layout = BuildLayout.at(args.build_dir, load_config(args.config))
+    except ConfigError as exc:
+        raise _UsageError(str(exc)) from exc
+
+    needs_locus = [
+        flag
+        for flag, value in (
+            ("--aln", args.aln),
+            ("--out-tsv", args.out_tsv),
+            ("--out-png", args.out_png or args.plot),
+        )
+        if value is None
+    ]
+    if needs_locus and args.locus is None:
+        msg = f"--build-dir needs --locus to derive {', '.join(needs_locus)} (or give them)"
+        raise _UsageError(msg)
+
+    locus = args.locus
+    if args.aln is None:
+        args.aln = layout.alignment(locus)
+    if args.metadata is None:
+        args.metadata = layout.metadata()
+    if args.out_tsv is None:
+        args.out_tsv = layout.alignment_qc(locus)
+    if args.out_png is None and args.plot is None:
+        args.out_png = layout.alignment_qc_plot(locus)
+    if args.outdir is None:
+        args.outdir = args.out_tsv.parent
+    log.debug(
+        "resolved: aln=%s metadata=%s out_tsv=%s out_png=%s outdir=%s",
+        args.aln,
+        args.metadata,
+        args.out_tsv,
+        args.out_png or args.plot,
+        args.outdir,
+    )
+
+
 def add_arguments_qc(parser: argparse.ArgumentParser) -> None:
-    """``wildphylo align qc --aln ALN [--metadata TSV] [--config YAML] [...]``."""
-    parser.add_argument("--aln", required=True, type=Path)
-    parser.add_argument("--metadata", type=Path, default=None)
-    parser.add_argument("--outdir", type=Path, default=Path("data/processed"))
+    """``wildphylo align qc (--aln ALN | --config YAML --build-dir DIR --locus L) [...]``."""
+    parser.add_argument(
+        "--aln", type=Path, default=None, help="Alignment FASTA (default with --build-dir: layout)"
+    )
+    parser.add_argument(
+        "--metadata",
+        type=Path,
+        default=None,
+        help="Metadata TSV for the label check (default with --build-dir: layout)",
+    )
+    parser.add_argument(
+        "--outdir",
+        type=Path,
+        default=None,
+        help=f"Where trimmed/stripped alignments go (default: {DEFAULT_OUTDIR}, or with "
+        "--build-dir the directory of the QC table)",
+    )
+    parser.add_argument(
+        "--build-dir",
+        type=Path,
+        default=None,
+        help="Build directory (builds/<id>/<date>). Every path not given explicitly "
+        "defaults to its place in the build layout. Needs --config and --locus.",
+    )
+    parser.add_argument(
+        "--locus", default=None, help="Locus whose files to use; required with --build-dir"
+    )
     # Explicit output paths. Snakemake has to know exactly which files a rule
     # produces; a rule that writes to a hardcoded directory cannot be tracked,
     # re-run or cleaned, and its outputs quietly accumulate outside the build.
@@ -527,8 +622,19 @@ def qc(args: argparse.Namespace) -> int:
     Nothing here decides anything for you. It tells you which sequences are worth
     looking at by eye and which columns are mostly gaps. Use ``--trim-to START END
     --write-trimmed`` once you have chosen trim points from the coverage plot.
-    Exit code is 1 when the alignment is missing, empty or not aligned.
+    Paths: give ``--aln`` (and ``--out-tsv``, ``--out-png``) explicitly, or give
+    ``--config`` with ``--build-dir`` and ``--locus`` and every path not given
+    explicitly is taken from the build layout.
+
+    Exit code is 1 when the alignment is missing, empty or not aligned, 2 when
+    the command line cannot be resolved to paths.
     """
+    try:
+        _resolve_paths(args)
+    except _UsageError as exc:
+        _say(f"wildphylo align qc: {exc}", err=True)
+        return 2
+
     if not args.aln.is_file():
         _report_missing_alignment(args.aln)
         return 1
