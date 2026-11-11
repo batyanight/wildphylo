@@ -70,7 +70,7 @@ jobs:
           for f in config/pathogen/*.yaml; do
             case "$(basename "$f")" in _*) continue;; esac
             echo "::group::dry run $f"
-            snakemake -s workflow/Snakefile --configfile "$f" --cores 1 -n
+            snakemake -s src/wildphylo/workflow/Snakefile --configfile "$f" --cores 1 -n
             echo "::endgroup::"
           done
 

@@ -18,7 +18,7 @@ Read before changing anything:
   repos consume it.
 
 ## Layout
-- `workflow/Snakefile` — the DAG
+- `src/wildphylo/workflow/Snakefile` — the DAG
 - `src/wildphylo/` — the installed package. `cli.py` is the `wildphylo` command;
   `stages/<stage>.py` holds that stage's steps; the other modules are shared library code.
 - `GLOSSARY.md` — the terms to use in names, config keys, commits and conversation.
@@ -37,7 +37,7 @@ Read before changing anything:
     ruff check src/ tests/ && ruff format --check src/ tests/ && mypy
     wildphylo --help                       # every stage and step
     wildphylo config validate config/pathogen/*.yaml
-    snakemake -s workflow/Snakefile --configfile config/pathogen/cdv-smoke.yaml --cores 8 -n
+    snakemake -s src/wildphylo/workflow/Snakefile --configfile config/pathogen/cdv-smoke.yaml --cores 8 -n
 NCBI CLIs are in the env: `esearch | efetch` (Entrez Direct) and `datasets`
 (NCBI Datasets). Prefer them for quick GenBank/taxonomy lookups over writing
 one-off Python, and over asking Batya to download files by hand.
@@ -47,7 +47,7 @@ BEAST2, Tracer, TempEst, FigTree are installed outside conda (Java).
 Search and summarise; don't read large files whole. `rg`, `fd`, `jq`, `mlr` are
 on PATH (Homebrew) and `seqkit` is in the env. If one is missing, say so rather
 than falling back to `cat`.
-- Snakefile (~700 lines): `rg -n '^rule ' workflow/Snakefile`, then read the rule.
+- Snakefile (~700 lines): `rg -n '^rule ' src/wildphylo/workflow/Snakefile`, then read the rule.
 - DECISIONS.md (~650 lines): `rg -n '^## DR-' docs/DECISIONS.md`, then read the one DR.
 - Build audit files: `jq` on `provenance.json` / `checks.json`; `mlr --itsv` on QC TSVs.
 - FASTA and alignments: `seqkit stats`, `seqkit fx2tab -n -l` — never print sequences.

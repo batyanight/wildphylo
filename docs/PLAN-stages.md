@@ -44,7 +44,7 @@ src/wildphylo/
     beast.py            06 subsample, 07 xml, 08f jump history, 08g state through time
     auspice.py          09 make dataset, 10 entropy
     publish.py          12 compare + copy to pathogen repo, 13 check updates
-workflow/Snakefile      calls `wildphylo <stage> <step> ...`
+src/wildphylo/workflow/Snakefile      calls `wildphylo <stage> <step> ...`
 tests/                  unchanged files, imports updated; new tests per stage interface
 ```
 

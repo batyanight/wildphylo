@@ -76,7 +76,7 @@ jobs:
         # fetch, curate, align, ML tree, temporal gate -- and reports whether
         # the Bayesian half needs rerunning on real hardware.
         run: |
-          snakemake -s workflow/Snakefile \
+          snakemake -s src/wildphylo/workflow/Snakefile \
             --configfile config/pathogen/${{ matrix.pathogen }}.yaml \
             --cores 4 \
             builds/${{ matrix.pathogen }}/$(date +%Y%m%d)/temporal/temporal_signal.json

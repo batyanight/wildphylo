@@ -40,7 +40,7 @@ exists, what it checks, how to read its output. The exit code is the verdict.
 cp config/pathogen/_template.yaml config/pathogen/myvirus.yaml
 $EDITOR config/pathogen/myvirus.yaml
 wildphylo config validate config/pathogen/myvirus.yaml
-snakemake -s workflow/Snakefile --configfile config/pathogen/myvirus.yaml -n
+snakemake -s src/wildphylo/workflow/Snakefile --configfile config/pathogen/myvirus.yaml -n
 ```
 
 The dry run validates the config before anything downloads. Work through its

@@ -14,7 +14,7 @@ import pytest
 
 from wildphylo import cli
 
-SNAKEFILE = "workflow/Snakefile"
+SNAKEFILE = "src/wildphylo/workflow/Snakefile"
 
 
 # `from wildphylo import config` is an import, not a call; exclude it.
@@ -188,3 +188,18 @@ def test_snakefile_takes_every_path_from_the_build_layout(repo_root):
     assert not re.findall(r"\{OUT\}", text), "OUT is gone; use the layout"
     assert not re.findall(r"""["']builds/""", text), "hardcoded builds/ path"
     assert "BuildLayout.from_config(" in text
+
+
+def test_the_workflow_ships_inside_the_package(repo_root):
+    """
+    A pathogen repo pins wildphylo by release tag and its wrapper Snakefile
+    includes this one. When the Snakefile sat at the repo root it was not in
+    the wheel, so `pip install wildphylo@git+...@tag` gave a working CLI and
+    no pipeline, and the wrapper only resolved next to a source checkout.
+    """
+    import wildphylo
+
+    p = wildphylo.workflow_path()
+    assert p.is_file()
+    assert p == (repo_root / SNAKEFILE).resolve()
+    assert p.read_text().lstrip().startswith("#") or "rule all" in p.read_text()

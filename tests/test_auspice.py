@@ -284,7 +284,7 @@ def test_the_snakefile_passes_only_flags_the_step_has():
     Fails until the coordinator switches the Snakefile rule to
     ``wildphylo auspice dataset`` (the rule still calls the script).
     """
-    sf = (ROOT / "workflow" / "Snakefile").read_text()
+    sf = (ROOT / "src" / "wildphylo" / "workflow" / "Snakefile").read_text()
     rule = sf.split("rule auspice:")[1].split("rule publish:")[0]
     assert "wildphylo auspice dataset" in rule, "the auspice rule has not been switched yet"
     called = set(re.findall(r"(--[a-z-]+)", rule))

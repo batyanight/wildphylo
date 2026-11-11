@@ -460,7 +460,7 @@ def test_gate_is_wired_into_the_workflow(repo_root):
     """
     A gate that exists as a script but is not in the DAG is a gate nobody runs.
     """
-    sf = (repo_root / "workflow" / "Snakefile").read_text()
+    sf = (repo_root / "src" / "wildphylo" / "workflow" / "Snakefile").read_text()
     assert "wildphylo gates trait-signal" in sf
     assert "rule trait_signal" in sf
 
@@ -470,7 +470,7 @@ def test_auspice_cannot_be_built_without_the_gate(repo_root):
     The publishing rule must depend on trait_signal.json, so a build cannot
     reach Auspice with an untested trait.
     """
-    sf = (repo_root / "workflow" / "Snakefile").read_text()
+    sf = (repo_root / "src" / "wildphylo" / "workflow" / "Snakefile").read_text()
     auspice = sf.split("rule auspice:")[1].split("rule publish:")[0]
     assert "trait_signal" in auspice
 
@@ -481,7 +481,7 @@ def test_beast_run_declares_the_trait_tree_file(repo_root):
     An undeclared output cannot be invalidated, so the gate would silently test
     a previous run's reconstruction.
     """
-    sf = (repo_root / "workflow" / "Snakefile").read_text()
+    sf = (repo_root / "src" / "wildphylo" / "workflow" / "Snakefile").read_text()
     assert "trait_trees" in sf
 
 
