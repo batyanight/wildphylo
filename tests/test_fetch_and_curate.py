@@ -22,6 +22,7 @@ pytest.importorskip("Bio")
 
 from wildphylo import cli  # noqa: E402
 from wildphylo.config import load  # noqa: E402
+from wildphylo.layout import BuildLayout  # noqa: E402
 from wildphylo.stages import fetch as fetch_mod  # noqa: E402
 
 
@@ -799,3 +800,105 @@ def test_review_gate_refuses_on_real_curation_output(cdv_out, tmp_path):
     marker = tmp_path / ".review_ok"
     assert cli.main(_review_argv(cdv_out / "needs_review.tsv", marker)) == 1
     assert not marker.exists()
+
+
+# =============================================================================
+# --build-dir: paths default from the build layout
+# =============================================================================
+
+CDV_CONFIG = "tests/fixtures/configs/cdv.yaml"
+
+
+@pytest.fixture
+def build(tmp_path) -> BuildLayout:
+    """The layout of a build under tmp_path; nothing exists in it yet."""
+    return BuildLayout.at(tmp_path / "builds" / "cdv" / "20260101", load(CDV_CONFIG))
+
+
+def test_fetch_records_build_dir_writes_where_the_layout_says(stub_entrez, build, caplog):
+    caplog.set_level(logging.INFO)  # pytest's handlers stop cli.main configuring the root level
+    argv = ["fetch", "records", "--config", CDV_CONFIG, "--build-dir", str(build.root)]
+    assert cli.main(argv) == 0
+    assert build.raw_records().stat().st_size > 0
+    assert len(build.accession_snapshot().read_text().split()) == stub_entrez["total"]
+    assert "matched" in build.log("01_fetch").read_text()
+
+
+@pytest.mark.usefixtures("stub_entrez")
+def test_fetch_records_explicit_flag_overrides_the_build_dir(build, tmp_path):
+    out = tmp_path / "elsewhere" / "cdv.gb"
+    argv = ["fetch", "records", "--config", CDV_CONFIG, "--build-dir", str(build.root)]
+    assert cli.main([*argv, "--out", str(out)]) == 0
+    assert out.is_file()
+    assert not build.raw_records().exists()
+    assert build.accession_snapshot().is_file()  # --acc was not given: the layout's path
+
+
+def test_curate_metadata_build_dir_writes_where_the_layout_says(fixtures, build):
+    build.raw_records().parent.mkdir(parents=True)
+    build.raw_records().write_text(fixtures["cdv"].read_text())
+    argv = ["curate", "metadata", "--config", CDV_CONFIG, "--build-dir", str(build.root)]
+    assert cli.main(argv) == 0
+    for path in (
+        build.metadata(),
+        build.needs_review(),
+        build.flagged(),
+        build.exclusions(),
+        build.locus_sequences("H"),
+        build.anchors("H"),
+        build.log("02_curate"),
+    ):
+        assert path.is_file(), path
+
+
+def test_curate_metadata_explicit_flag_overrides_the_build_dir(fixtures, build, tmp_path):
+    out = tmp_path / "elsewhere"
+    argv = [
+        "curate",
+        "metadata",
+        "--config",
+        CDV_CONFIG,
+        "--build-dir",
+        str(build.root),
+        "--gb",
+        str(fixtures["cdv"]),  # the layout's raw_records does not exist: only --gb can work
+        "--out-dir",
+        str(out),
+    ]
+    assert cli.main(argv) == 0
+    assert (out / "metadata_clean.tsv").is_file()
+    assert not build.interim_dir().exists()
+
+
+def test_curate_metadata_needs_gb_and_out_dir_without_build_dir(tmp_path, caplog):
+    argv = ["curate", "metadata", "--config", CDV_CONFIG, "--log", str(tmp_path / "c.log")]
+    assert cli.main(argv) == 2
+    assert "--gb is required without --build-dir" in caplog.text
+
+
+def test_review_gate_build_dir_uses_the_layouts_paths(build):
+    build.needs_review().parent.mkdir(parents=True)
+    build.needs_review().write_text("accession\treview_reason\n")
+    argv = ["curate", "review", "--config", CDV_CONFIG, "--build-dir", str(build.root)]
+    assert cli.main(argv) == 0
+    assert build.review_marker().is_file()
+
+
+def test_review_gate_explicit_marker_overrides_the_build_dir(build, tmp_path):
+    build.needs_review().parent.mkdir(parents=True)
+    build.needs_review().write_text("accession\treview_reason\n")
+    marker = tmp_path / "my_marker"
+    argv = ["curate", "review", "--config", CDV_CONFIG, "--build-dir", str(build.root)]
+    assert cli.main([*argv, "--marker", str(marker)]) == 0
+    assert marker.is_file()
+    assert not build.review_marker().exists()
+
+
+def test_review_gate_build_dir_needs_a_config(build, caplog):
+    assert cli.main(["curate", "review", "--build-dir", str(build.root)]) == 2
+    assert "--build-dir needs --config" in caplog.text
+
+
+def test_review_gate_needs_both_paths_without_build_dir(tmp_path, caplog):
+    assert cli.main(["curate", "review", "--marker", str(tmp_path / "m")]) == 2
+    assert "--needs-review is required without --build-dir" in caplog.text

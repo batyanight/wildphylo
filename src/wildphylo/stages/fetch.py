@@ -16,6 +16,7 @@ from Bio import Entrez
 
 from wildphylo.cli import step
 from wildphylo.config import ConfigError, load
+from wildphylo.layout import BuildLayout
 from wildphylo.logfile import log_to_file
 from wildphylo.preflight import check_fetch
 
@@ -132,6 +133,12 @@ def previous_accession_count(out_path: Path, pathogen: str) -> int | None:
 def add_arguments_records(parser: argparse.ArgumentParser) -> None:
     """Register the flags of ``wildphylo fetch records``."""
     parser.add_argument("--config", required=True, type=Path)
+    parser.add_argument(
+        "--build-dir",
+        type=Path,
+        help="Build directory (builds/<id>/<YYYYMMDD>): --out, --acc and --log default to "
+        "the build layout's paths.",
+    )
     parser.add_argument("--out", type=Path, help="GenBank flat file to write.")
     parser.add_argument("--acc", type=Path, help="Accession list to write.")
     parser.add_argument(
@@ -161,6 +168,9 @@ def records(args: argparse.Namespace) -> int:
 
         wildphylo fetch records --config config/pathogen/cdv.yaml --out cdv.gb --acc cdv.acc
 
+        # inside a build: paths come from the build layout
+        wildphylo fetch records --config config/pathogen/cdv.yaml --build-dir builds/cdv/20260101
+
         # how many records match, without downloading
         wildphylo fetch records --config config/pathogen/btv.yaml --dry-run
 
@@ -182,19 +192,49 @@ def records(args: argparse.Namespace) -> int:
     if args.query_filter is not None:
         cfg["fetch"]["query_filter"] = args.query_filter
 
-    stamp = dt.date.today().strftime("%Y%m%d")
-    pathogen = cfg["id"]
-    if args.out:
-        gb_path: Path = args.out
-        acc_path: Path = args.acc or gb_path.with_suffix(".acc")
-    else:
-        outdir: Path = args.outdir or Path("data/raw")
-        gb_path = outdir / f"{pathogen}_{stamp}.gb"
-        acc_path = args.acc or outdir / f"{pathogen}_{stamp}.acc"
-
-    log_path: Path = args.log or Path("logs") / f"01_fetch_{pathogen}_{stamp}.log"
+    gb_path, acc_path, log_path = _resolve(args, cfg)
     with log_to_file(log_path):
         return _download(args, cfg, gb_path, acc_path)
+
+
+def _resolve(args: argparse.Namespace, cfg: dict[str, Any]) -> tuple[Path, Path, Path]:
+    """The flat file, accession list and log paths of this run.
+
+    An explicit flag wins. Next comes ``--build-dir``'s build layout, then the
+    pre-layout defaults: ``--outdir`` (or ``data/raw``) with a dated name for the
+    two data files, ``logs/`` for the log, and ``<out>.acc`` beside an explicit
+    ``--out``.
+    """
+    layout = BuildLayout.at(args.build_dir, cfg) if args.build_dir else None
+    stamp = dt.date.today().strftime("%Y%m%d")
+    pathogen = cfg["id"]
+    outdir: Path = args.outdir or Path("data/raw")
+    dated_gb = outdir / f"{pathogen}_{stamp}.gb"
+    dated_acc = outdir / f"{pathogen}_{stamp}.acc"
+    # --outdir names both data files, so it outranks the layout unless --out/--acc override it.
+    explicit_dir = args.outdir is not None
+
+    if args.out:
+        gb_path: Path = args.out
+    elif layout and not explicit_dir:
+        gb_path = layout.raw_records()
+    else:
+        gb_path = dated_gb
+
+    if args.acc:
+        acc_path: Path = args.acc
+    elif layout and not (explicit_dir and not args.out):
+        acc_path = layout.accession_snapshot()
+    elif args.out:
+        acc_path = gb_path.with_suffix(".acc")
+    else:
+        acc_path = dated_acc
+
+    log_path: Path = args.log or (
+        layout.log("01_fetch") if layout else Path("logs") / f"01_fetch_{pathogen}_{stamp}.log"
+    )
+    log.debug("resolved paths: out=%s acc=%s log=%s", gb_path, acc_path, log_path)
+    return gb_path, acc_path, log_path
 
 
 def _download(args: argparse.Namespace, cfg: dict[str, Any], gb_path: Path, acc_path: Path) -> int:

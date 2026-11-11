@@ -19,11 +19,13 @@ from wildphylo.cli import step
 from wildphylo.config import ConfigError, load, resolve_path
 from wildphylo.dates import parse_collection_date
 from wildphylo.hosts import audit_host_table, load_host_table, normalize_host
+from wildphylo.layout import BuildLayout
 from wildphylo.logfile import log_to_file
 from wildphylo.preflight import check_curation
 
 if TYPE_CHECKING:
     import argparse
+    from collections.abc import Callable
 
     from Bio.SeqFeature import SeqFeature
     from Bio.SeqRecord import SeqRecord
@@ -266,13 +268,61 @@ def write_fasta(path: Path, entries: list[tuple[str, str]]) -> int:
 # --- steps --------------------------------------------------------------------
 
 
+class _UsageError(Exception):
+    """A flag combination the step cannot run with (exit code 2)."""
+
+
+def _resolve(
+    args: argparse.Namespace,
+    cfg: dict[str, Any] | None,
+    defaults: dict[str, Callable[[BuildLayout], Path]],
+    fallbacks: dict[str, Path] | None = None,
+) -> dict[str, Path]:
+    """The path for each flag in ``defaults``: the explicit flag, else the build layout's.
+
+    ``defaults`` maps an ``args`` attribute (``"gb"``) to the layout method that
+    names the same file. ``--build-dir`` makes the layout available and needs
+    ``--config``; without it every flag in ``defaults`` must be given or have a
+    ``fallbacks`` path, so a step run by hand fails here, naming the flag,
+    rather than on a ``None``.
+    ``cfg`` is the loaded config, or None to load ``--config`` only when
+    ``--build-dir`` needs it.
+    """
+    layout: BuildLayout | None = None
+    if args.build_dir is not None:
+        if cfg is None:
+            if args.config is None:
+                msg = "--build-dir needs --config"
+                raise _UsageError(msg)
+            cfg = load(args.config)
+        layout = BuildLayout.at(args.build_dir, cfg)
+    resolved: dict[str, Path] = {}
+    for name, from_layout in defaults.items():
+        given: Path | None = getattr(args, name)
+        if given is not None:
+            resolved[name] = given
+        elif layout is not None:
+            resolved[name] = from_layout(layout)
+        elif name in (fallbacks or {}):
+            resolved[name] = (fallbacks or {})[name]
+        else:
+            msg = f"--{name.replace('_', '-')} is required without --build-dir"
+            raise _UsageError(msg)
+    log.debug("resolved paths: %s", ", ".join(f"{k}={v}" for k, v in resolved.items()))
+    return resolved
+
+
 def add_arguments_metadata(parser: argparse.ArgumentParser) -> None:
     """Register the flags of ``wildphylo curate metadata``."""
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument(
-        "--gb", required=True, type=Path, help="GenBank flat file from `wildphylo fetch records`"
+        "--build-dir",
+        type=Path,
+        help="Build directory (builds/<id>/<YYYYMMDD>): --gb, --out-dir and --log default "
+        "to the build layout's paths.",
     )
-    parser.add_argument("--out-dir", required=True, type=Path)
+    parser.add_argument("--gb", type=Path, help="GenBank flat file from `wildphylo fetch records`")
+    parser.add_argument("--out-dir", type=Path, help="Where every output below is written.")
     parser.add_argument("--log", type=Path)
     parser.add_argument(
         "--keep-vaccines",
@@ -296,6 +346,9 @@ def metadata(args: argparse.Namespace) -> int:
     ``loci`` and gets one FASTA per analysed segment.
 
         wildphylo curate metadata --config config/pathogen/cdv.yaml --gb cdv.gb --out-dir DIR
+
+        # inside a build: --gb and --out-dir come from the build layout
+        wildphylo curate metadata --config config/pathogen/cdv.yaml --build-dir builds/cdv/20260101
 
     Outputs, all in ``--out-dir``:
 
@@ -324,20 +377,33 @@ def metadata(args: argparse.Namespace) -> int:
         return 2
 
     stamp = dt.date.today().strftime("%Y%m%d")
-    log_path: Path = args.log or Path("logs") / f"02_curate_{cfg['id']}_{stamp}.log"
+    try:
+        paths = _resolve(
+            args,
+            cfg,
+            {
+                "gb": BuildLayout.raw_records,
+                "out_dir": BuildLayout.interim_dir,
+                "log": lambda layout: layout.log("02_curate"),
+            },
+            {"log": Path("logs") / f"02_curate_{cfg['id']}_{stamp}.log"},
+        )
+    except _UsageError as e:
+        log.error("%s", e)  # noqa: TRY400 -- bad usage; no traceback
+        return 2
+
+    log_path = paths["log"]
     with log_to_file(log_path):
-        return _curate(args, cfg)
+        return _curate(args, cfg, paths["gb"], paths["out_dir"])
 
 
-def _curate(args: argparse.Namespace, cfg: dict[str, Any]) -> int:
-    """Run curation on a loaded config; see :func:`metadata`."""
-    out_dir: Path = args.out_dir
-
+def _curate(args: argparse.Namespace, cfg: dict[str, Any], gb: Path, out_dir: Path) -> int:
+    """Run curation of ``gb`` into ``out_dir`` on a loaded config; see :func:`metadata`."""
     for w in cfg.get("_warnings", []):
         log.warning("config: %s", w)
 
-    if not args.gb.is_file():
-        log.error("GenBank file not found: %s", args.gb)
+    if not gb.is_file():
+        log.error("GenBank file not found: %s", gb)
         return 2
 
     # --- config-derived settings -------------------------------------------
@@ -365,7 +431,7 @@ def _curate(args: argparse.Namespace, cfg: dict[str, Any]) -> int:
     rows = []
     seqs: dict[str, dict[str, str]] = {locus["name"]: {} for locus in loci}
 
-    for record in SeqIO.parse(str(args.gb), "genbank"):  # type: ignore[no-untyped-call]  # Bio.SeqIO.parse is unannotated
+    for record in SeqIO.parse(str(gb), "genbank"):  # type: ignore[no-untyped-call]  # Bio.SeqIO.parse is unannotated
         meta = extract_source_fields(record)
         hm = normalize_host(meta["host"], host_rules)
         pd_ = parse_collection_date(meta["collection_date"], min_year=min_year, max_year=max_year)
@@ -415,7 +481,7 @@ def _curate(args: argparse.Namespace, cfg: dict[str, Any]) -> int:
         rows.append(row)
 
     if not rows:
-        log.error("no records parsed from %s", args.gb)
+        log.error("no records parsed from %s", gb)
         return 1
 
     df = pd.DataFrame(rows)
@@ -702,11 +768,18 @@ def _curate(args: argparse.Namespace, cfg: dict[str, Any]) -> int:
 def add_arguments_review(parser: argparse.ArgumentParser) -> None:
     """Register the flags of ``wildphylo curate review``."""
     parser.add_argument(
-        "--needs-review", required=True, type=Path, help="needs_review.tsv from `curate metadata`"
+        "--config", type=Path, help="Pathogen config; required with --build-dir, else unused."
     )
     parser.add_argument(
-        "--marker", required=True, type=Path, help="Marker file to write when the gate passes"
+        "--build-dir",
+        type=Path,
+        help="Build directory (builds/<id>/<YYYYMMDD>): --needs-review and --marker default "
+        "to the build layout's paths.",
     )
+    parser.add_argument(
+        "--needs-review", type=Path, help="needs_review.tsv from `curate metadata`"
+    )
+    parser.add_argument("--marker", type=Path, help="Marker file to write when the gate passes")
     parser.add_argument(
         "--accept-unreviewed",
         action="store_true",
@@ -723,8 +796,19 @@ def review(args: argparse.Namespace) -> int:
     artefact. A refusal removes any stale marker so a later run cannot mistake
     an old pass for a current one.
     """
-    needs_review: Path = args.needs_review
-    marker: Path = args.marker
+    try:
+        paths = _resolve(
+            args,
+            None,
+            {"needs_review": BuildLayout.needs_review, "marker": BuildLayout.review_marker},
+        )
+    except ConfigError as e:
+        log.error("%s", e)  # noqa: TRY400 -- a bad config is user error; no traceback
+        return 2
+    except _UsageError as e:
+        log.error("%s", e)  # noqa: TRY400 -- bad usage; no traceback
+        return 2
+    needs_review, marker = paths["needs_review"], paths["marker"]
     n_rows = len(pd.read_csv(needs_review, sep="\t"))
     if n_rows and not args.accept_unreviewed:
         marker.unlink(missing_ok=True)
