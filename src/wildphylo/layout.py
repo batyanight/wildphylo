@@ -53,6 +53,15 @@ class BuildLayout:
         trait = str(dta.get("trait", "host_group")) if dta.get("enabled") else None
         return cls(Path(builds_dir) / pathogen / str(build_date), pathogen, trait)
 
+    @classmethod
+    def at(cls, root: Path | str, cfg: dict[str, Any]) -> BuildLayout:
+        """Layout of an existing build directory (``--build-dir``) for ``cfg``.
+
+        The same rules as :meth:`from_config` for ``pathogen`` and ``trait``;
+        the root is taken as given, so a build can live anywhere.
+        """
+        return cls(Path(root), str(cfg["id"]), cls.from_config(cfg, "0").trait)
+
     # --- the build as a whole -------------------------------------------------
 
     def pathogen_dir(self) -> Path:

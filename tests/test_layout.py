@@ -84,7 +84,7 @@ def test_every_public_method_is_covered_by_a_case():
         for name in dir(BuildLayout)
         if not name.startswith("_")
         and callable(getattr(BuildLayout, name))
-        and name != "from_config"
+        and name not in {"from_config", "at"}
     }
     # pathogen_dir sits above the build root, so it has its own test below.
     assert public - {"pathogen_dir"} == {method for method, _, _ in CASES}
@@ -137,3 +137,12 @@ def test_shipped_configs_resolve(configs):
         cfg = cfgmod.load(path)
         built = BuildLayout.from_config(cfg, "20260102")
         assert built.root == Path("builds") / cfg["id"] / "20260102"
+
+
+def test_at_takes_the_root_as_given(tmp_path):
+    cfg = {"id": "demo", "beast": {"discrete_trait": {"enabled": True, "trait": "host"}}}
+    layout = BuildLayout.at(tmp_path / "anywhere", cfg)
+    assert layout.root == tmp_path / "anywhere"
+    assert layout.pathogen == "demo"
+    assert layout.trait == "host"
+    assert layout.metadata() == tmp_path / "anywhere" / "interim" / "metadata_clean.tsv"
