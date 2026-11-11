@@ -34,12 +34,11 @@ from wildphylo.cli import step
 from wildphylo.config import ConfigError
 from wildphylo.config import load as load_config
 from wildphylo.newick import (
-    TREE_LINE_RE,
     Node,
+    count_trees,
     iter_trees,
     label_date,
     node_depths,
-    smart_open,
 )
 from wildphylo.preflight import check_clock_prior
 
@@ -1337,16 +1336,6 @@ def expand_tree_files(patterns: Iterable[str]) -> list[Path]:
             raise BeastStepError(f"no file matched: {pattern}")
         files.extend(hits)
     return files
-
-
-def count_trees(path: Path) -> int:
-    """Number of trees in a NEXUS tree file (a first pass, so burn-in can be a fraction)."""
-    n_trees = 0
-    with smart_open(path) as fh:
-        for line in fh:
-            if TREE_LINE_RE.match(line.strip()):
-                n_trees += 1
-    return n_trees
 
 
 def _year_at(i: int, most_recent: float, max_depth: float, depth: list[float]) -> float:

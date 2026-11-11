@@ -188,6 +188,45 @@ def test_gzipped_tree_files_are_read(tmp_path):
     assert len([None for _ in tt.iter_trees(p)]) == 3
 
 
+def test_count_trees_agrees_with_iter_trees(tmp_path):
+    """One grammar: the count must be the number of trees ``iter_trees`` yields."""
+    p = tmp_path / "x.trees"
+    p.write_text(nexus([SIMPLE] * 5))
+    assert tt.count_trees(p) == 5 == len([None for _ in tt.iter_trees(p)])
+
+
+def test_count_trees_ignores_everything_that_is_not_a_tree_line(tmp_path):
+    p = tmp_path / "x.trees"
+    p.write_text(
+        "#NEXUS\nBegin taxa;\n\tDimensions ntax=2;\nEnd;\nBegin trees;\n"
+        "\tTranslate\n\t\t1 A|felid|1990,\n\t\t2 B|felid|1992\n;\n"
+        "tree STATE_0 [&lnP=-1.5] = [&R] (1:1.0,2:1.0);\n"
+        "[a comment (1,2);]\n"
+        "tree STATE_1 = [&R] (1:1.0,2:1.0);\n"
+        "End;\n"
+    )
+    assert tt.count_trees(p) == 2
+
+
+def test_count_trees_reads_gzip_and_empty_files(tmp_path):
+    import gzip
+
+    gz = tmp_path / "x.trees.gz"
+    with gzip.open(gz, "wt") as fh:
+        fh.write(nexus([SIMPLE] * 3, translate=False))
+    assert tt.count_trees(gz) == 3
+    empty = tmp_path / "empty.trees"
+    empty.write_text("#NEXUS\nBegin trees;\nEnd;\n")
+    assert tt.count_trees(empty) == 0
+
+
+def test_only_newick_knows_the_tree_line_grammar():
+    """beast.py counts trees through newick, not with its own copy of the regex."""
+    text = Path(beast.__file__).read_text()
+    assert "TREE_LINE_RE" not in text
+    assert beast.count_trees is tt.count_trees
+
+
 # --- end to end, against transitions constructed by hand --------------------
 
 KNOWN = (

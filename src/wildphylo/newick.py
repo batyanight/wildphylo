@@ -80,11 +80,11 @@ Node = dict[str, Any]
 __all__ = [
     "NUMBER_RE",
     "TRANSLATE_ROW_RE",
-    "TREE_LINE_RE",
     "NewickParser",
     "Node",
     "Topology",
     "annotation_value",
+    "count_trees",
     "detect_tag",
     "iter_topologies",
     "iter_trees",
@@ -106,7 +106,7 @@ __all__ = [
 # --------------------------------------------------------------------------- #
 
 NUMBER_RE = re.compile(r"[-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?")
-TREE_LINE_RE = re.compile(r"^\s*tree\s+\S+\s*(?:\[[^\]]*\]\s*)?=\s*(.*;)\s*$", re.IGNORECASE)
+_TREE_LINE_RE = re.compile(r"^\s*tree\s+\S+\s*(?:\[[^\]]*\]\s*)?=\s*(.*;)\s*$", re.IGNORECASE)
 TRANSLATE_ROW_RE = re.compile(r"^\s*(\S+)\s+(.+?)[,;]?\s*$")
 
 
@@ -524,7 +524,7 @@ def _scan_trees(
                     if stripped.endswith(";"):
                         in_translate = False
                     continue
-            m = TREE_LINE_RE.match(stripped)
+            m = _TREE_LINE_RE.match(stripped)
             if m:
                 yield translate, m.group(1)
             elif plain_newick and stripped.startswith("(") and stripped.endswith(";"):
@@ -535,6 +535,15 @@ def _apply_translate(nodes: list[Node], translate: dict[str, str]) -> None:
     for nd in nodes:
         if nd["is_tip"] and nd["label"] in translate:
             nd["label"] = translate[nd["label"]]
+
+
+def count_trees(path: Path | str) -> int:
+    """Number of trees in a NEXUS tree file (a first pass, so burn-in can be a fraction).
+
+    Uses the same scan as :func:`iter_trees`, so the count is of exactly the
+    trees that iteration will yield.
+    """
+    return sum(1 for _ in _scan_trees(path))
 
 
 def iter_trees(
