@@ -62,9 +62,9 @@ ruff format --check src/ tests/
 mypy
 ```
 
-`ruff` is not in `environment.yml`; install it with `pip install ruff`. The rule
-set is pinned in `pyproject.toml` (`select = ["ALL"]` with a justified ignore
-list), and mypy runs strict on `src/`.
+`ruff` and `mypy` come with the environment and the `dev` extra. The rule set is
+pinned in `pyproject.toml` (`select = ["ALL"]` with a justified ignore list),
+and mypy runs strict on `src/`.
 
 Two rules specific to this project:
 
