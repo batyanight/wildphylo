@@ -10,25 +10,20 @@ None of those raise anything.
 
 from __future__ import annotations
 
-import importlib.util
+import argparse
+import ast
 import json
-import subprocess
-import sys
+import logging
+import re
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
+from wildphylo import cli
+from wildphylo.stages import auspice
+
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
-
-
-@pytest.fixture(scope="module")
-def mod():
-    spec = importlib.util.spec_from_file_location("aus09", ROOT / "scripts" / "09_make_auspice.py")
-    m = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = m
-    spec.loader.exec_module(m)
-    return m
 
 
 MCC = """#NEXUS
@@ -61,40 +56,57 @@ def build(tmp_path):
     return tmp_path
 
 
-def run(build, out, *extra, config=None):
-    cmd = [
-        sys.executable,
-        "scripts/09_make_auspice.py",
-        "--mcc",
-        str(build / "mcc.tree"),
-        "--metadata",
-        str(build / "meta.tsv"),
-        "--output",
-        str(out),
-        *extra,
-    ]
-    if config:
-        cmd += ["--config", str(config)]
-    return subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=120, check=False)
+@dataclass
+class Result:
+    """Exit code plus everything the step logged (what used to be stdout and stderr)."""
+
+    returncode: int
+    log: str
+
+
+@pytest.fixture
+def run(caplog):
+    """Run ``wildphylo auspice dataset`` in-process on a fixture build."""
+    caplog.set_level(logging.INFO)
+
+    def _run(build, out, *extra, config=None):
+        argv = [
+            "auspice",
+            "dataset",
+            "--mcc",
+            str(build / "mcc.tree"),
+            "--metadata",
+            str(build / "meta.tsv"),
+            "--output",
+            str(out),
+            *extra,
+        ]
+        if config:
+            argv += ["--config", str(config)]
+        caplog.clear()
+        code = cli.main(argv)
+        return Result(code, caplog.text)
+
+    return _run
 
 
 # --- the time axis ----------------------------------------------------------
 
 
-def test_most_recent_is_derived_from_the_tip_labels(build, tmp_path):
+def test_most_recent_is_derived_from_the_tip_labels(build, tmp_path, run):
     """
     Passing it by hand is how the axis gets silently offset: a value a year
     stale shifts every node together, so nothing looks wrong.
     """
     out = tmp_path / "a.json"
     r = run(build, out)
-    assert r.returncode == 0, r.stderr[-1500:]
-    assert "2020.0000" in r.stdout
+    assert r.returncode == 0, r.log[-1500:]
+    assert "2020.0000" in r.log
     doc = json.loads(out.read_text())
     assert doc["tree"]["node_attrs"]["num_date"]["value"] == pytest.approx(1990.0)
 
 
-def test_an_inconsistent_time_axis_refuses_to_write(build, tmp_path):
+def test_an_inconsistent_time_axis_refuses_to_write(build, tmp_path, run):
     """
     A wrong axis produces a figure that looks entirely normal, with every node
     in the wrong place. It must refuse rather than warn.
@@ -102,11 +114,11 @@ def test_an_inconsistent_time_axis_refuses_to_write(build, tmp_path):
     out = tmp_path / "a.json"
     r = run(build, out, "--most-recent", "2015.0")
     assert r.returncode == 1
-    assert "time axis is wrong" in r.stderr
+    assert "time axis is wrong" in r.log
     assert not out.exists(), "nothing may be written when the axis is wrong"
 
 
-def test_height_hpd_becomes_a_date_confidence_interval(build, tmp_path):
+def test_height_hpd_becomes_a_date_confidence_interval(build, tmp_path, run):
     out = tmp_path / "a.json"
     assert run(build, out).returncode == 0
     node = json.loads(out.read_text())["tree"]["children"][0]
@@ -119,15 +131,15 @@ def test_height_hpd_becomes_a_date_confidence_interval(build, tmp_path):
 # --- nothing names the pathogen unless the config does ----------------------
 
 
-def test_the_title_comes_from_the_config(build, tmp_path):
+def test_the_title_comes_from_the_config(build, tmp_path, run):
     out = tmp_path / "a.json"
     r = run(build, out, config=ROOT / "config" / "pathogen" / "cdv-1200.yaml")
-    assert r.returncode == 0, r.stderr[-1500:]
+    assert r.returncode == 0, r.log[-1500:]
     meta = json.loads(out.read_text())["meta"]
     assert "CDV" in meta["title"]
 
 
-def test_no_pathogen_name_is_hardcoded(build, tmp_path):
+def test_no_pathogen_name_is_hardcoded(build, tmp_path, run):
     """
     Regression. The script shipped a default title naming the America-2 CDV
     lineage and a description citing A75/17. In a pathogen-agnostic repo that
@@ -142,9 +154,7 @@ def test_no_pathogen_name_is_hardcoded(build, tmp_path):
     # Check the executable code, not the module docstring: the docstring
     # quotes the removed strings in order to explain why they were removed,
     # and a test that forbids naming the bug makes the bug harder to fix.
-    import ast
-
-    src = (ROOT / "scripts" / "09_make_auspice.py").read_text()
+    src = Path(auspice.__file__).read_text()
     tree = ast.parse(src)
     body = (
         tree.body[1:]
@@ -160,7 +170,7 @@ def test_no_pathogen_name_is_hardcoded(build, tmp_path):
         assert word not in code, f"{word!r} is still hardcoded in the code"
 
 
-def test_colourings_come_from_the_config(build, tmp_path):
+def test_colourings_come_from_the_config(build, tmp_path, run):
     out = tmp_path / "a.json"
     run(build, out, config=ROOT / "config" / "pathogen" / "cdv-1200.yaml")
     keys = [c["key"] for c in json.loads(out.read_text())["meta"]["colorings"]]
@@ -171,7 +181,7 @@ def test_colourings_come_from_the_config(build, tmp_path):
 # --- the trait --------------------------------------------------------------
 
 
-def test_tip_and_internal_states_share_a_category(build, tmp_path):
+def test_tip_and_internal_states_share_a_category(build, tmp_path, run):
     """
     Regression. Tips took their host from metadata, which holds the RAW host
     group, while internal nodes carry the model's collapsed state. Auspice then
@@ -186,13 +196,13 @@ def test_tip_and_internal_states_share_a_category(build, tmp_path):
     assert tip == internal == "felid"
 
 
-def test_the_trait_key_is_auto_detected(mod, build):
+def test_the_trait_key_is_auto_detected(build):
     """The XML writes tag=host_group; the old default was 'location'."""
-    _nodes, tag = mod.parse_mcc(build / "mcc.tree")
+    _nodes, tag = auspice.parse_mcc(build / "mcc.tree")
     assert tag == "host_group"
 
 
-def test_state_probability_becomes_a_confidence(build, tmp_path):
+def test_state_probability_becomes_a_confidence(build, tmp_path, run):
     out = tmp_path / "a.json"
     run(build, out, config=ROOT / "config" / "pathogen" / "cdv-1200.yaml")
     tree = json.loads(out.read_text())["tree"]
@@ -203,7 +213,7 @@ def test_state_probability_becomes_a_confidence(build, tmp_path):
 # --- gate verdicts ----------------------------------------------------------
 
 
-def test_gate_verdicts_appear_in_the_description(build, tmp_path):
+def test_gate_verdicts_appear_in_the_description(build, tmp_path, run):
     """
     A published tree is read by people who did not run the pipeline, and a
     trait colouring that failed its signal test renders identically to one
@@ -221,7 +231,7 @@ def test_gate_verdicts_appear_in_the_description(build, tmp_path):
     assert "did not pass" in desc
 
 
-def test_a_build_with_no_failed_gates_gets_no_warning(build, tmp_path):
+def test_a_build_with_no_failed_gates_gets_no_warning(build, tmp_path, run):
     g = tmp_path / "trait_signal.json"
     g.write_text(json.dumps({"verdict": "pass", "reasons": ["AI p=0.001"]}))
     out = tmp_path / "a.json"
@@ -229,19 +239,19 @@ def test_a_build_with_no_failed_gates_gets_no_warning(build, tmp_path):
     assert "did not pass" not in json.loads(out.read_text())["meta"]["description"]
 
 
-def test_a_malformed_gate_file_is_skipped_not_fatal(mod, tmp_path):
+def test_a_malformed_gate_file_is_skipped_not_fatal(tmp_path):
     bad = tmp_path / "broken.json"
     bad.write_text("{not json")
     ok = tmp_path / "trait_signal.json"
     ok.write_text(json.dumps({"verdict": "pass"}))
-    got = mod.gate_summary([bad, ok, tmp_path / "absent.json"])
+    got = auspice.gate_summary([bad, ok, tmp_path / "absent.json"])
     assert [g[1] for g in got] == ["pass"]
 
 
 # --- the workflow's own invocation ------------------------------------------
 
 
-def test_the_snakefile_flags_are_all_accepted(build, tmp_path):
+def test_the_snakefile_flags_are_all_accepted(build, tmp_path, run):
     """
     Regression. The Snakefile passed --config/--alignment/--output while the
     script wanted --title/--maintainer/--most-recent/--trait-key, so the rule
@@ -259,29 +269,137 @@ def test_the_snakefile_flags_are_all_accepted(build, tmp_path):
         str(build / "meta.tsv"),
         config=ROOT / "config" / "pathogen" / "cdv-1200.yaml",
     )
-    assert r.returncode == 0, r.stderr[-1500:]
-    assert "2 sequences" in r.stdout
+    assert r.returncode == 0, r.log[-1500:]
+    assert "2 sequences" in r.log
 
 
-def test_the_snakefile_passes_only_flags_the_script_has():
-    """Every --flag in the auspice rule must exist in the parser."""
-    import re
+def test_the_snakefile_passes_only_flags_the_step_has():
+    """Every --flag in the auspice rule must exist in the step's parser.
 
+    Fails until the coordinator switches the Snakefile rule to
+    ``wildphylo auspice dataset`` (the rule still calls the script).
+    """
     sf = (ROOT / "workflow" / "Snakefile").read_text()
     rule = sf.split("rule auspice:")[1].split("rule publish:")[0]
+    assert "wildphylo auspice dataset" in rule, "the auspice rule has not been switched yet"
     called = set(re.findall(r"(--[a-z-]+)", rule))
-    src = (ROOT / "scripts" / "09_make_auspice.py").read_text()
-    declared = set(re.findall(r'ap\.add_argument\(\s*"(--[a-z-]+)"', src))
+    parser = argparse.ArgumentParser()
+    auspice.add_arguments_dataset(parser)
+    declared = {opt for action in parser._actions for opt in action.option_strings}  # noqa: SLF001
     assert called <= declared, f"Snakefile passes unknown flags: {called - declared}"
 
 
-def test_cli_help_works():
-    r = subprocess.run(
-        [sys.executable, "scripts/09_make_auspice.py", "--help"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
+def test_cli_help_works(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["auspice", "dataset", "--help"])
+    assert exc.value.code == 0
+    assert "--mcc" in capsys.readouterr().out
+
+
+# --- the entropy step -------------------------------------------------------
+
+# A 5-codon locus (ATG AAA CCC GGG TTT, stop TAA). The coordinate reference
+# `a` carries a gap at column 7, which `b` fills: an insertion relative to the
+# reference. `b` also changes CCC to CGC, so the mutation sits after the
+# insertion and must be numbered in reference coordinates (C8G), not alignment
+# columns (C9G).
+ALIGNMENT = ">a\nATGAAA-CCCGGGTTTTAA\n>b\nATGAAATCGCGGGTTTTAA\n>c\nATGAAA-CCCGGGTTTTAA\n"
+
+
+def _dataset(with_cds: bool = True) -> dict:
+    ann = {"nuc": {"start": 1, "end": 18, "strand": "+", "type": "source"}}
+    if with_cds:
+        ann["H"] = {"start": 1, "end": 15, "strand": "+", "type": "CDS", "gene": "H"}
+    return {
+        "version": "v2",
+        "meta": {"panels": ["tree"], "genome_annotations": ann},
+        "tree": {
+            "name": "NODE_0000001",
+            "children": [
+                {
+                    "name": "NODE_0000002",
+                    "children": [{"name": "a"}, {"name": "b"}],
+                },
+                {"name": "c"},
+            ],
+        },
+    }
+
+
+@pytest.fixture
+def entropy_inputs(tmp_path):
+    (tmp_path / "aln.fasta").write_text(ALIGNMENT)
+    (tmp_path / "in.json").write_text(json.dumps(_dataset()))
+    return tmp_path
+
+
+def _entropy(d, *extra, output=None):
+    return cli.main(
+        [
+            "auspice",
+            "entropy",
+            "--json",
+            str(d / "in.json"),
+            "--alignment",
+            str(d / "aln.fasta"),
+            "--reference",
+            "a",
+            "--output",
+            str(output or d / "out.json"),
+            *extra,
+        ]
     )
-    assert r.returncode == 0
+
+
+def _find(node, name):
+    if node["name"] == name:
+        return node
+    for c in node.get("children", []):
+        got = _find(c, name)
+        if got:
+            return got
+    return None
+
+
+def test_entropy_mutations_use_reference_coordinates(entropy_inputs):
+    """Regression: alignment-column numbering shifts every mutation after an insertion."""
+    assert _entropy(entropy_inputs) == 0
+    doc = json.loads((entropy_inputs / "out.json").read_text())
+    muts = _find(doc["tree"], "b")["branch_attrs"]["mutations"]
+    assert muts["nuc"] == ["C8G"]
+    assert muts["H"] == ["P3R"], "the codon is read from the reference's own columns"
+    assert "entropy" in doc["meta"]["panels"]
+    assert _find(doc["tree"], "c")["branch_attrs"]["mutations"] == {}
+
+
+def test_entropy_refuses_a_dataset_with_no_cds(entropy_inputs):
+    (entropy_inputs / "in.json").write_text(json.dumps(_dataset(with_cds=False)))
+    assert _entropy(entropy_inputs) == 1
+    assert not (entropy_inputs / "out.json").exists()
+
+
+def test_entropy_refuses_an_unaligned_alignment(entropy_inputs):
+    (entropy_inputs / "aln.fasta").write_text(">a\nATGAAA\n>b\nATG\n")
+    assert _entropy(entropy_inputs) == 1
+
+
+def test_entropy_backs_up_the_file_it_overwrites(entropy_inputs):
+    target = entropy_inputs / "in.json"
+    assert _entropy(entropy_inputs, output=target) == 0
+    backups = list(entropy_inputs.glob("in.*.bak.json"))
+    assert len(backups) == 1
+    assert json.loads(backups[0].read_text())["meta"]["panels"] == ["tree"]
+
+
+def test_entropy_no_backup_flag(entropy_inputs):
+    assert _entropy(entropy_inputs, "--no-backup", output=entropy_inputs / "in.json") == 0
+    assert not list(entropy_inputs.glob("*.bak.json"))
+
+
+def test_the_coordinate_frame_skips_insertion_columns():
+    frame = auspice.CoordinateFrame("a", "ATGAAA-CCCGGGTTTTAA")
+    frame.find_orf()
+    assert (frame.ref_length, frame.n_codons) == (18, 5)
+    assert frame.refpos_for_col[8] == 7
+    assert 7 not in frame.refpos_for_col
+    assert frame.codon_columns(2) == (8, 9, 10)
