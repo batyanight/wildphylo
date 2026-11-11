@@ -160,10 +160,7 @@ def main() -> int:
     rows = []
     for i, clade in enumerate(groups, start=1):
         members = [parse_label(t.name) for t in clade.get_terminals()]
-        if len(members) < args.min_size:
-            label = f"clade_{i}_small"
-        else:
-            label = f"clade_{i}"
+        label = f"clade_{i}_small" if len(members) < args.min_size else f"clade_{i}"
         comp = Counter(h for _, h, _ in members)
         yrs = [y for _, _, y in members if y is not None]
         wild_here = sum(n for h, n in comp.items() if h in WILD)

@@ -52,6 +52,7 @@ except ImportError as exc:
         "  terminal: pip install pandas\n"
         "  notebook: %pip install pandas   (then restart the kernel)"
     ) from exc
+log = logging.getLogger(Path(__file__).stem)
 
 
 def have(tool: str) -> bool:
@@ -59,12 +60,12 @@ def have(tool: str) -> bool:
 
 
 def run(cmd: list[str], log_path: Path | None = None) -> None:
-    logging.info("$ %s", " ".join(cmd))
+    log.info("$ %s", " ".join(cmd))
     if log_path:
         with log_path.open("w") as fh:
-            proc = subprocess.run(cmd, stdout=fh, stderr=subprocess.STDOUT)
+            proc = subprocess.run(cmd, stdout=fh, stderr=subprocess.STDOUT, check=False)
     else:
-        proc = subprocess.run(cmd)
+        proc = subprocess.run(cmd, check=False)
     if proc.returncode != 0:
         raise SystemExit(f"command failed (exit {proc.returncode}): {' '.join(cmd)}")
 
@@ -72,8 +73,8 @@ def run(cmd: list[str], log_path: Path | None = None) -> None:
 def read_fasta(path: Path) -> dict[str, str]:
     seqs, acc, chunks = {}, None, []
     with path.open() as fh:
-        for line in fh:
-            line = line.rstrip()
+        for raw in fh:
+            line = raw.rstrip()
             if line.startswith(">"):
                 if acc is not None:
                     seqs[acc] = "".join(chunks)
@@ -111,7 +112,7 @@ def relabel(seqs: dict[str, str], meta: pd.DataFrame) -> tuple[dict[str, str], l
     return out, dropped
 
 
-def main() -> int:
+def main() -> int:  # one early exit code per failed precondition
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -141,17 +142,17 @@ def main() -> int:
     # --- 1. relabel -------------------------------------------------------
     seqs = read_fasta(args.fasta)
     meta = pd.read_csv(args.metadata, sep="\t")
-    logging.info("%d sequences, %d metadata rows", len(seqs), len(meta))
+    log.info("%d sequences, %d metadata rows", len(seqs), len(meta))
 
     labelled, dropped = relabel(seqs, meta)
     if dropped:
-        logging.warning(
+        log.warning(
             "%d sequences had no usable metadata and were dropped: %s",
             len(dropped),
             ", ".join(dropped[:8]) + (" ..." if len(dropped) > 8 else ""),
         )
     if not labelled:
-        logging.error(
+        log.error(
             "nothing left after relabelling — check that accessions match "
             "between the FASTA and metadata_clean.tsv"
         )
@@ -159,7 +160,7 @@ def main() -> int:
 
     labelled_path = args.outdir / f"{args.prefix}_labelled.fasta"
     write_fasta(labelled_path, labelled)
-    logging.info("wrote %s (%d sequences)", labelled_path, len(labelled))
+    log.info("wrote %s (%d sequences)", labelled_path, len(labelled))
 
     # TempEst / BEAST date file
     dates_path = args.outdir / f"{args.prefix}_dates.tsv"
@@ -167,19 +168,19 @@ def main() -> int:
         fh.write("taxon\tdate\n")
         for label in labelled:
             fh.write(f"{label}\t{label.rsplit('|', 1)[1]}\n")
-    logging.info("wrote %s", dates_path)
+    log.info("wrote %s", dates_path)
 
     # composition summary — sanity check before spending compute
     counts = {}
     for label in labelled:
         counts[label.split("|")[1]] = counts.get(label.split("|")[1], 0) + 1
-    logging.info("host composition of the alignment set:")
+    log.info("host composition of the alignment set:")
     for grp, cnt in sorted(counts.items(), key=lambda kv: -kv[1]):
-        logging.info("    %-16s %5d", grp, cnt)
+        log.info("    %-16s %5d", grp, cnt)
     thin = [g for g, c in counts.items() if c < 5]
     if thin:
-        logging.warning("host groups with <5 sequences: %s", ", ".join(thin))
-        logging.warning(
+        log.warning("host groups with <5 sequences: %s", ", ".join(thin))
+        log.warning(
             "  discrete trait analysis will be unreliable for these. "
             "Consider merging them into a broader category or excluding them."
         )
@@ -189,7 +190,7 @@ def main() -> int:
 
     # --- 2. align ---------------------------------------------------------
     if not have("mafft"):
-        logging.error("mafft not found on PATH. conda install -c bioconda mafft")
+        log.error("mafft not found on PATH. conda install -c bioconda mafft")
         return 1
 
     aln_path = args.outdir / f"{args.prefix}_aligned.fasta"
@@ -208,20 +209,20 @@ def main() -> int:
         str(labelled_path),
     ]
 
-    logging.info("aligning with MAFFT (%s)...", args.mafft_mode)
+    log.info("aligning with MAFFT (%s)...", args.mafft_mode)
     with aln_path.open("w") as fh:
-        proc = subprocess.run(mafft_cmd, stdout=fh, stderr=subprocess.PIPE, text=True)
+        proc = subprocess.run(mafft_cmd, stdout=fh, stderr=subprocess.PIPE, text=True, check=False)
     if proc.returncode != 0:
-        logging.error(proc.stderr[-2000:])
+        log.error(proc.stderr[-2000:])
         return 1
-    logging.info("wrote %s", aln_path)
+    log.info("wrote %s", aln_path)
 
     # --adjustdirection prefixes reverse-complemented seqs with _R_; strip it so
     # tip labels still match the date file.
     aln = read_fasta(aln_path)
     n_rev = sum(1 for k in aln if k.startswith("_R_"))
     if n_rev:
-        logging.warning(
+        log.warning(
             "%d sequences were reverse-complemented by MAFFT — worth checking those records", n_rev
         )
         aln = {(k.removeprefix("_R_")): v for k, v in aln.items()}
@@ -229,24 +230,24 @@ def main() -> int:
 
     if args.trim:
         if not have("trimal"):
-            logging.warning("trimal not found — skipping trimming")
+            log.warning("trimal not found — skipping trimming")
         else:
             trimmed = args.outdir / f"{args.prefix}_aligned_trimmed.fasta"
             run(["trimal", "-in", str(aln_path), "-out", str(trimmed), "-automated1"])
             aln_path = trimmed
 
-    logging.info("")
-    logging.info(">>> STOP AND LOOK AT THE ALIGNMENT before building a tree.")
-    logging.info(">>> Open %s in AliView or Jalview. Check the ends, check for", aln_path)
-    logging.info(">>> frame shifts, check nothing is obviously misaligned.")
-    logging.info("")
+    log.info("")
+    log.info(">>> STOP AND LOOK AT THE ALIGNMENT before building a tree.")
+    log.info(">>> Open %s in AliView or Jalview. Check the ends, check for", aln_path)
+    log.info(">>> frame shifts, check nothing is obviously misaligned.")
+    log.info("")
 
     if args.stop_after == "align":
         return 0
 
     # --- 3. ML tree -------------------------------------------------------
     if not have("iqtree") and not have("iqtree2"):
-        logging.error("iqtree not found on PATH. conda install -c bioconda iqtree")
+        log.error("iqtree not found on PATH. conda install -c bioconda iqtree")
         return 1
     iqtree = "iqtree2" if have("iqtree2") else "iqtree"
 
@@ -270,18 +271,18 @@ def main() -> int:
         ]
     )
 
-    logging.info("")
-    logging.info("Tree: %s.treefile", tree_prefix)
-    logging.info("Model selected: see %s.iqtree", tree_prefix)
-    logging.info("")
-    logging.info("NEXT:")
-    logging.info("  1. Open the treefile in FigTree. Does the lineage structure look sane?")
-    logging.info("  2. Check for a vaccine-strain clade — any field isolate sitting inside")
-    logging.info("     it is a mislabelled vaccine sequence. Add it to config/vaccine_strains.txt")
-    logging.info("     and re-run from step 02.")
-    logging.info("  3. Load %s.treefile into TempEst with %s", tree_prefix, dates_path)
-    logging.info("     and check the root-to-tip regression. R-squared and a positive slope")
-    logging.info("     tell you whether tip-dated BEAST analysis is viable.")
+    log.info("")
+    log.info("Tree: %s.treefile", tree_prefix)
+    log.info("Model selected: see %s.iqtree", tree_prefix)
+    log.info("")
+    log.info("NEXT:")
+    log.info("  1. Open the treefile in FigTree. Does the lineage structure look sane?")
+    log.info("  2. Check for a vaccine-strain clade — any field isolate sitting inside")
+    log.info("     it is a mislabelled vaccine sequence. Add it to config/vaccine_strains.txt")
+    log.info("     and re-run from step 02.")
+    log.info("  3. Load %s.treefile into TempEst with %s", tree_prefix, dates_path)
+    log.info("     and check the root-to-tip regression. R-squared and a positive slope")
+    log.info("     tell you whether tip-dated BEAST analysis is viable.")
     return 0
 
 

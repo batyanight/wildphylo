@@ -51,6 +51,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import contextlib
+
 from lib.traittrees import (
     TRANSLATE_ROW_RE,
     TREE_LINE_RE,
@@ -112,11 +114,11 @@ def load_metadata(sub_path, full_path, dta_states=None):
         return meta
     import csv
 
-    with open(sub_path) as fh:
+    with Path(sub_path).open() as fh:
         rows = list(csv.DictReader(fh, delimiter="\t"))
     extra = {}
     if full_path and Path(full_path).is_file():
-        with open(full_path) as fh:
+        with Path(full_path).open() as fh:
             for r in csv.DictReader(fh, delimiter="\t"):
                 extra[str(r.get("accession", "")).split(".")[0]] = r
     for r in rows:
@@ -176,24 +178,20 @@ def convert(nodes, idx, most_recent, meta, trait_key, trait_name, div=0.0):
                 sl = [x.strip().strip('"') for x in states.split(",") if x.strip()]
                 pl = [float(x) for x in probs.split(",") if x.strip()]
                 if len(sl) == len(pl):
-                    entry["confidence"] = {s: round(v, 4) for s, v in zip(sl, pl)}
+                    entry["confidence"] = {s: round(v, 4) for s, v in zip(sl, pl, strict=True)}
             except ValueError:
                 pass
         if "confidence" not in entry:
             pr = node["ann"].get(f"{trait_key}.prob")
             if pr:
-                try:
+                with contextlib.suppress(ValueError):
                     entry["confidence"] = {node["ann"][trait_key]: round(float(pr), 4)}
-                except ValueError:
-                    pass
         attrs[trait_name] = entry
 
     post = node["ann"].get("posterior")
     if post:
-        try:
+        with contextlib.suppress(ValueError):
             attrs["posterior"] = {"value": round(float(post), 4)}
-        except ValueError:
-            pass
 
     if node["label"]:  # tip
         out["name"] = node["label"]
@@ -231,8 +229,8 @@ def gate_summary(paths):
     exactly where they matter most.
     """
     out = []
-    for p in paths or []:
-        p = Path(p)
+    for p_raw in paths or []:
+        p = Path(p_raw)
         if not p.is_file():
             continue
         try:

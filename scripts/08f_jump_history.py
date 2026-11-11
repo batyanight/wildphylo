@@ -197,7 +197,10 @@ def main():
     files = []
     for pattern in args.trees:
         if any(ch in pattern for ch in "*?["):
-            hits = [Path(h) for h in sorted(globmod.glob(pattern))]
+            hits = [
+                Path(h)
+                for h in sorted(globmod.glob(pattern))  # noqa: PTH207  # user patterns may be absolute; Path.glob rejects those
+            ]  # user patterns may be absolute; Path.glob rejects those
         else:
             hits = [Path(pattern)]
         if not hits:
@@ -223,7 +226,7 @@ def main():
                     n_trees += 1
         if n_trees == 0:
             sys.exit(f"{path}: no trees found — is this a tree file?")
-        skip = int(round(args.burnin * n_trees))
+        skip = round(args.burnin * n_trees)
         trees_seen[str(path)] = n_trees
 
         for tree_i, nodes, tag in iter_trees(path, resolved_tag):
@@ -245,7 +248,7 @@ def main():
                     sys.exit("Tip labels carry no parseable date and --most-recent was not given.")
                 most_recent = max(dates)
 
-            def year(i):
+            def year(i, most_recent=most_recent, max_depth=max_depth, depth=depth):
                 return most_recent - (max_depth - depth[i])
 
             # parser sanity check: do reconstructed tip dates match the labels?
@@ -313,24 +316,27 @@ def main():
     # ---------------------------------------------------------------- output #
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
-        with open(args.out, "w") as fh:
+        with Path(args.out).open("w") as fh:
             fh.write(
                 "file\ttree\tfrom\tto\tparent_year\tchild_year\tmid_year\t"
                 "branch_length\tparent_prob\tchild_prob\tchild_is_tip\n"
             )
-            fh.writelines("{}\t{}\t{}\t{}\t{:.4f}\t{:.4f}\t{:.4f}\t{:.6f}\t{}\t{}\t{}\n".format(
-                        row[0],
-                        row[1],
-                        row[2],
-                        row[3],
-                        row[4],
-                        row[5],
-                        row[6],
-                        row[7],
-                        "" if row[8] is None else f"{row[8]:.4f}",
-                        "" if row[9] is None else f"{row[9]:.4f}",
-                        int(row[10]),
-                    ) for row in jumps)
+            fh.writelines(
+                "{}\t{}\t{}\t{}\t{:.4f}\t{:.4f}\t{:.4f}\t{:.6f}\t{}\t{}\t{}\n".format(
+                    row[0],
+                    row[1],
+                    row[2],
+                    row[3],
+                    row[4],
+                    row[5],
+                    row[6],
+                    row[7],
+                    "" if row[8] is None else f"{row[8]:.4f}",
+                    "" if row[9] is None else f"{row[9]:.4f}",
+                    int(row[10]),
+                )
+                for row in jumps
+            )
 
     W = 78
     print("=" * W)
@@ -338,7 +344,7 @@ def main():
     print("=" * W)
     print(f"state annotation key : {resolved_tag}")
     for f, n in trees_seen.items():
-        print(f"  {f}: {n} trees, {int(round(args.burnin * n))} discarded as burn-in")
+        print(f"  {f}: {n} trees, {round(args.burnin * n)} discarded as burn-in")
     print(f"trees analysed       : {trees_used}")
     print(f"transitions recorded : {len(jumps)}")
     print(f"per tree             : mean {mean(per_tree_counts):.2f}, sd {sd(per_tree_counts):.2f}")

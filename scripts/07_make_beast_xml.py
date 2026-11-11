@@ -64,7 +64,7 @@ from lib.beastxml import (  # noqa: E402
     trait_blocks,
     tree_prior_blocks,
 )
-from lib.config import ConfigError
+from lib.config import ConfigError  # noqa: E402
 from lib.config import load as load_config  # noqa: E402
 from lib.preflight import check_clock_prior  # noqa: E402
 
@@ -193,7 +193,6 @@ def build_xml(
     )
 
     dates = ",".join(f"{lbl}={info[lbl][2]:.4f}" for lbl in seqs)
-    traits = ",".join(f"{lbl}={info[lbl][1]}" for lbl in seqs)
     n = len(seqs)
 
     tp = tree_prior_blocks(tree_prior, prefix, n)
@@ -373,10 +372,10 @@ def build_xml(
         <operatorschedule id="OperatorSchedule" spec="OperatorSchedule"/>
     </run>
 </beast>
-"""
+"""  # noqa: E501  # BEAST XML template; wrapping would change the generated file
 
 
-def main() -> int:
+def main() -> int:  # one early exit code per failed precondition
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -438,11 +437,11 @@ def main() -> int:
             return 2
         if "loci" in cfg:
             wanted = args.locus
-            for l in cfg["loci"]:
-                if not l.get("analyse"):
+            for locus in cfg["loci"]:
+                if not locus.get("analyse"):
                     continue
-                if wanted is None or l["name"] == wanted:
-                    locus_cfg = l
+                if wanted is None or locus["name"] == wanted:
+                    locus_cfg = locus
                     break
         else:
             locus_cfg = cfg.get("locus", {})
@@ -563,10 +562,7 @@ def main() -> int:
         tip_states, unmapped = {}, {}
         for k in seqs:
             host = info[k][1]
-            if state_map:
-                st = state_map.get(host)
-            else:
-                st = host
+            st = state_map.get(host) if state_map else host
             if st is None:
                 unmapped[host] = unmapped.get(host, 0) + 1
                 st = "?"

@@ -50,7 +50,7 @@ def tip_date(name: str) -> float | None:
         return None
 
 
-def clade_support(tree, clade) -> tuple[float | None, float | None]:
+def clade_support(clade) -> tuple[float | None, float | None]:
     """
     (support of the clade's own stem, minimum support among its internal nodes).
 
@@ -197,7 +197,7 @@ def main() -> int:
         rep = assess(xs, ys, n_perm=a.permutations)
         reg = rep.regressions[0]
         hits = sorted({refs[n.split("|")[0]] for n in names if n.split("|")[0] in refs})
-        stem, min_inner = clade_support(tree, clade)
+        stem, min_inner = clade_support(clade)
         row = {
             "clade": f"clade_{i:02d}",
             "n_tips": len(names),
@@ -223,7 +223,7 @@ def main() -> int:
             (d / f"{row['clade']}_tips.txt").write_text("\n".join(names) + "\n")
 
     Path(a.out_tsv).parent.mkdir(parents=True, exist_ok=True)
-    with open(a.out_tsv, "w", newline="") as fh:
+    with Path(a.out_tsv).open("w", newline="") as fh:
         if rows:
             w = csv.DictWriter(fh, fieldnames=list(rows[0]), delimiter="\t", lineterminator="\n")
             w.writeheader()
@@ -273,10 +273,10 @@ def main() -> int:
     if good:
         print("Candidates for Bayesian analysis, largest first:")
         for r in sorted(good, key=lambda x: -x["n_tips"])[:5]:
+            lineages = f"[{r['reference_lineages']}]" if r["reference_lineages"] else "(unnamed)"
             print(
                 f"  {r['clade']}: {r['n_tips']} tips, {r['span_years']:.0f} yr, "
-                f"R2={r['r_squared']:.3f}, root~{r['implied_root']} "
-                f"{('[' + r['reference_lineages'] + ']') if r['reference_lineages'] else '(unnamed)'}"
+                f"R2={r['r_squared']:.3f}, root~{r['implied_root']} {lineages}"
             )
     else:
         print(

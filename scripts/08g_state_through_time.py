@@ -87,7 +87,7 @@ except ImportError:
         "numpy is required for this script.\n"
         "  conda activate cdv-phylo   (numpy is already in environment.yml)\n"
         "  or: pip install numpy"
-    )
+    ) from None
 
 
 def main():
@@ -148,7 +148,10 @@ def main():
     files = []
     for pattern in args.trees:
         hits = (
-            [Path(h) for h in sorted(globmod.glob(pattern))]
+            [
+                Path(h)
+                for h in sorted(globmod.glob(pattern))  # noqa: PTH207  # user patterns may be absolute; Path.glob rejects those
+            ]  # user patterns may be absolute; Path.glob rejects those
             if any(c in pattern for c in "*?[")
             else [Path(pattern)]
         )
@@ -171,7 +174,7 @@ def main():
                     n_trees += 1
         if n_trees == 0:
             sys.exit(f"{path}: no trees found")
-        skip = int(round(args.burnin * n_trees))
+        skip = round(args.burnin * n_trees)
 
         for tree_i, nodes, tag in iter_trees(path, resolved_tag):
             resolved_tag = tag
@@ -189,7 +192,7 @@ def main():
                     sys.exit("Tip labels carry no date and --most-recent was not given.")
                 most_recent = max(dates)
 
-            def year(i):
+            def year(i, most_recent=most_recent, max_depth=max_depth, depth=depth):
                 return most_recent - (max_depth - depth[i])
 
             if tip_census is None:
@@ -241,7 +244,7 @@ def main():
     # ---- output ------------------------------------------------------------- #
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
-        with open(args.out, "w") as fh:
+        with Path(args.out).open("w") as fh:
             fh.write("year\tstate\tmean_lineages\tproportion\n")
             for k, yr in enumerate(grid):
                 if total[k] <= 0:
@@ -281,7 +284,7 @@ def main():
     )
     suppressed = 0
     for k, yr in enumerate(grid):
-        if abs(yr - round(yr)) > 1e-9 or int(round(yr)) % 5:
+        if abs(yr - round(yr)) > 1e-9 or round(yr) % 5:
             continue
         if total[k] < args.min_lineages:
             if total[k] > 0:
@@ -302,7 +305,7 @@ def main():
         "  " + "year".ljust(7) + "lin".rjust(6) + "   " + "".join(s[:8].rjust(10) for s in states)
     )
     for k, yr in enumerate(grid):
-        if abs(yr - round(yr)) > 1e-9 or int(round(yr)) % 5:
+        if abs(yr - round(yr)) > 1e-9 or round(yr) % 5:
             continue
         if total[k] < args.min_lineages:
             continue

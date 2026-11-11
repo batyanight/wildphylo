@@ -15,6 +15,7 @@ as a Snakemake checkpoint.
 """
 
 import argparse
+import contextlib
 import json
 import sys
 from pathlib import Path
@@ -36,10 +37,9 @@ def date_from_label(label: str) -> float | None:
 
 
 def midpoint_root(tree):
-    try:
+    # Midpoint rooting can fail on degenerate trees; keep the tree as given.
+    with contextlib.suppress(Exception):
         tree.root_at_midpoint()
-    except Exception:
-        pass
     return tree
 
 
@@ -128,7 +128,10 @@ def main() -> int:
         "| Metric | Value |",
         "|---|---|",
         f"| Tips | {rep.n_tips} |",
-        f"| Sampling span | {rep.earliest:.2f} – {rep.latest:.2f} ({rep.span_years:.1f} yr) |",
+        (
+            f"| Sampling span | {rep.earliest:.2f} \u2013 {rep.latest:.2f} "
+            f"({rep.span_years:.1f} yr) |"
+        ),
         f"| Root-to-tip slope | {r.slope:.3e} subs/site/yr |",
         f"| R² | {r.r_squared:.4f} |",
         f"| Correlation | {r.correlation:.4f} |",
@@ -149,9 +152,9 @@ def main() -> int:
 
     if a.out_plot:
         try:
-            import matplotlib
+            import matplotlib as mpl
 
-            matplotlib.use("Agg")
+            mpl.use("Agg")
             import matplotlib.pyplot as plt
 
             fig, ax = plt.subplots(figsize=(7, 5))

@@ -72,8 +72,8 @@ GAP = set("-.")
 def read_fasta(path: Path) -> dict[str, str]:
     seqs, name, chunks = {}, None, []
     with path.open() as fh:
-        for line in fh:
-            line = line.rstrip()
+        for raw in fh:
+            line = raw.rstrip()
             if line.startswith(">"):
                 if name is not None:
                     seqs[name] = "".join(chunks)
@@ -126,15 +126,20 @@ def parse_label(label: str):
 def build_records(seqs, clades_df, meta_df):
     """One row per aligned sequence, with clade, host, year, quality fields."""
     clade_of = (
-        dict(zip(clades_df["accession"], clades_df["clade"])) if clades_df is not None else {}
+        dict(zip(clades_df["accession"], clades_df["clade"], strict=True))
+        if clades_df is not None
+        else {}
     )
-    prec_of, len_of = {}, {}
+    prec_of = {}
     if meta_df is not None:
         base = meta_df["accession"].astype(str).str.split(".").str[0]
         prec_of = dict(
-            zip(base, meta_df.get("date_precision", pd.Series(["year"] * len(meta_df))))
+            zip(
+                base,
+                meta_df.get("date_precision", pd.Series(["year"] * len(meta_df))),
+                strict=True,
+            )
         )
-        len_of = dict(zip(base, meta_df.get("H_length", pd.Series([0] * len(meta_df)))))
 
     rows = []
     for label, seq in seqs.items():
@@ -176,7 +181,7 @@ def drop_duplicates(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
 
 
 def stratified_sample(
-    df: pd.DataFrame, target: int, year_bin: int, seed: int, min_per_stratum: int = 1
+    df: pd.DataFrame, target: int, year_bin: int, min_per_stratum: int = 1
 ) -> pd.DataFrame:
     """
     Allocate the target across clade x host x time-bin strata.
@@ -191,7 +196,7 @@ def stratified_sample(
     )
     d["stratum"] = d["clade"] + "|" + d["host_group"] + "|" + d["year_bin"].astype(str)
 
-    strata = {k: g for k, g in d.groupby("stratum")}
+    strata = dict(iter(d.groupby("stratum")))  # dict(groupby) would look up a "keys" column
     if len(strata) >= target:
         # more strata than budget: one per stratum, prioritising wild-host strata
         picks = []
@@ -306,7 +311,6 @@ def main() -> int:
     # come from config: the module default is CDV's carnivore range and is
     # simply wrong for a pathogen of ruminants or rodents, where it would
     # silently classify every wild host as domestic.
-    global WILD
     if args.config:
         try:
             from lib.config import load as _load_cfg
@@ -314,7 +318,9 @@ def main() -> int:
             _cfg = _load_cfg(args.config)
             _wg = (_cfg.get("hosts") or {}).get("wild_groups")
             if _wg:
-                WILD = set(_wg)
+                _wild_new = set(_wg)
+                WILD.clear()  # mutate in place; avoids rebinding a module global
+                WILD.update(_wild_new)
             _sub = _cfg.get("subsample", {})
             if args.target is None and "target_tips" in _sub:
                 args.target = int(_sub["target_tips"])
@@ -377,7 +383,7 @@ def main() -> int:
     if args.mode == "global" and target is None:
         target = 400
     if target is not None and len(pool) > target:
-        pool = stratified_sample(pool, target, args.year_bin, args.seed)
+        pool = stratified_sample(pool, target, args.year_bin)
         method = f"stratified subsample to {target}"
     else:
         method = "all sequences retained"

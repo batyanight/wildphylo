@@ -38,7 +38,7 @@ from lib import traitsignal as tsig
 def states_from_traits(path: Path) -> dict[str, str]:
     """Read the traits file 07 writes: a two-column TSV with a header."""
     out: dict[str, str] = {}
-    with open(path, newline="") as fh:
+    with Path(path).open(newline="") as fh:
         rows = list(csv.reader(fh, delimiter="\t"))
     for row in rows:
         if len(row) < 2 or row[0].lower() in ("traits", "name", "strain", "taxon"):

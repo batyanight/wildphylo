@@ -79,17 +79,17 @@ def collect(node, out):
     return out
 
 
-def fitch_up(node, seqs, L):
+def fitch_up(node, seqs, n_sites):
     """Upward pass: build the candidate state set at every site."""
     if "children" not in node:
         s = seqs.get(node["name"])
         if s is None:
-            return [set()] * L
-        return [({c} if c not in AMBIG else set()) for c in s[:L]]
+            return [set()] * n_sites
+        return [({c} if c not in AMBIG else set()) for c in s[:n_sites]]
 
-    child_sets = [fitch_up(c, seqs, L) for c in node["children"]]
+    child_sets = [fitch_up(c, seqs, n_sites) for c in node["children"]]
     mine = []
-    for i in range(L):
+    for i in range(n_sites):
         sets = [cs[i] for cs in child_sets if cs[i]]
         if not sets:
             mine.append(set())
@@ -100,7 +100,7 @@ def fitch_up(node, seqs, L):
     return mine
 
 
-def assign_down(node, parent_state, L, states, nuc_muts, frame, counters):
+def assign_down(node, parent_state, n_sites, states, nuc_muts, frame, counters):
     """Downward pass: resolve states, record nucleotide mutations in reference
     coordinates, and cache the resolved state for later translation."""
     if "children" not in node:
@@ -108,21 +108,21 @@ def assign_down(node, parent_state, L, states, nuc_muts, frame, counters):
         # Ambiguities and gaps become None. Without this, a gap in a partial
         # sequence compares unequal to the parent base and is recorded as a
         # mutation, which manufactures huge numbers of spurious changes.
-        state = [(c if c not in AMBIG else None) for c in s[:L]] if s else [None] * L
+        state = [(c if c not in AMBIG else None) for c in s[:n_sites]] if s else [None] * n_sites
     else:
         f = node["_fitch"]
         state = []
-        for i in range(L):
+        for i in range(n_sites):
             if parent_state and parent_state[i] and parent_state[i] in f[i]:
                 state.append(parent_state[i])
             elif f[i]:
-                state.append(sorted(f[i])[0])
+                state.append(min(f[i]))
             else:
                 state.append(parent_state[i] if parent_state else None)
 
     muts = []
     if parent_state:
-        for i in range(L):
+        for i in range(n_sites):
             a, b = parent_state[i], state[i]
             if a in BASES and b in BASES and a != b:
                 refpos = frame.refpos_for_col.get(i + 1)
@@ -137,7 +137,7 @@ def assign_down(node, parent_state, L, states, nuc_muts, frame, counters):
     nuc_muts[node["name"]] = muts
 
     for c in node.get("children", []):
-        assign_down(c, state, L, states, nuc_muts, frame, counters)
+        assign_down(c, state, n_sites, states, nuc_muts, frame, counters)
     return state
 
 
@@ -211,7 +211,7 @@ def final_checks(doc, gene_name: str) -> bool:
     return ok
 
 
-def main() -> int:
+def main() -> int:  # one early exit code per failed precondition
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -386,7 +386,7 @@ def main() -> int:
             a, b = cache[par], cache[node_name]
             ms = [
                 f"{x}{i + 1}{y}"
-                for i, (x, y) in enumerate(zip(a, b))
+                for i, (x, y) in enumerate(zip(a, b, strict=True))
                 if x != y and x not in "X*" and y not in "X*"
             ]
             if ms:
@@ -407,8 +407,7 @@ def main() -> int:
         m = nuc_muts.get(n["name"], [])
         if m:
             fresh["nuc"] = m
-        for gene, ms in aa_muts.get(n["name"], {}).items():
-            fresh[gene] = ms
+        fresh.update(aa_muts.get(n["name"], {}))
         n.setdefault("branch_attrs", {})["mutations"] = fresh
         for k in ("_fitch", "_seq"):
             n.pop(k, None)
@@ -435,7 +434,7 @@ def main() -> int:
         return 1
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    backup_if_overwriting(args.json, args.output, not args.no_backup)
+    backup_if_overwriting(args.output, not args.no_backup)
     args.output.write_text(json.dumps(doc, indent=1))
     print(f"\nwrote {args.output} ({args.output.stat().st_size / 1024:.0f} KB)")
     print(

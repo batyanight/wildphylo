@@ -55,8 +55,8 @@ H_MIN, H_MAX = 1500, 1900
 
 def load_references(path: Path):
     refs = []
-    for line in path.read_text().splitlines():
-        line = line.strip()
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
         if not line or line.startswith("#"):
             continue
         parts = line.split("\t")
@@ -90,7 +90,7 @@ def resolve_protein(acc: str) -> str | None:
     return m.group(1) if m else None
 
 
-def extract_H(record):
+def extract_h(record):
     """H gene from annotation, falling back to whole record if length is right."""
     for feat in record.features:
         if feat.type not in ("CDS", "gene", "mat_peptide"):
@@ -103,8 +103,8 @@ def extract_H(record):
         if label in H_NAMES or any(label.startswith(n + " ") for n in H_NAMES):
             try:
                 seq = str(feat.extract(record.seq))
-            except Exception:  # noqa: BLE001
-                continue
+            except Exception:  # malformed feature location: treat as no sequence  # noqa: BLE001
+                seq = ""  # empty is below H_MIN, so the length check skips it
             if H_MIN <= len(seq) <= H_MAX:
                 return seq, "annotation"
     if H_MIN <= len(record.seq) <= H_MAX:
@@ -217,7 +217,7 @@ def main() -> int:
         info = meta.get(base)
         if not info:
             continue
-        seq, how = extract_H(record)
+        seq, how = extract_h(record)
         if not seq:
             failed.append((record.id, info["lineage"], info["strain"], len(record.seq)))
             continue

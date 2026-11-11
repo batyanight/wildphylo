@@ -139,7 +139,7 @@ class Decision:
         )
 
 
-def decide(
+def decide(  # ordered rule list, one exit per rule
     cfg: dict,
     pathogen: str,
     current: int,
@@ -262,7 +262,7 @@ def main() -> int:
     fetch = _fetch_module()
 
     decisions: list[Decision] = []
-    for path, cfg in configs:
+    for _path, cfg in configs:
         pid = cfg["id"]
         query = fetch.build_query(cfg)
         prev_build, previous = previous_build(a.builds_dir, pid)
@@ -323,7 +323,7 @@ def main() -> int:
         if not target:
             print("ERROR: --github-output given but $GITHUB_OUTPUT is unset", file=sys.stderr)
             return 1
-        with open(target, "a") as fh:
+        with Path(target).open("a") as fh:
             fh.write(f"proceed={'true' if proceed else 'false'}\n")
             fh.write(f"pathogens={json.dumps(proceed)}\n")
 

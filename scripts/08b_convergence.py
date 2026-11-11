@@ -67,7 +67,7 @@ def analyse(paths: list[Path], burnin: float, min_ess: int) -> dict:
     chains = []
     for p in paths:
         header, data = read_beast_log(p)
-        cut = int(round(burnin * len(data)))
+        cut = round(burnin * len(data))
         chains.append(
             {
                 "path": str(p),
@@ -182,8 +182,7 @@ def report(res: dict, checks) -> str:
         f"chains        : {len(res['chains'])}",
         f"burn-in       : {res['burnin']:.0%} within each chain",
     ]
-    for c in res["chains"]:
-        L.append(f"  {c['path']}: {c['n_kept']} of {c['n_total']} samples kept")
+    L.extend(f"  {c['path']}: {c['n_kept']} of {c['n_total']} samples kept" for c in res["chains"])
     L += ["", f"  {'parameter':<28}{'ESS':>10}{'per chain':>20}{'OVL':>8}", "  " + "-" * (W - 4)]
     worst = sorted(res["params"], key=lambda p: res["ess"][p])
     for name in worst:

@@ -48,6 +48,9 @@ except ImportError as exc:  # pragma: no cover
     raise ImportError("pandas and biopython are required: pip install pandas biopython") from exc
 
 
+log = logging.getLogger(Path(__file__).stem)
+
+
 # --- GenBank feature reading ------------------------------------------------
 
 
@@ -106,14 +109,18 @@ def extract_by_annotation(record, aliases: set[str]) -> tuple[str, str]:
         if label in aliases or any(label.startswith(a + " ") for a in aliases):
             try:
                 seq = str(feat.extract(record.seq))
-            except Exception:  # noqa: BLE001
+            # Biopython raises assorted errors on malformed feature locations.
+            except Exception as exc:  # noqa: BLE001
+                log.debug("skipping feature %s: %s", label, exc)
                 continue
             if seq:
                 return seq, "annotation"
     return "", ""
 
 
-def extract_locus(record, locus: dict, meta: dict) -> tuple[str, str]:
+def extract_locus(
+    record, locus: dict, meta: dict
+) -> tuple[str, str]:  # ordered fallback chain, one exit per rule
     """
     Pull one locus from a record.
 
@@ -199,8 +206,8 @@ def load_vaccine_patterns(path: Path | None) -> list[str]:
     if not path or not Path(path).is_file():
         return []
     out = []
-    for line in Path(path).read_text().splitlines():
-        line = line.strip()
+    for raw in Path(path).read_text().splitlines():
+        line = raw.strip()
         if line and not line.startswith("#"):
             out.append(line.lower())
     return out
@@ -229,7 +236,7 @@ def load_reference_anchors(cfg: dict) -> dict[str, str]:
     raw = refs_cfg.get("table")
     table = resolve_path(cfg, raw) if raw else None
     if not table or not table.is_file():
-        logging.warning(
+        log.warning(
             "references.include_as_anchors is set but references.table is missing: %s", raw
         )
         return {}
@@ -246,7 +253,7 @@ def load_reference_anchors(cfg: dict) -> dict[str, str]:
             continue
         out[acc.split(".")[0]] = lineage
     if skipped:
-        logging.warning(
+        log.warning(
             "%d reference rows are protein accessions and were skipped; nothing "
             "resolves them to nucleotide records, so they cannot anchor a clade",
             skipped,
@@ -257,7 +264,7 @@ def load_reference_anchors(cfg: dict) -> dict[str, str]:
 def loci_of(cfg: dict) -> list[dict]:
     """Analysed loci, as a list, whether the config is single- or multi-locus."""
     if "loci" in cfg:
-        return [dict(l) for l in cfg["loci"] if l.get("analyse")]
+        return [dict(locus) for locus in cfg["loci"] if locus.get("analyse")]
     return [dict(cfg["locus"])]
 
 
@@ -310,10 +317,10 @@ def main() -> int:
     )
 
     for w in cfg.get("_warnings", []):
-        logging.warning("config: %s", w)
+        log.warning("config: %s", w)
 
     if not a.gb.is_file():
-        logging.error("GenBank file not found: %s", a.gb)
+        log.error("GenBank file not found: %s", a.gb)
         return 2
 
     # --- config-derived settings -------------------------------------------
@@ -321,13 +328,11 @@ def main() -> int:
     for w in audit_host_table(host_rules):
         # A shadowed host rule is the failure that put a pinniped into the CDV
         # tree as Panthera leo. Surface it every run, not just at config load.
-        logging.warning("host table: %s", w)
+        log.warning("host table: %s", w)
 
     anchors = load_reference_anchors(cfg)
     if anchors:
-        logging.info(
-            "%d nucleotide reference anchors: %s", len(anchors), ", ".join(sorted(anchors))
-        )
+        log.info("%d nucleotide reference anchors: %s", len(anchors), ", ".join(sorted(anchors)))
 
     vac_path = cfg.get("exclude", {}).get("vaccine_patterns_file")
     vaccine_patterns = load_vaccine_patterns(Path(vac_path) if vac_path else None)
@@ -335,13 +340,13 @@ def main() -> int:
     min_year = cfg["dates"]["min_year"]
     max_year = cfg["dates"].get("max_year")
     loci = loci_of(cfg)
-    logging.info("pathogen: %s (%s)", cfg["name"], cfg["id"])
-    logging.info("loci: %s", ", ".join(l["name"] for l in loci))
-    logging.info("%d host rules, %d vaccine patterns", len(host_rules), len(vaccine_patterns))
+    log.info("pathogen: %s (%s)", cfg["name"], cfg["id"])
+    log.info("loci: %s", ", ".join(locus["name"] for locus in loci))
+    log.info("%d host rules, %d vaccine patterns", len(host_rules), len(vaccine_patterns))
 
     # --- parse --------------------------------------------------------------
     rows = []
-    seqs: dict[str, dict[str, str]] = {l["name"]: {} for l in loci}
+    seqs: dict[str, dict[str, str]] = {locus["name"]: {} for locus in loci}
 
     for record in SeqIO.parse(str(a.gb), "genbank"):
         meta = extract_source_fields(record)
@@ -393,13 +398,13 @@ def main() -> int:
         rows.append(row)
 
     if not rows:
-        logging.error("no records parsed from %s", a.gb)
+        log.error("no records parsed from %s", a.gb)
         return 1
 
     df = pd.DataFrame(rows)
     a.out_dir.mkdir(parents=True, exist_ok=True)
     df.to_csv(a.out_dir / "metadata_all.tsv", sep="\t", index=False)
-    logging.info("parsed %d records", len(df))
+    log.info("parsed %d records", len(df))
 
     # --- exclusions ---------------------------------------------------------
     df["exclude_reason"] = ""
@@ -413,28 +418,28 @@ def main() -> int:
         df.loc[newly, "exclude_reason"] = reason
         n = int(newly.sum())
         if n:
-            logging.info("excluded %5d  %s", n, reason)
+            log.info("excluded %5d  %s", n, reason)
         return n
 
     if not a.keep_vaccines:
         mark(df["is_vaccine"], "vaccine_or_vaccine_derived")
     else:
-        logging.warning("--keep-vaccines set: vaccine strains RETAINED (test mode)")
+        log.warning("--keep-vaccines set: vaccine strains RETAINED (test mode)")
 
     # A record is usable if it carries at least one analysed locus.
-    has_any = df[[f"has_{l['name']}" for l in loci]].any(axis=1)
+    has_any = df[[f"has_{locus['name']}" for locus in loci]].any(axis=1)
     # This one applies to anchors too, so it bypasses `mark`'s exemption.
     lost = ~has_any & (df["exclude_reason"] == "")
     df.loc[lost, "exclude_reason"] = "no_analysed_locus_found"
     if int(lost.sum()):
-        logging.info("excluded %5d  no_analysed_locus_found", int(lost.sum()))
+        log.info("excluded %5d  no_analysed_locus_found", int(lost.sum()))
     dropped_refs = int((lost & is_ref).sum())
     if dropped_refs:
-        logging.warning(
+        log.warning(
             "%d reference anchors carry no usable %s sequence and were dropped; "
             "the lineages they represent cannot be named",
             dropped_refs,
-            "/".join(l["name"] for l in loci),
+            "/".join(locus["name"] for locus in loci),
         )
 
     for locus in loci:
@@ -549,14 +554,14 @@ def main() -> int:
 
     if use_isolate:
         linked = sum(1 for n in key_counts.values() if n > 1)
-        logging.info(
+        log.info(
             "tip labels keyed on %r: %d distinct isolates from %d records",
             isolate_key,
             len(key_counts),
             len(label_of),
         )
         if linked == 0 and len(label_of) > len(loci):
-            logging.error(
+            log.error(
                 "no isolate appears in more than one record, so no taxon will be "
                 "shared between segment trees and congruence cannot be assessed. "
                 "Check that %r is populated in the source records, or set "
@@ -564,25 +569,21 @@ def main() -> int:
                 isolate_key,
             )
         else:
-            logging.info("%d isolates carry more than one segment", linked)
+            log.info("%d isolates carry more than one segment", linked)
     for locus in loci:
         name = locus["name"]
         entries = [(label_of[acc], s) for acc, s in seqs[name].items() if acc in label_of]
         n = write_fasta(a.out_dir / f"{name}.fasta", entries)
-        logging.info("wrote %s (%d sequences)", a.out_dir / f"{name}.fasta", n)
+        log.info("wrote %s (%d sequences)", a.out_dir / f"{name}.fasta", n)
 
         anc = [(anchor_labels[acc], s) for acc, s in seqs[name].items() if acc in anchor_labels]
         # Always write the file, even empty, so the workflow has a fixed input.
         na = write_fasta(a.out_dir / f"{name}_anchors.fasta", anc)
         if anchors:
-            logging.info(
-                "wrote %s (%d reference anchors)", a.out_dir / f"{name}_anchors.fasta", na
-            )
-            missing = sorted(set(anchors) - {l.split("|")[0] for l in (x[0] for x in anc)})
+            log.info("wrote %s (%d reference anchors)", a.out_dir / f"{name}_anchors.fasta", na)
+            missing = sorted(set(anchors) - {acc.split("|")[0] for acc in (x[0] for x in anc)})
             if missing:
-                logging.warning(
-                    "reference anchors not present in %s: %s", name, ", ".join(missing)
-                )
+                log.warning("reference anchors not present in %s: %s", name, ", ".join(missing))
 
     # --- checks -------------------------------------------------------------
     reasons = excluded["exclude_reason"].value_counts().to_dict()
@@ -597,24 +598,24 @@ def main() -> int:
     n_anchor = int(clean["is_reference"].sum()) if "is_reference" in clean else 0
     analysis = clean[~clean["is_reference"]] if n_anchor else clean
 
-    logging.info("-" * 62)
-    logging.info("RETAINED: %d analysis sequences of %d records", len(analysis), len(df))
+    log.info("-" * 62)
+    log.info("RETAINED: %d analysis sequences of %d records", len(analysis), len(df))
     if n_anchor:
-        logging.info(
+        log.info(
             "  plus %d reference anchors (undated, excluded from the "
             "clock and the trait analysis)",
             n_anchor,
         )
     if not analysis.empty:
-        logging.info("")
-        logging.info("By host group:")
+        log.info("")
+        log.info("By host group:")
         for grp, cnt in analysis["host_group"].value_counts().items():
-            logging.info("    %-18s %5d", grp, cnt)
-        logging.info("")
-        logging.info("By date precision:")
+            log.info("    %-18s %5d", grp, cnt)
+        log.info("")
+        log.info("By date precision:")
         for prec, cnt in analysis["date_precision"].value_counts().items():
-            logging.info("    %-18s %5d", prec, cnt)
-        logging.info("")
+            log.info("    %-18s %5d", prec, cnt)
+        log.info("")
         for locus in loci:
             name = locus["name"]
             have = analysis[analysis[f"has_{name}"]]
@@ -625,50 +626,48 @@ def main() -> int:
             exp_len = locus.get("expected_length") or 0
             partial = int((have[f"{name}_length"] < exp_len).sum()) if exp_len else 0
             exp = locus.get("expected_length")
-            logging.info("")
-            logging.info("%s length checks (expected CDS %s nt):", name, exp)
-            logging.info("    median extracted length : %d", int(have[f"{name}_length"].median()))
-            logging.info(
+            log.info("")
+            log.info("%s length checks (expected CDS %s nt):", name, exp)
+            log.info("    median extracted length : %d", int(have[f"{name}_length"].median()))
+            log.info(
                 "    partial (< expected)    : %d  (normal — most "
                 "GenBank records cover part of the gene)",
                 partial,
             )
-            logging.info(
+            log.info(
                 "    not a multiple of 3     : %d  (cannot translate "
                 "in frame; codon partitions and any amino-acid "
                 "analysis would be wrong)",
                 off,
             )
-            logging.info(
+            log.info(
                 "    LONGER than expected    : %d  (flagged: a feature "
                 "cannot be a partial CDS and also exceed it — likely "
                 "a gene span including UTR, or mis-annotation)",
                 over,
             )
 
-        logging.info("")
-        logging.info(
-            "Date range: %.2f – %.2f",
+        log.info("")
+        log.info(
+            "Date range: %.2f \u2013 %.2f",
             analysis["decimal_year"].min(),
             analysis["decimal_year"].max(),
         )
-        logging.info("Countries represented: %d", analysis["country"].nunique())
-    logging.info("")
-    logging.info(
-        "NEEDS HUMAN REVIEW: %d records -> %s", len(review), a.out_dir / "needs_review.tsv"
-    )
+        log.info("Countries represented: %d", analysis["country"].nunique())
+    log.info("")
+    log.info("NEEDS HUMAN REVIEW: %d records -> %s", len(review), a.out_dir / "needs_review.tsv")
     if len(review):
         for reason, n in review["review_reason"].value_counts().items():
-            logging.info("    %-20s %5d", reason, n)
-    logging.info(
+            log.info("    %-20s %5d", reason, n)
+    log.info(
         "FLAGGED (no decision needed): %d records -> %s", len(flagged), a.out_dir / "flagged.tsv"
     )
-    logging.info("-" * 62)
+    log.info("-" * 62)
 
     if not checks.ok:
         return 1
     if len(review) and not a.accept_unreviewed:
-        logging.warning(
+        log.warning(
             "%d records need review. Open needs_review.tsv: for each "
             "unrecognised host, either add a pattern to %s or confirm the "
             "record should be dropped; for each unparseable date, read the "

@@ -103,7 +103,7 @@ def read_accessions(build: Path) -> set[str] | None:
     hits = sorted(build.glob("raw/*.acc"))
     if not hits:
         return None
-    return {l.strip() for l in hits[0].read_text().splitlines() if l.strip()}
+    return {ln.strip() for ln in hits[0].read_text().splitlines() if ln.strip()}
 
 
 def read_json(path: Path):
@@ -307,9 +307,11 @@ def render(c: Comparison) -> str:
     ]
     if c.verdict == "regression":
         L += [
-            "A change this size is a curation regression until shown "
-            "otherwise. Check the query and the curation rules before "
-            "treating it as a result.",
+            (
+                "A change this size is a curation regression until shown "
+                "otherwise. Check the query and the curation rules before "
+                "treating it as a result."
+            ),
             "",
         ]
     for area in ("accessions", "temporal", "gates", "tmrca"):
@@ -323,10 +325,12 @@ def render(c: Comparison) -> str:
     L += [
         "---",
         "",
-        "Tree topology is deliberately not compared: two trees built from "
-        "overlapping data differ mostly by reordering equally-supported "
-        "splits, so a topological distance is large, noisy and says nothing "
-        "about whether anything is wrong.",
+        (
+            "Tree topology is deliberately not compared: two trees built from "
+            "overlapping data differ mostly by reordering equally-supported "
+            "splits, so a topological distance is large, noisy and says nothing "
+            "about whether anything is wrong."
+        ),
     ]
     return "\n".join(L)
 

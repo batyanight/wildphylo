@@ -78,7 +78,7 @@ from lib.beastlog import (
 def rate_summary(path: Path, burnin: float, clock_param: str | None) -> dict:
     """Clock-rate posterior from one log: mean, HPD, ESS, retained samples."""
     header, data = read_beast_log(path)
-    cut = int(round(burnin * len(data)))
+    cut = round(burnin * len(data))
     kept = data[cut:]
     if len(kept) < 10:
         raise ValueError(
@@ -226,9 +226,9 @@ def assess(real: dict, reps: list[dict], min_ess: int = 100) -> dict:
 def plot(real: dict, reps: list[dict], out: Path) -> bool:
     """Real HPD against the replicate HPDs. Returns False if matplotlib is absent."""
     try:
-        import matplotlib
+        import matplotlib as mpl
 
-        matplotlib.use("Agg")
+        mpl.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
         return False
@@ -242,7 +242,7 @@ def plot(real: dict, reps: list[dict], out: Path) -> bool:
     )
     ax.plot([real["mean"]], [y], "o", ms=5, color="#b2182b")
     ax.axvspan(real["hpd_low"], real["hpd_high"], color="#b2182b", alpha=0.08)
-    ax.set_yticks([y] + list(range(len(reps))))
+    ax.set_yticks([y, *list(range(len(reps)))])
     ax.set_yticklabels(["real"] + [f"rep {i + 1}" for i in range(len(reps))], fontsize=7)
     ax.set_xlabel(f"{real['param']}  (subs/site/year)")
     ax.set_title("Date-randomisation test: real clock rate vs randomised dates", fontsize=10)
@@ -265,8 +265,10 @@ def report(real: dict, reps: list[dict], res: dict) -> str:
         "",
         f"  {'':<14}{'mean':>12}{'95% HPD':>24}{'ESS':>8}",
         "  " + "-" * (W - 4),
-        f"  {'REAL':<14}{real['mean']:>12.3e}"
-        f"{real['hpd_low']:>12.3e}{real['hpd_high']:>12.3e}{real['ess']:>8.0f}",
+        (
+            f"  {'REAL':<14}{real['mean']:>12.3e}"
+            f"{real['hpd_low']:>12.3e}{real['hpd_high']:>12.3e}{real['ess']:>8.0f}"
+        ),
         "",
     ]
     for i, r in enumerate(reps, 1):
@@ -282,14 +284,18 @@ def report(real: dict, reps: list[dict], res: dict) -> str:
         )
     L += [
         "",
-        f"  strict     : {res['n_overlapping']} of {res['n_replicates']} "
-        f"replicate HPDs overlap the real HPD  "
-        f"({'PASS' if res['n_overlapping'] == 0 else 'FAIL'})",
-        f"  permissive : the real estimate is "
-        f"{'OUTSIDE' if res['real_outside_replicate_range'] else 'INSIDE'} "
-        f"the replicate envelope "
-        f"[{res['replicate_envelope'][0]:.3e}, "
-        f"{res['replicate_envelope'][1]:.3e}]",
+        (
+            f"  strict     : {res['n_overlapping']} of {res['n_replicates']} "
+            f"replicate HPDs overlap the real HPD  "
+            f"({'PASS' if res['n_overlapping'] == 0 else 'FAIL'})"
+        ),
+        (
+            f"  permissive : the real estimate is "
+            f"{'OUTSIDE' if res['real_outside_replicate_range'] else 'INSIDE'} "
+            f"the replicate envelope "
+            f"[{res['replicate_envelope'][0]:.3e}, "
+            f"{res['replicate_envelope'][1]:.3e}]"
+        ),
         "",
         f"VERDICT: {res['verdict'].upper()}",
         "",

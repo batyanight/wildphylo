@@ -265,7 +265,9 @@ def build_annotations(frame: HFrame, feats, gene_name: str = "H") -> dict:
         span = end - start + 1
         # Guaranteed by construction, but this is the exact invariant whose
         # violation used to make features disappear, so assert it loudly.
-        assert span % 3 == 0, f"{name}: {span} nt is not a multiple of 3"
+        if span % 3 != 0:
+            msg = f"{name}: {span} nt is not a multiple of 3"
+            raise AssertionError(msg)
         ann[name] = {
             "start": start,
             "end": end,
@@ -279,9 +281,7 @@ def build_annotations(frame: HFrame, feats, gene_name: str = "H") -> dict:
     return ann
 
 
-def backup_if_overwriting(
-    source: Path, output: Path, enabled: bool = True, log=print
-) -> Path | None:
+def backup_if_overwriting(output: Path, enabled: bool = True, log=print) -> Path | None:
     """Timestamped copy of `output` before it is overwritten.
 
     Both scripts edit the dataset in place, so a failure part way through leaves

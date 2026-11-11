@@ -18,6 +18,7 @@ Being decoupled is not itself an error -- for BTV it is the expected result.
 """
 
 import argparse
+import contextlib
 import csv
 import json
 import sys
@@ -73,7 +74,7 @@ def main() -> int:
     from Bio import Phylo
 
     trees = {}
-    for name, path in zip(names, a.trees):
+    for name, path in zip(names, a.trees, strict=True):
         try:
             trees[name] = Phylo.read(path, a.tree_format)
         except Exception as e:  # noqa: BLE001
@@ -96,8 +97,10 @@ def main() -> int:
     lines = [
         "# Segment congruence",
         "",
-        f"**Verdict: {res.verdict.upper()}** — "
-        f"concatenation {'permitted' if res.concatenate else 'refused'}",
+        (
+            f"**Verdict: {res.verdict.upper()}** — "
+            f"concatenation {'permitted' if res.concatenate else 'refused'}"
+        ),
         "",
         "| Metric | Value |",
         "|---|---|",
@@ -119,10 +122,12 @@ def main() -> int:
         lines += [
             "## Reassortant candidates",
             "",
-            "Each sits among different relatives depending on the "
-            "segment. In a discrete-trait host analysis such a taxon "
-            "produces a host transition that reflects reassortment "
-            "rather than transmission.",
+            (
+                "Each sits among different relatives depending on the "
+                "segment. In a discrete-trait host analysis such a taxon "
+                "produces a host transition that reflects reassortment "
+                "rather than transmission."
+            ),
             "",
             "| Taxon | Incongruence |",
             "|---|---|",
@@ -144,16 +149,14 @@ def main() -> int:
         Path(a.out_md).write_text("\n".join(lines))
     if a.out_tsv:
         Path(a.out_tsv).parent.mkdir(parents=True, exist_ok=True)
-        with open(a.out_tsv, "w", newline="") as fh:
+        with Path(a.out_tsv).open("w", newline="") as fh:
             w = csv.writer(fh, delimiter="\t", lineterminator="\n")
             w.writerow(["taxon", "incongruence"])
             for c in res.reassortant_candidates:
                 w.writerow([c["taxon"], c["incongruence"]])
 
-    try:
+    with contextlib.suppress(BrokenPipeError):
         print("\n".join(lines))
-    except BrokenPipeError:
-        pass
 
     if a.require_concatenation and not res.concatenate:
         print(

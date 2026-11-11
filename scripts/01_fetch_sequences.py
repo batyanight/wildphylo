@@ -43,6 +43,7 @@ except ImportError as exc:  # pragma: no cover
 
 RETRY_LIMIT = 5
 RETRY_BACKOFF = 3.0  # seconds, doubled each retry
+log = logging.getLogger(Path(__file__).stem)
 
 
 def setup_logging(log_path: Path | None) -> None:
@@ -90,29 +91,35 @@ def esearch_history(query: str) -> tuple[str, str, int]:
     return record["WebEnv"], record["QueryKey"], int(record["Count"])
 
 
+def _efetch_text(webenv: str, query_key: str, start: int, size: int) -> str:
+    """Single efetch call; raises ValueError on an empty response."""
+    handle = Entrez.efetch(
+        db="nuccore",
+        rettype="gb",
+        retmode="text",
+        retstart=start,
+        retmax=size,
+        webenv=webenv,
+        query_key=query_key,
+    )
+    data = handle.read()
+    handle.close()
+    if not data.strip():
+        msg = "empty response from NCBI"
+        raise ValueError(msg)
+    return data
+
+
 def fetch_batch(webenv: str, query_key: str, start: int, size: int) -> str:
     """One batch of GenBank records, retrying on transient NCBI failures."""
     delay = RETRY_BACKOFF
     for attempt in range(1, RETRY_LIMIT + 1):
         try:
-            handle = Entrez.efetch(
-                db="nuccore",
-                rettype="gb",
-                retmode="text",
-                retstart=start,
-                retmax=size,
-                webenv=webenv,
-                query_key=query_key,
-            )
-            data = handle.read()
-            handle.close()
-            if not data.strip():
-                raise ValueError("empty response from NCBI")
-            return data
+            data = _efetch_text(webenv, query_key, start, size)
         except Exception as exc:
             if attempt == RETRY_LIMIT:
                 raise
-            logging.warning(
+            log.warning(
                 "batch at %d failed (attempt %d/%d): %s — retrying in %.0fs",
                 start,
                 attempt,
@@ -122,6 +129,8 @@ def fetch_batch(webenv: str, query_key: str, start: int, size: int) -> str:
             )
             time.sleep(delay)
             delay *= 2
+        else:
+            return data
     raise RuntimeError("unreachable")
 
 
@@ -149,7 +158,7 @@ def previous_accession_count(out_path: Path, pathogen: str) -> int | None:
     return None
 
 
-def main() -> int:
+def main() -> int:  # one early exit code per failed precondition
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -196,10 +205,10 @@ def main() -> int:
 
     setup_logging(a.log or Path("logs") / f"01_fetch_{pathogen}_{stamp}.log")
     for w in cfg.get("_warnings", []):
-        logging.warning("config: %s", w)
+        log.warning("config: %s", w)
 
     if not a.email:
-        logging.error(
+        log.error(
             "NCBI requires an email address. Pass --email or set NCBI_EMAIL. "
             "It is read from the environment rather than the config because it "
             "is a personal credential, not an analysis parameter."
@@ -209,29 +218,29 @@ def main() -> int:
     Entrez.email = a.email
     if a.api_key:
         Entrez.api_key = a.api_key
-        logging.info("using NCBI API key (10 req/s)")
+        log.info("using NCBI API key (10 req/s)")
     else:
-        logging.info("no API key — limited to 3 req/s. Registering is free.")
+        log.info("no API key — limited to 3 req/s. Registering is free.")
 
     query = a.query or build_query(cfg)
-    logging.info("pathogen: %s (%s)", cfg["name"], pathogen)
-    logging.info("query: %s", query)
+    log.info("pathogen: %s (%s)", cfg["name"], pathogen)
+    log.info("query: %s", query)
 
     if gb_path.exists() and not a.force:
-        logging.info("%s already exists — nothing to do (use --force)", gb_path)
+        log.info("%s already exists — nothing to do (use --force)", gb_path)
         return 0
 
     webenv, query_key, total = esearch_history(query)
-    logging.info("matched %d records", total)
+    log.info("matched %d records", total)
 
     checks = check_fetch(cfg, total, previous_accession_count(gb_path, pathogen))
     print(checks.render())
     if not checks.ok:
-        logging.error("fetch checks failed; nothing downloaded")
+        log.error("fetch checks failed; nothing downloaded")
         return 1
 
     if a.dry_run:
-        logging.info("dry run — exiting without download")
+        log.info("dry run — exiting without download")
         return 0
 
     batch = cfg["fetch"].get("batch_size", 200)
@@ -240,22 +249,22 @@ def main() -> int:
     with gb_path.open("w") as out:
         for start in range(0, total, batch):
             out.write(fetch_batch(webenv, query_key, start, batch))
-            logging.info("  %d / %d records", min(start + batch, total), total)
+            log.info("  %d / %d records", min(start + batch, total), total)
             time.sleep(0.12 if a.api_key else 0.40)
 
     accs = [line.split()[1] for line in gb_path.open() if line.startswith("VERSION")]
     acc_path.parent.mkdir(parents=True, exist_ok=True)
     acc_path.write_text("\n".join(accs) + "\n")
 
-    logging.info("wrote %s (%.1f MB)", gb_path, gb_path.stat().st_size / 1e6)
-    logging.info("wrote %s (%d accessions)", acc_path, len(accs))
-    logging.info("done in %.1f s", time.time() - t0)
+    log.info("wrote %s (%.1f MB)", gb_path, gb_path.stat().st_size / 1e6)
+    log.info("wrote %s (%d accessions)", acc_path, len(accs))
+    log.info("done in %.1f s", time.time() - t0)
 
     if len(accs) != total:
         # A short download is an error, not a warning. Every downstream count,
         # and the build-to-build comparison, would otherwise be computed on a
         # truncated dataset without anyone noticing.
-        logging.error(
+        log.error(
             "expected %d records but parsed %d accessions. The download is "
             "incomplete — rerun with --force rather than proceeding.",
             total,

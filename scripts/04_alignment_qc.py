@@ -51,8 +51,8 @@ STOPS = {"TAA", "TAG", "TGA"}
 def read_fasta(path: Path) -> dict[str, str]:
     seqs, name, chunks = {}, None, []
     with path.open() as fh:
-        for line in fh:
-            line = line.rstrip()
+        for raw in fh:
+            line = raw.rstrip()
             if line.startswith(">"):
                 if name is not None:
                     seqs[name] = "".join(chunks)
@@ -86,7 +86,9 @@ def consensus(seqs: dict[str, str]) -> str:
 def identity_to(seq: str, ref: str) -> float:
     """Fraction of comparable positions that match. Gaps in either are skipped."""
     same = comp = 0
-    for a, b in zip(seq.upper(), ref):
+    # strict=False: both are alignment rows, equal length in practice;
+    # truncating to the shorter was the prior behaviour.
+    for a, b in zip(seq.upper(), ref, strict=False):
         if a in GAP or b in GAP or a in AMBIG:
             continue
         comp += 1
@@ -342,7 +344,7 @@ def main() -> int:
         if "accession" in meta_df.columns:
             by_acc = {
                 str(a).split(".")[0]: r
-                for a, r in zip(meta_df["accession"], meta_df.to_dict("records"))
+                for a, r in zip(meta_df["accession"], meta_df.to_dict("records"), strict=True)
             }
             unknown, host_bad, date_bad = [], [], []
             anchors_seen = []
@@ -424,12 +426,12 @@ def main() -> int:
     print(f"per-sequence QC table -> {qc_path}")
 
     try:
-        import matplotlib
+        import matplotlib as mpl
 
-        matplotlib.use("Agg")
+        mpl.use("Agg")
         import matplotlib.pyplot as plt
 
-        fig, ax = plt.subplots(2, 1, figsize=(10, 5.5))
+        _fig, ax = plt.subplots(2, 1, figsize=(10, 5.5))
         ax[0].fill_between(range(1, L + 1), cov, color="#4B3A79", lw=0)
         ax[0].axhline(args.coverage_threshold, color="#C0697F", ls="--", lw=1)
         ax[0].set_title("Per-column coverage (fraction of sequences with a base)")

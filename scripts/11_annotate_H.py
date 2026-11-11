@@ -229,7 +229,7 @@ def main() -> int:
         print("      10_add_entropy.py will clear them when it rebuilds mutations.")
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    backup_if_overwriting(args.json, args.output, not args.no_backup)
+    backup_if_overwriting(args.output, not args.no_backup)
     args.output.write_text(json.dumps(doc, indent=1))
     print(f"\nwrote {args.output} ({args.output.stat().st_size / 1024:.0f} KB)")
     print(f"{len(feats)} feature(s) added, all in reference nucleotide coordinates.")
