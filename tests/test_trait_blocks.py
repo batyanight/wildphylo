@@ -18,7 +18,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from lib.beastxml import (  # noqa: E402
-    ROBUST_EIGEN, SUM_SPEC, n_trait_rates, trait_blocks,
+    ROBUST_EIGEN,
+    SUM_SPEC,
+    n_trait_rates,
+    trait_blocks,
 )
 
 STATES = ["domestic_dog", "mustelid", "procyonid", "wild_canid", "wild_felid"]
@@ -37,11 +40,18 @@ def blocks(**kw):
 
 # --- rate counting ----------------------------------------------------------
 
-@pytest.mark.parametrize("n,sym,expected", [
-    (2, True, 1), (2, False, 2),
-    (5, True, 10), (5, False, 20),
-    (6, True, 15), (6, False, 30),
-])
+
+@pytest.mark.parametrize(
+    "n,sym,expected",
+    [
+        (2, True, 1),
+        (2, False, 2),
+        (5, True, 10),
+        (5, False, 20),
+        (6, True, 15),
+        (6, False, 30),
+    ],
+)
 def test_rate_count(n, sym, expected):
     assert n_trait_rates(n, sym) == expected
 
@@ -56,6 +66,7 @@ def test_asymmetric_doubles_the_rates():
 
 
 # --- the symmetry flag reaches the XML --------------------------------------
+
 
 def test_symmetric_flag_is_written_not_assumed():
     assert 'symmetric="true"' in blocks(symmetric=True)["likelihood"]
@@ -76,6 +87,7 @@ def test_asymmetric_gets_robust_eigen():
 
 
 # --- BSSVS ------------------------------------------------------------------
+
 
 def test_bssvs_adds_indicators_and_they_are_logged():
     b = blocks(bssvs=True)
@@ -110,6 +122,7 @@ def test_poisson_lambda_is_overridable():
 
 # --- trait values -----------------------------------------------------------
 
+
 def test_every_tip_appears_in_the_trait_set():
     data = blocks()["data"]
     for lbl, state in TIPS.items():
@@ -124,8 +137,7 @@ def test_unknown_state_is_ambiguous_not_state_zero():
 
 def test_tip_state_outside_the_declared_set_is_refused():
     with pytest.raises(ValueError, match="absent from the declared states"):
-        trait_blocks("america2", "host", STATES,
-                     {"ACC9|pinniped|2011": "pinniped"})
+        trait_blocks("america2", "host", STATES, {"ACC9|pinniped|2011": "pinniped"})
 
 
 def test_state_codes_are_deterministic():
@@ -135,6 +147,7 @@ def test_state_codes_are_deterministic():
 
 
 # --- structural validity ----------------------------------------------------
+
 
 @pytest.mark.parametrize("sym", [True, False])
 @pytest.mark.parametrize("bssvs", [True, False])
@@ -173,8 +186,13 @@ import subprocess  # noqa: E402
 
 import yaml  # noqa: E402
 
-COMPOSITION = {"procyonid": 25, "mustelid": 14, "wild_felid": 10,
-               "domestic_dog": 9, "wild_canid": 7}
+COMPOSITION = {
+    "procyonid": 25,
+    "mustelid": 14,
+    "wild_felid": 10,
+    "domestic_dog": 9,
+    "wild_canid": 7,
+}
 
 
 @pytest.fixture(scope="module")
@@ -195,11 +213,22 @@ def mock_aln(tmp_path_factory):
 def run07(tmp_path, cfg_path, aln, *extra):
     out = tmp_path / "out.xml"
     r = subprocess.run(
-        [sys.executable, str(ROOT / "scripts/07_make_beast_xml.py"),
-         "--config", str(cfg_path), "--aln", str(aln),
-         "--out-xml", str(out), "--out-traits", str(tmp_path / "t.txt"),
-         *extra],
-        capture_output=True, text=True)
+        [
+            sys.executable,
+            str(ROOT / "scripts/07_make_beast_xml.py"),
+            "--config",
+            str(cfg_path),
+            "--aln",
+            str(aln),
+            "--out-xml",
+            str(out),
+            "--out-traits",
+            str(tmp_path / "t.txt"),
+            *extra,
+        ],
+        capture_output=True,
+        text=True,
+    )
     assert r.returncode == 0, r.stderr
     return out.read_text(), r.stdout
 
@@ -216,8 +245,9 @@ def test_generated_xml_is_wellformed_and_has_no_dangling_refs(tmp_path, mock_aln
     xml, _ = run07(tmp_path, ROOT / "config/pathogen/cdv-1200.yaml", mock_aln)
     root = ET.fromstring(xml)
     ids = {e.attrib["id"] for e in root.iter() if "id" in e.attrib}
-    refs = {m for e in root.iter() for v in e.attrib.values()
-            for m in re.findall(r"@([^\s\"]+)", v)}
+    refs = {
+        m for e in root.iter() for v in e.attrib.values() for m in re.findall(r"@([^\s\"]+)", v)
+    }
     assert not refs - ids
 
 
@@ -229,8 +259,7 @@ def test_config_symmetry_reaches_the_generated_xml(tmp_path, mock_aln):
 
 
 def test_no_trait_flag_produces_a_sequence_only_xml(tmp_path, mock_aln):
-    xml, _ = run07(tmp_path, ROOT / "config/pathogen/cdv-1200.yaml",
-                   mock_aln, "--no-trait")
+    xml, _ = run07(tmp_path, ROOT / "config/pathogen/cdv-1200.yaml", mock_aln, "--no-trait")
     assert "AncestralStateTreeLikelihood" not in xml
     assert "rateIndicator" not in xml
 
@@ -238,8 +267,14 @@ def test_no_trait_flag_produces_a_sequence_only_xml(tmp_path, mock_aln):
 def test_drt_replicates_carry_no_trait(tmp_path, mock_aln):
     """The date-randomisation test asks about the clock rate. Paying for the
     trait across 20 replicates buys nothing."""
-    xml, _ = run07(tmp_path, ROOT / "config/pathogen/cdv-1200.yaml", mock_aln,
-                   "--replicate", "3", "--no-trait")
+    xml, _ = run07(
+        tmp_path,
+        ROOT / "config/pathogen/cdv-1200.yaml",
+        mock_aln,
+        "--replicate",
+        "3",
+        "--no-trait",
+    )
     assert "DATE-RANDOMISED REPLICATE 3" in xml
     assert "AncestralStateTreeLikelihood" not in xml
 
@@ -266,5 +301,5 @@ def test_two_state_companion_config_generates(tmp_path, mock_aln):
         pytest.skip("two-state companion config not present")
     xml, out = run07(tmp_path, cfg, mock_aln)
     assert 'dimension="2"' in xml
-    assert "rateIndicator" not in xml      # BSSVS off: nothing to select
+    assert "rateIndicator" not in xml  # BSSVS off: nothing to select
     assert "2 states, 2 rates" in out

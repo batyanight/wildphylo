@@ -29,12 +29,12 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib.config import load, ConfigError  # noqa: E402
-from lib.preflight import check_fetch      # noqa: E402
+from lib.config import ConfigError, load
+from lib.preflight import check_fetch
 
 try:
     from Bio import Entrez
-except ImportError as exc:                  # pragma: no cover
+except ImportError as exc:  # pragma: no cover
     raise ImportError(
         "Biopython is required.\n"
         "  terminal: pip install biopython\n"
@@ -42,7 +42,7 @@ except ImportError as exc:                  # pragma: no cover
     ) from exc
 
 RETRY_LIMIT = 5
-RETRY_BACKOFF = 3.0       # seconds, doubled each retry
+RETRY_BACKOFF = 3.0  # seconds, doubled each retry
 
 
 def setup_logging(log_path: Path | None) -> None:
@@ -53,7 +53,9 @@ def setup_logging(log_path: Path | None) -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s  %(levelname)-7s  %(message)s",
-        handlers=handlers, force=True)
+        handlers=handlers,
+        force=True,
+    )
 
 
 def build_query(cfg: dict) -> str:
@@ -94,20 +96,30 @@ def fetch_batch(webenv: str, query_key: str, start: int, size: int) -> str:
     for attempt in range(1, RETRY_LIMIT + 1):
         try:
             handle = Entrez.efetch(
-                db="nuccore", rettype="gb", retmode="text",
-                retstart=start, retmax=size,
-                webenv=webenv, query_key=query_key)
+                db="nuccore",
+                rettype="gb",
+                retmode="text",
+                retstart=start,
+                retmax=size,
+                webenv=webenv,
+                query_key=query_key,
+            )
             data = handle.read()
             handle.close()
             if not data.strip():
                 raise ValueError("empty response from NCBI")
             return data
-        except Exception as exc:               # noqa: BLE001 — NCBI throws many types
+        except Exception as exc:
             if attempt == RETRY_LIMIT:
                 raise
             logging.warning(
                 "batch at %d failed (attempt %d/%d): %s — retrying in %.0fs",
-                start, attempt, RETRY_LIMIT, exc, delay)
+                start,
+                attempt,
+                RETRY_LIMIT,
+                exc,
+                delay,
+            )
             time.sleep(delay)
             delay *= 2
     raise RuntimeError("unreachable")
@@ -120,41 +132,45 @@ def previous_accession_count(out_path: Path, pathogen: str) -> int | None:
     outside the builds/ layout.
     """
     try:
-        raw = out_path.resolve().parent          # .../builds/<id>/<date>/raw
+        raw = out_path.resolve().parent  # .../builds/<id>/<date>/raw
         build_dir = raw.parent
         pathogen_dir = build_dir.parent
         if pathogen_dir.name != pathogen:
             return None
-        earlier = sorted((d for d in pathogen_dir.iterdir()
-                          if d.is_dir() and d.name < build_dir.name), reverse=True)
+        earlier = sorted(
+            (d for d in pathogen_dir.iterdir() if d.is_dir() and d.name < build_dir.name),
+            reverse=True,
+        )
         for d in earlier:
             for acc in sorted(d.glob("raw/*.acc")):
                 return sum(1 for line in acc.open() if line.strip())
-    except Exception:                            # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return None
     return None
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter)
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--config", required=True, type=Path)
     ap.add_argument("--out", type=Path, help="GenBank flat file to write.")
     ap.add_argument("--acc", type=Path, help="Accession list to write.")
-    ap.add_argument("--outdir", type=Path,
-                    help="Instead of --out/--acc: write <id>_<date>.gb/.acc here.")
+    ap.add_argument(
+        "--outdir", type=Path, help="Instead of --out/--acc: write <id>_<date>.gb/.acc here."
+    )
     ap.add_argument("--email", default=os.environ.get("NCBI_EMAIL"))
     ap.add_argument("--api-key", default=os.environ.get("NCBI_API_KEY"))
     ap.add_argument("--query", help="Override the config-derived query entirely.")
-    ap.add_argument("--query-filter",
-                    help="Override fetch.query_filter for this run only.")
+    ap.add_argument("--query-filter", help="Override fetch.query_filter for this run only.")
     ap.add_argument("--taxid", type=int, help="Override fetch.taxid for this run only.")
     ap.add_argument("--log", type=Path)
-    ap.add_argument("--force", action="store_true",
-                    help="Re-download even if the output already exists.")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="Report how many records match, then exit.")
+    ap.add_argument(
+        "--force", action="store_true", help="Re-download even if the output already exists."
+    )
+    ap.add_argument(
+        "--dry-run", action="store_true", help="Report how many records match, then exit."
+    )
     a = ap.parse_args()
 
     try:
@@ -186,7 +202,8 @@ def main() -> int:
         logging.error(
             "NCBI requires an email address. Pass --email or set NCBI_EMAIL. "
             "It is read from the environment rather than the config because it "
-            "is a personal credential, not an analysis parameter.")
+            "is a personal credential, not an analysis parameter."
+        )
         return 2
 
     Entrez.email = a.email
@@ -226,8 +243,7 @@ def main() -> int:
             logging.info("  %d / %d records", min(start + batch, total), total)
             time.sleep(0.12 if a.api_key else 0.40)
 
-    accs = [line.split()[1] for line in gb_path.open()
-            if line.startswith("VERSION")]
+    accs = [line.split()[1] for line in gb_path.open() if line.startswith("VERSION")]
     acc_path.parent.mkdir(parents=True, exist_ok=True)
     acc_path.write_text("\n".join(accs) + "\n")
 
@@ -242,7 +258,9 @@ def main() -> int:
         logging.error(
             "expected %d records but parsed %d accessions. The download is "
             "incomplete — rerun with --force rather than proceeding.",
-            total, len(accs))
+            total,
+            len(accs),
+        )
         return 1
     return 0
 

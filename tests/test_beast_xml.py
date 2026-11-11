@@ -21,7 +21,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from lib.beastxml import (  # noqa: E402
-    resolve_clock_rate, tree_prior_blocks, clock_blocks, tip_date_blocks,
+    clock_blocks,
+    resolve_clock_rate,
+    tip_date_blocks,
+    tree_prior_blocks,
 )
 
 MEASURED = 5.12e-4
@@ -45,8 +48,9 @@ def aln(tmp_path_factory):
 @pytest.fixture(scope="module")
 def report(tmp_path_factory):
     p = tmp_path_factory.mktemp("rep") / "ts.json"
-    p.write_text(json.dumps({"regressions": [
-        {"slope": MEASURED, "r_squared": 0.8, "x_intercept": 1976.0}]}))
+    p.write_text(
+        json.dumps({"regressions": [{"slope": MEASURED, "r_squared": 0.8, "x_intercept": 1976.0}]})
+    )
     return p
 
 
@@ -60,17 +64,30 @@ def cfg_variant(tmp_path, **beast):
 
 def run(aln, out, *extra):
     return subprocess.run(
-        [sys.executable, "scripts/07_make_beast_xml.py", "--aln", str(aln),
-         "--out-xml", str(out), "--out-traits", str(out.with_suffix(".traits.txt")),
-         "--chain", "100000", *map(str, extra)],
-        capture_output=True, text=True, cwd=ROOT)
+        [
+            sys.executable,
+            "scripts/07_make_beast_xml.py",
+            "--aln",
+            str(aln),
+            "--out-xml",
+            str(out),
+            "--out-traits",
+            str(out.with_suffix(".traits.txt")),
+            "--chain",
+            "100000",
+            *map(str, extra),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+    )
 
 
 # --- clock rate provenance --------------------------------------------------
 
+
 def test_config_rate_wins_when_declared():
-    cfg = {"beast": {"clock_rate_prior": 7.46e-4,
-                     "clock_rate_source": "Panzera et al."}}
+    cfg = {"beast": {"clock_rate_prior": 7.46e-4, "clock_rate_source": "Panzera et al."}}
     rate, note = resolve_clock_rate(cfg, MEASURED)
     assert rate == pytest.approx(7.46e-4)
     assert "Panzera" in note
@@ -110,10 +127,11 @@ def test_time_scaled_slope_is_rejected(aln, tmp_path):
     cfg = cfg_variant(tmp_path, clock_rate_prior=None, clock_rate_source=None)
     r = run(aln, tmp_path / "x.xml", "--config", cfg, "--temporal-report", rep)
     assert "not a substitution rate" in r.stdout
-    assert r.returncode == 1          # nothing left to centre the prior on
+    assert r.returncode == 1  # nothing left to centre the prior on
 
 
 # --- the safety gate --------------------------------------------------------
+
 
 def test_prior_disagreeing_with_data_refuses_to_write(aln, report, tmp_path):
     """
@@ -138,11 +156,15 @@ def test_agreeing_prior_passes(aln, report, tmp_path):
 
 # --- model blocks actually change the XML -----------------------------------
 
-@pytest.mark.parametrize("prior,marker", [
-    ("coalescent_constant", "CoalescentConstant"),
-    ("coalescent_skyline", "BayesianSkyline"),
-    ("birth_death", "BirthDeath"),
-])
+
+@pytest.mark.parametrize(
+    "prior,marker",
+    [
+        ("coalescent_constant", "CoalescentConstant"),
+        ("coalescent_skyline", "BayesianSkyline"),
+        ("birth_death", "BirthDeath"),
+    ],
+)
 def test_tree_prior_is_honoured(aln, tmp_path, prior, marker):
     """
     A constant-size coalescent assumes a stable, randomly sampled population.
@@ -158,10 +180,13 @@ def test_tree_prior_is_honoured(aln, tmp_path, prior, marker):
     ET.fromstring(text)
 
 
-@pytest.mark.parametrize("model,marker", [
-    ("relaxed_lognormal", "UCRelaxedClockModel"),
-    ("strict", "StrictClockModel"),
-])
+@pytest.mark.parametrize(
+    "model,marker",
+    [
+        ("relaxed_lognormal", "UCRelaxedClockModel"),
+        ("strict", "StrictClockModel"),
+    ],
+)
 def test_clock_model_is_honoured(aln, tmp_path, model, marker):
     cfg = cfg_variant(tmp_path, clock_model=model)
     out = tmp_path / f"{model}.xml"
@@ -227,10 +252,10 @@ def test_each_sampled_tip_is_bounded_by_its_own_uncertainty():
     blocks = tip_date_blocks("interval", "p", {"A|x|2001.5": 0.5}, DATES)
     assert "MRCAPrior" in blocks["priors"]
     import re
-    lo, hi = map(float, re.search(r'lower="([\d.]+)" upper="([\d.]+)"',
-                                  blocks["priors"]).groups())
+
+    lo, hi = map(float, re.search(r'lower="([\d.]+)" upper="([\d.]+)"', blocks["priors"]).groups())
     # height measured back from the most recent sample (2020.0)
-    assert hi - lo == pytest.approx(1.0, abs=1e-4)      # +/- 0.5 yr
+    assert hi - lo == pytest.approx(1.0, abs=1e-4)  # +/- 0.5 yr
     assert lo == pytest.approx(2020.0 - 2002.0, abs=1e-4)
 
 
@@ -238,10 +263,11 @@ def test_bounds_scale_with_the_uncertainty():
     tight = tip_date_blocks("interval", "p", {"A|x|2001.5": 0.04}, DATES)
     wide = tip_date_blocks("interval", "p", {"A|x|2001.5": 0.5}, DATES)
     import re
+
     def span(b):
-        lo, hi = map(float, re.search(r'lower="([\d.]+)" upper="([\d.]+)"',
-                                      b["priors"]).groups())
+        lo, hi = map(float, re.search(r'lower="([\d.]+)" upper="([\d.]+)"', b["priors"]).groups())
         return hi - lo
+
     assert span(tight) < span(wide)
     assert span(tight) == pytest.approx(0.08, abs=1e-4)
 
@@ -250,6 +276,7 @@ def test_no_tip_height_can_go_negative():
     """The most recent tip cannot sit above itself."""
     blocks = tip_date_blocks("interval", "p", {"C|x|2020.0": 0.5}, DATES)
     import re
+
     lo = float(re.search(r'lower="([\d.]+)"', blocks["priors"]).group(1))
     assert lo >= 0.0
 
@@ -259,9 +286,9 @@ def test_proposal_window_is_not_left_to_the_tuner():
     A window far larger than the bound just wastes steps being rejected at the
     boundary. It should track the uncertainty.
     """
-    blocks = tip_date_blocks("interval", "p",
-                             {"A|x|2001.5": 0.5, "B|x|2010.5": 0.5}, DATES)
+    blocks = tip_date_blocks("interval", "p", {"A|x|2001.5": 0.5, "B|x|2010.5": 0.5}, DATES)
     import re
+
     w = float(re.search(r'windowSize="([\d.]+)"', blocks["operators"]).group(1))
     assert w <= 0.5
 
@@ -288,12 +315,13 @@ def test_interval_without_uncertainty_data_is_reported(aln, tmp_path):
     Silently falling back to midpoints would report an HPD narrower than the
     data support, which is the whole thing DR-001 exists to prevent.
     """
-    cfg = cfg_variant(tmp_path)          # cdv.yaml already sets interval
+    cfg = cfg_variant(tmp_path)  # cdv.yaml already sets interval
     r = run(aln, tmp_path / "i.xml", "--config", cfg)
     assert "no per-tip uncertainty" in r.stdout
 
 
 # --- date randomisation -----------------------------------------------------
+
 
 def test_single_replicate_mode_writes_one_file(aln, tmp_path):
     out = tmp_path / "drt3.xml"
@@ -325,6 +353,7 @@ def test_randomised_replicate_does_not_sample_tip_dates(aln, tmp_path):
 
 # --- provenance in the output -----------------------------------------------
 
+
 def test_xml_header_records_where_the_rate_came_from(aln, report, tmp_path):
     """
     An uncited rate in a generated file is how an assumption becomes a result.
@@ -332,8 +361,7 @@ def test_xml_header_records_where_the_rate_came_from(aln, report, tmp_path):
     """
     cfg = cfg_variant(tmp_path, clock_rate_prior=None, clock_rate_source=None)
     out = tmp_path / "prov.xml"
-    assert run(aln, out, "--config", cfg,
-               "--temporal-report", report).returncode == 0
+    assert run(aln, out, "--config", cfg, "--temporal-report", report).returncode == 0
     header = out.read_text()[:1200]
     assert "rate provenance" in header
     assert "measured root-to-tip" in header

@@ -35,7 +35,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 @pytest.fixture(scope="module")
 def mod():
     spec = importlib.util.spec_from_file_location(
-        "drt08d", ROOT / "scripts" / "08d_drt_summary.py")
+        "drt08d", ROOT / "scripts" / "08d_drt_summary.py"
+    )
     m = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = m
     spec.loader.exec_module(m)
@@ -45,7 +46,7 @@ def mod():
 def write_log(path, mean, sd, n=2000, rho=0.0, seed=0, param="clockRate"):
     rng = np.random.default_rng(seed)
     x = rng.normal(mean, sd, n)
-    if rho:                                   # autocorrelated = poorly mixed
+    if rho:  # autocorrelated = poorly mixed
         for i in range(1, n):
             x[i] = rho * x[i - 1] + (1 - rho) * x[i]
     with open(path, "w") as fh:
@@ -55,8 +56,17 @@ def write_log(path, mean, sd, n=2000, rho=0.0, seed=0, param="clockRate"):
             fh.write(f"{i * 1000}\t{-900 + rng.normal():.4f}\t{v:.6e}\n")
 
 
-def scenario(tmp_path, name, real_mean, rep_mean, rep_sd=2e-5,
-             rep_jitter=2.5e-5, n_reps=20, rho=0.0, identical=False):
+def scenario(
+    tmp_path,
+    name,
+    real_mean,
+    rep_mean,
+    rep_sd=2e-5,
+    rep_jitter=2.5e-5,
+    n_reps=20,
+    rho=0.0,
+    identical=False,
+):
     """
     Independent replicates get their OWN true rate: different permutations
     produce different likelihood surfaces. identical=True reuses one rate,
@@ -81,6 +91,7 @@ def run(mod, real, reps, burnin=0.10, min_ess=100):
 
 
 # --- the four scenarios -----------------------------------------------------
+
 
 def test_real_temporal_signal_passes(mod, tmp_path):
     real, reps = scenario(tmp_path, "A", 7.0e-4, 2.0e-4)
@@ -127,11 +138,12 @@ def test_overlap_in_the_bad_direction_is_still_caught(mod, tmp_path):
     """A real rate BELOW the randomised ones is as non-identifiable as above."""
     real, reps = scenario(tmp_path, "E", 5.0e-5, 2.0e-4)
     _, _, res = run(mod, real, reps)
-    assert res["verdict"] == "pass"       # non-overlap is non-overlap
+    assert res["verdict"] == "pass"  # non-overlap is non-overlap
     assert res["real_outside_replicate_range"]
 
 
 # --- the two regressions ----------------------------------------------------
+
 
 def test_permissive_criterion_uses_the_envelope_not_the_range_of_means(mod, tmp_path):
     """
@@ -164,12 +176,13 @@ def test_independence_check_does_not_fire_on_well_sampled_replicates(mod, tmp_pa
 
 # --- clock parameter detection ---------------------------------------------
 
+
 def test_clock_parameter_is_detected_from_the_usual_names():
     from lib.beastlog import find_clock_parameter
+
     assert find_clock_parameter(["Sample", "posterior", "clockRate"]) == "clockRate"
     assert find_clock_parameter(["Sample", "ucldMean", "ucldStdev"]) == "ucldMean"
-    assert find_clock_parameter(
-        ["Sample", "clockRate.c:america2"]) == "clockRate.c:america2"
+    assert find_clock_parameter(["Sample", "clockRate.c:america2"]) == "clockRate.c:america2"
 
 
 def test_ucld_stdev_is_never_mistaken_for_the_rate():
@@ -178,23 +191,26 @@ def test_ucld_stdev_is_never_mistaken_for_the_rate():
     randomised dates returns a confident verdict about the wrong parameter.
     """
     from lib.beastlog import find_clock_parameter
-    assert find_clock_parameter(
-        ["Sample", "ucldStdev", "ucldMean"]) == "ucldMean"
+
+    assert find_clock_parameter(["Sample", "ucldStdev", "ucldMean"]) == "ucldMean"
 
 
 def test_a_log_with_no_clock_column_is_refused():
     from lib.beastlog import find_clock_parameter
+
     with pytest.raises(ValueError, match="no clock-rate column"):
         find_clock_parameter(["Sample", "posterior", "treeLikelihood"])
 
 
 def test_explicit_clock_param_overrides_detection():
     from lib.beastlog import find_clock_parameter
+
     header = ["Sample", "clockRate", "myRate"]
     assert find_clock_parameter(header, preferred="myRate") == "myRate"
 
 
 # --- CLI --------------------------------------------------------------------
+
 
 def test_cli_writes_json_and_exits_nonzero_on_failure(tmp_path):
     rng = np.random.default_rng(7)
@@ -207,9 +223,22 @@ def test_cli_writes_json_and_exits_nonzero_on_failure(tmp_path):
         reps.append(str(p))
     out = tmp_path / "drt.json"
     r = subprocess.run(
-        [sys.executable, "scripts/08d_drt_summary.py", "--real", str(real),
-         "--reps", *reps, "--out-json", str(out), "--exit-nonzero-on-fail"],
-        cwd=ROOT, capture_output=True, text=True, timeout=180)
+        [
+            sys.executable,
+            "scripts/08d_drt_summary.py",
+            "--real",
+            str(real),
+            "--reps",
+            *reps,
+            "--out-json",
+            str(out),
+            "--exit-nonzero-on-fail",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
     assert r.returncode == 1, r.stdout[-1500:]
     doc = json.loads(out.read_text())
     assert doc["verdict"] == "fail"
@@ -226,13 +255,21 @@ def test_cli_warns_when_there_are_too_few_replicates(tmp_path):
         write_log(p, 2.0e-4, 2e-5, seed=200 + i)
         reps.append(str(p))
     r = subprocess.run(
-        [sys.executable, "scripts/08d_drt_summary.py", "--real", str(real),
-         "--reps", *reps],
-        cwd=ROOT, capture_output=True, text=True, timeout=180)
+        [sys.executable, "scripts/08d_drt_summary.py", "--real", str(real), "--reps", *reps],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
     assert "only 3 replicates" in r.stderr
 
 
 def test_cli_help_works():
-    r = subprocess.run([sys.executable, "scripts/08d_drt_summary.py", "--help"],
-                       cwd=ROOT, capture_output=True, text=True, timeout=60)
+    r = subprocess.run(
+        [sys.executable, "scripts/08d_drt_summary.py", "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
     assert r.returncode == 0

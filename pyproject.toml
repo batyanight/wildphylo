@@ -25,3 +25,42 @@ markers = [
   "slow: takes more than a second (deselect with -m 'not slow')",
   "needs_tools: requires mafft/iqtree/beast on PATH",
 ]
+
+[tool.ruff]
+line-length = 99
+target-version = "py311"
+preview = false
+src = ["scripts", "tests"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+# One line of justification per ignored rule. Remove the rule from this list
+# when the justification stops holding.
+ignore = [
+  "COM812",   # trailing commas: conflicts with the formatter
+  "CPY001",   # no per-file copyright headers; LICENSE covers the repo
+  "D1",       # undocumented public objects: enforced per stage as each is ported (see per-file-ignores)
+  "DTZ",      # build dates are deliberately local wall-clock dates, not instants
+  "EM101", "EM102", "TRY003",  # exception-message style; no correctness value
+  "FBT",      # boolean positional flags are idiomatic in these small CLIs
+  "N806",     # scientific names (R2, N, Ne) are clearer than lowercase forms
+  "PLC0415",  # imports inside functions keep heavy optional deps (matplotlib, Bio) lazy
+  "PLR2004",  # thresholds and tolerances in scientific code are not magic numbers
+  "C901", "PLR0912", "PLR0913", "PLR0915", "PLR0917",  # complexity: addressed by the stage refactor, not by lint
+  "S311",     # random is used for subsampling and permutation tests, not security
+  "S603", "S607",  # subprocess runs known tools with list args; shell=False everywhere
+  "S314",     # ElementTree parses XML this pipeline generated itself
+  "ANN202", "ANN401",  # private return types and Any are allowed
+  "TD", "FIX",  # TODO comments are tracked in docs/PLAN-stages.md, not by lint
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# Numbered scripts: lifted into stage modules one at a time (docs/PLAN-stages.md).
+# A script's entry is deleted when it is ported; the stage module gets no exemption.
+"scripts/[0-9]*.py" = ["ANN", "T201", "EXE001", "INP001", "D"]
+"scripts/cdv_h_coords.py" = ["ANN", "T201", "EXE001", "INP001", "D"]
+"tests/*" = ["ANN", "D", "S101", "INP001", "T201", "PT018"]
+"tests/fixtures/*" = ["ALL"]

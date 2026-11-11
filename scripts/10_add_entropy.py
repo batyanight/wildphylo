@@ -59,9 +59,16 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from cdv_h_coords import (  # noqa: E402
-    AMBIG, BASES, CODON, DOMAINS, HFrame, read_fasta, pick_reference,
-    annotation_feature_spans, backup_if_overwriting,
+from cdv_h_coords import (
+    AMBIG,
+    BASES,
+    CODON,
+    DOMAINS,
+    HFrame,
+    annotation_feature_spans,
+    backup_if_overwriting,
+    pick_reference,
+    read_fasta,
 )
 
 
@@ -88,7 +95,7 @@ def fitch_up(node, seqs, L):
             mine.append(set())
             continue
         inter = set.intersection(*sets)
-        mine.append(inter if inter else set.union(*sets))
+        mine.append(inter or set.union(*sets))
     node["_fitch"] = mine
     return mine
 
@@ -146,9 +153,7 @@ def translate(state, triples):
     """Resolved state -> amino acids, one per codon-column triple."""
     aas = []
     for c1, c2, c3 in triples:
-        codon = "".join(
-            state[c - 1] if state[c - 1] in BASES else "N" for c in (c1, c2, c3)
-        )
+        codon = "".join(state[c - 1] if state[c - 1] in BASES else "N" for c in (c1, c2, c3))
         aas.append(CODON.get(codon, "X"))
     return aas
 
@@ -165,8 +170,7 @@ def final_checks(doc, gene_name: str) -> bool:
     ok = True
     ann = doc["meta"]["genome_annotations"]
 
-    bad = [k for k, v in ann.items()
-           if k != "nuc" and (v["end"] - v["start"] + 1) % 3]
+    bad = [k for k, v in ann.items() if k != "nuc" and (v["end"] - v["start"] + 1) % 3]
     if bad:
         print(f"CHECK FAILED: CDS not a multiple of 3: {bad}", file=sys.stderr)
         ok = False
@@ -187,18 +191,20 @@ def final_checks(doc, gene_name: str) -> bool:
     if gene_name in ann and present:
         whole, parts = counts.get(gene_name, 0), sum(counts[d] for d in present)
         if whole == parts:
-            print(f"  {gene_name} amino acid mutations ({whole}) == sum over "
-                  f"{len(present)} domains")
+            print(
+                f"  {gene_name} amino acid mutations ({whole}) == sum over {len(present)} domains"
+            )
         else:
-            print(f"CHECK FAILED: {gene_name} has {whole} amino acid mutations but the "
-                  f"domains sum to {parts}. A feature is out of frame with the gene.",
-                  file=sys.stderr)
+            print(
+                f"CHECK FAILED: {gene_name} has {whole} amino acid mutations but the "
+                f"domains sum to {parts}. A feature is out of frame with the gene.",
+                file=sys.stderr,
+            )
             ok = False
 
     stale = [k for k in counts if k != "nuc" and k not in ann]
     if stale:
-        print(f"CHECK FAILED: mutation keys with no matching feature: {stale}",
-              file=sys.stderr)
+        print(f"CHECK FAILED: mutation keys with no matching feature: {stale}", file=sys.stderr)
         ok = False
     else:
         print("  no orphaned mutation keys")
@@ -206,31 +212,39 @@ def final_checks(doc, gene_name: str) -> bool:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--json", required=True, type=Path)
     ap.add_argument("--alignment", required=True, type=Path)
-    ap.add_argument("--reference", help="Taxon label defining the coordinate system. "
-                                        "Must match the one given to 11_annotate_H.py.")
-    ap.add_argument("--auto-reference", action="store_true",
-                    help="Use the least-gapped sequence")
+    ap.add_argument(
+        "--reference",
+        help="Taxon label defining the coordinate system. "
+        "Must match the one given to 11_annotate_H.py.",
+    )
+    ap.add_argument("--auto-reference", action="store_true", help="Use the least-gapped sequence")
     ap.add_argument("--gene", default="H", help=argparse.SUPPRESS)
     ap.add_argument("--gene-start", type=int, default=None, help=argparse.SUPPRESS)
-    ap.add_argument("--cds", nargs=2, type=int, metavar=("START", "END"),
-                    help=argparse.SUPPRESS)
+    ap.add_argument("--cds", nargs=2, type=int, metavar=("START", "END"), help=argparse.SUPPRESS)
     ap.add_argument("--cds-from-json", action="store_true", help=argparse.SUPPRESS)
-    ap.add_argument("--no-backup", action="store_true",
-                    help="Do not keep a timestamped copy of the output file before "
-                         "overwriting it.")
+    ap.add_argument(
+        "--no-backup",
+        action="store_true",
+        help="Do not keep a timestamped copy of the output file before overwriting it.",
+    )
     ap.add_argument("--output", required=True, type=Path)
     args = ap.parse_args()
 
     if args.gene_start is not None or args.cds:
-        print("note: --gene-start and --cds are ignored — CDS extents now come from "
-              "the annotation written by 11_annotate_H.py", file=sys.stderr)
+        print(
+            "note: --gene-start and --cds are ignored — CDS extents now come from "
+            "the annotation written by 11_annotate_H.py",
+            file=sys.stderr,
+        )
     if args.cds_from_json:
-        print("note: --cds-from-json is now the only behaviour and can be dropped",
-              file=sys.stderr)
+        print(
+            "note: --cds-from-json is now the only behaviour and can be dropped", file=sys.stderr
+        )
 
     for f in (args.json, args.alignment):
         if not f.is_file():
@@ -241,16 +255,21 @@ def main() -> int:
     seqs = read_fasta(args.alignment)
     lengths = {len(s) for s in seqs.values()}
     if len(lengths) != 1:
-        print(f"alignment sequences differ in length {sorted(lengths)[:4]} — "
-              "this file is not aligned", file=sys.stderr)
+        print(
+            f"alignment sequences differ in length {sorted(lengths)[:4]} — "
+            "this file is not aligned",
+            file=sys.stderr,
+        )
         return 1
     L = lengths.pop()
 
     ann = doc["meta"].get("genome_annotations")
     if not ann or set(ann) <= {"nuc"}:
-        print("ERROR: the JSON has no CDS features. Run 11_annotate_H.py first — it "
-              "establishes the coordinate system this script reconstructs into.",
-              file=sys.stderr)
+        print(
+            "ERROR: the JSON has no CDS features. Run 11_annotate_H.py first — it "
+            "establishes the coordinate system this script reconstructs into.",
+            file=sys.stderr,
+        )
         return 1
 
     # --- rebuild the same coordinate frame script 11 used ---
@@ -267,9 +286,12 @@ def main() -> int:
         print("ERROR: no ORF found in the reference.", file=sys.stderr)
         return 1
     if ann["nuc"]["end"] != frame.ref_length:
-        print(f"ERROR: the annotation says nuc is {ann['nuc']['end']} nt but this "
-              f"reference is {frame.ref_length} nt. The two scripts were given "
-              "different --reference or --alignment values.", file=sys.stderr)
+        print(
+            f"ERROR: the annotation says nuc is {ann['nuc']['end']} nt but this "
+            f"reference is {frame.ref_length} nt. The two scripts were given "
+            "different --reference or --alignment values.",
+            file=sys.stderr,
+        )
         return 1
 
     # --- map each annotated CDS back to codon-column triples ---
@@ -278,15 +300,21 @@ def main() -> int:
         span = end - start + 1
         offset = start - frame.orf_start - 1
         if offset < 0 or offset % 3 or span % 3:
-            print(f"ERROR: feature {name} (nt {start}-{end}) is not in frame with the "
-                  f"reference ORF starting at {frame.orf_start + 1}. Re-run "
-                  "11_annotate_H.py.", file=sys.stderr)
+            print(
+                f"ERROR: feature {name} (nt {start}-{end}) is not in frame with the "
+                f"reference ORF starting at {frame.orf_start + 1}. Re-run "
+                "11_annotate_H.py.",
+                file=sys.stderr,
+            )
             return 1
         a1 = offset // 3 + 1
         a2 = a1 + span // 3 - 1
         if a2 > frame.n_codons:
-            print(f"ERROR: feature {name} extends to aa {a2}, past the {frame.n_codons} "
-                  "aa ORF. Re-run 11_annotate_H.py.", file=sys.stderr)
+            print(
+                f"ERROR: feature {name} extends to aa {a2}, past the {frame.n_codons} "
+                "aa ORF. Re-run 11_annotate_H.py.",
+                file=sys.stderr,
+            )
             return 1
         regions.append((name, a1, a2, frame.feature_codon_columns(a1, a2)))
     print(f"translating {len(regions)} CDS feature(s) from the JSON annotation")
@@ -296,8 +324,11 @@ def main() -> int:
     matched = sum(1 for t in tips if t["name"] in seqs)
     print(f"{len(tips)} tips in tree, {len(seqs)} in alignment, {matched} matched")
     if matched < len(tips) * 0.9:
-        print("ERROR: fewer than 90% of tips matched. Tip names must be identical "
-              "between the tree and the alignment.", file=sys.stderr)
+        print(
+            "ERROR: fewer than 90% of tips matched. Tip names must be identical "
+            "between the tree and the alignment.",
+            file=sys.stderr,
+        )
         missing = [t["name"] for t in tips if t["name"] not in seqs][:3]
         print(f"  unmatched examples: {missing}", file=sys.stderr)
         return 1
@@ -315,22 +346,27 @@ def main() -> int:
     total = sum(len(v) for v in nuc_muts.values())
     on_branches = sum(1 for v in nuc_muts.values() if v)
     per_branch = total / on_branches if on_branches else 0
-    print(f"{total} nucleotide mutations assigned across {on_branches} branches "
-          f"({per_branch:.1f} per branch)")
+    print(
+        f"{total} nucleotide mutations assigned across {on_branches} branches "
+        f"({per_branch:.1f} per branch)"
+    )
     if counters["dropped"]:
-        print(f"{counters['dropped']} mutation(s) dropped: they fall in alignment "
-              "columns that are insertions relative to the reference and so have no "
-              "coordinate in this dataset")
+        print(
+            f"{counters['dropped']} mutation(s) dropped: they fall in alignment "
+            "columns that are insertions relative to the reference and so have no "
+            "coordinate in this dataset"
+        )
 
     # A branch cannot plausibly change more sites than exist, and in practice
     # should change far fewer. This catches gap/ambiguity handling errors.
-    n_var = sum(1 for i in range(L)
-                if len({s[i] for s in seqs.values() if s[i] in BASES}) > 1)
+    n_var = sum(1 for i in range(L) if len({s[i] for s in seqs.values() if s[i] in BASES}) > 1)
     if per_branch > n_var * 0.25:
-        print(f"\nWARNING: {per_branch:.0f} mutations per branch against only "
-              f"{n_var} variable sites. That is implausible and usually means "
-              f"gaps or ambiguity codes are being treated as real bases.",
-              file=sys.stderr)
+        print(
+            f"\nWARNING: {per_branch:.0f} mutations per branch against only "
+            f"{n_var} variable sites. That is implausible and usually means "
+            f"gaps or ambiguity codes are being treated as real bases.",
+            file=sys.stderr,
+        )
 
     # --- amino acid mutations, per feature ---
     pmap = parent_map(doc["tree"])
@@ -348,14 +384,18 @@ def main() -> int:
             if node_name not in cache:
                 cache[node_name] = translate(st, triples)
             a, b = cache[par], cache[node_name]
-            ms = [f"{x}{i + 1}{y}" for i, (x, y) in enumerate(zip(a, b))
-                  if x != y and x not in "X*" and y not in "X*"]
+            ms = [
+                f"{x}{i + 1}{y}"
+                for i, (x, y) in enumerate(zip(a, b))
+                if x != y and x not in "X*" and y not in "X*"
+            ]
             if ms:
                 aa_muts.setdefault(node_name, {})[name] = ms
                 n_aa += len(ms)
         translations[name] = n_aa
-        print(f"  {name:<16} aa {a1:>3}-{a2:<3} ({a2 - a1 + 1} codons): "
-              f"{n_aa} amino-acid mutations")
+        print(
+            f"  {name:<16} aa {a1:>3}-{a2:<3} ({a2 - a1 + 1} codons): {n_aa} amino-acid mutations"
+        )
 
     # --- write mutations, rebuilding the block from scratch ---
     known = {name for name, _, _, _ in regions}
@@ -373,8 +413,10 @@ def main() -> int:
         for k in ("_fitch", "_seq"):
             n.pop(k, None)
     if stale:
-        print(f"\ncleared {len(stale)} stale mutation key(s) left by earlier runs: "
-              f"{', '.join(sorted(stale)[:6])}{' ...' if len(stale) > 6 else ''}")
+        print(
+            f"\ncleared {len(stale)} stale mutation key(s) left by earlier runs: "
+            f"{', '.join(sorted(stale)[:6])}{' ...' if len(stale) > 6 else ''}"
+        )
 
     if "entropy" not in doc["meta"].get("panels", []):
         doc["meta"].setdefault("panels", []).append("entropy")
@@ -396,8 +438,10 @@ def main() -> int:
     backup_if_overwriting(args.json, args.output, not args.no_backup)
     args.output.write_text(json.dumps(doc, indent=1))
     print(f"\nwrote {args.output} ({args.output.stat().st_size / 1024:.0f} KB)")
-    print("The entropy panel will now appear below the tree in Auspice, with an "
-          "amino-acid view for every annotated feature.")
+    print(
+        "The entropy panel will now appear below the tree in Auspice, with an "
+        "amino-acid view for every annotated feature."
+    )
     return 0
 
 

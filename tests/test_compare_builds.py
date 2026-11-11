@@ -25,7 +25,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 @pytest.fixture(scope="module")
 def mod():
     spec = importlib.util.spec_from_file_location(
-        "cmp12", ROOT / "scripts" / "12_compare_builds.py")
+        "cmp12", ROOT / "scripts" / "12_compare_builds.py"
+    )
     m = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = m
     spec.loader.exec_module(m)
@@ -42,9 +43,9 @@ def make_build(root, date, accs=None, temporal=None, tmrca=None, gates=None):
         (b / "temporal" / "H_temporal_signal.json").write_text(json.dumps(temporal))
     if tmrca is not None:
         (b / "auspice").mkdir(parents=True, exist_ok=True)
-        (b / "auspice" / "x.json").write_text(json.dumps(
-            {"tree": {"name": "ROOT",
-                      "node_attrs": {"num_date": {"value": tmrca}}}}))
+        (b / "auspice" / "x.json").write_text(
+            json.dumps({"tree": {"name": "ROOT", "node_attrs": {"num_date": {"value": tmrca}}}})
+        )
     for rel, doc in (gates or {}).items():
         p = b / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -54,23 +55,33 @@ def make_build(root, date, accs=None, temporal=None, tmrca=None, gates=None):
 
 
 def auspice(tmrca):
-    return {"tree": {"name": "ROOT",
-                     "node_attrs": {"num_date": {"value": tmrca}}}}
+    return {"tree": {"name": "ROOT", "node_attrs": {"num_date": {"value": tmrca}}}}
 
 
 # --- the quiet-success case -------------------------------------------------
 
+
 def test_a_normal_monthly_rebuild_is_clean(mod, tmp_path):
-    prev = make_build(tmp_path, "20260901", accs=[f"A{i}" for i in range(100)],
-                      temporal={"verdict": "pass", "r_squared": 0.42, "slope": 7.1e-4})
-    curr = make_build(tmp_path, "20261001", accs=[f"A{i}" for i in range(108)],
-                      temporal={"verdict": "pass", "r_squared": 0.43, "slope": 7.2e-4})
-    c = mod.compare(prev, curr, "x", current_auspice=auspice(1965.0),
-                    previous_auspice=auspice(1964.6))
+    prev = make_build(
+        tmp_path,
+        "20260901",
+        accs=[f"A{i}" for i in range(100)],
+        temporal={"verdict": "pass", "r_squared": 0.42, "slope": 7.1e-4},
+    )
+    curr = make_build(
+        tmp_path,
+        "20261001",
+        accs=[f"A{i}" for i in range(108)],
+        temporal={"verdict": "pass", "r_squared": 0.43, "slope": 7.2e-4},
+    )
+    c = mod.compare(
+        prev, curr, "x", current_auspice=auspice(1965.0), previous_auspice=auspice(1964.6)
+    )
     assert c.verdict == "ok"
 
 
 # --- the regressions --------------------------------------------------------
+
 
 def test_losing_sequences_is_an_error_and_names_them(mod, tmp_path):
     prev = make_build(tmp_path, "20260901", accs=[f"A{i}" for i in range(100)])
@@ -94,8 +105,9 @@ def test_a_stable_count_hiding_a_composition_change_is_caught(mod, tmp_path):
     twenty others. That is what a broken query produces.
     """
     prev = make_build(tmp_path, "20260901", accs=[f"A{i}" for i in range(100)])
-    curr = make_build(tmp_path, "20261001",
-                      accs=[f"A{i}" for i in range(80)] + [f"B{i}" for i in range(20)])
+    curr = make_build(
+        tmp_path, "20261001", accs=[f"A{i}" for i in range(80)] + [f"B{i}" for i in range(20)]
+    )
     c = mod.compare(prev, curr, "x", alert_on_loss=False)
     msgs = " ".join(f.message for f in c.findings)
     assert "swapped out" in msgs
@@ -105,9 +117,14 @@ def test_a_stable_count_hiding_a_composition_change_is_caught(mod, tmp_path):
 def test_a_big_tmrca_shift_is_an_error(mod, tmp_path):
     prev = make_build(tmp_path, "20260901", accs=["A"])
     curr = make_build(tmp_path, "20261001", accs=["A"])
-    c = mod.compare(prev, curr, "x", max_tmrca_shift=5.0,
-                    previous_auspice=auspice(1965.0),
-                    current_auspice=auspice(1925.0))
+    c = mod.compare(
+        prev,
+        curr,
+        "x",
+        max_tmrca_shift=5.0,
+        previous_auspice=auspice(1965.0),
+        current_auspice=auspice(1925.0),
+    )
     assert c.verdict == "regression"
     assert any("TMRCA" in f.message and f.level == "error" for f in c.findings)
 
@@ -115,27 +132,48 @@ def test_a_big_tmrca_shift_is_an_error(mod, tmp_path):
 def test_a_small_tmrca_shift_is_only_a_note(mod, tmp_path):
     prev = make_build(tmp_path, "20260901", accs=["A"])
     curr = make_build(tmp_path, "20261001", accs=["A"])
-    c = mod.compare(prev, curr, "x", max_tmrca_shift=5.0,
-                    previous_auspice=auspice(1965.0),
-                    current_auspice=auspice(1963.2))
+    c = mod.compare(
+        prev,
+        curr,
+        "x",
+        max_tmrca_shift=5.0,
+        previous_auspice=auspice(1965.0),
+        current_auspice=auspice(1963.2),
+    )
     assert c.verdict == "ok"
 
 
 def test_a_gate_verdict_dropping_is_a_regression(mod, tmp_path):
-    prev = make_build(tmp_path, "20260901", accs=["A"],
-                      temporal={"verdict": "pass", "r_squared": 0.4, "slope": 1e-4})
-    curr = make_build(tmp_path, "20261001", accs=["A"],
-                      temporal={"verdict": "fail", "r_squared": 0.4, "slope": 1e-4})
+    prev = make_build(
+        tmp_path,
+        "20260901",
+        accs=["A"],
+        temporal={"verdict": "pass", "r_squared": 0.4, "slope": 1e-4},
+    )
+    curr = make_build(
+        tmp_path,
+        "20261001",
+        accs=["A"],
+        temporal={"verdict": "fail", "r_squared": 0.4, "slope": 1e-4},
+    )
     c = mod.compare(prev, curr, "x")
     assert c.verdict == "regression"
     assert any("regressed" in f.message for f in c.findings)
 
 
 def test_a_gate_verdict_improving_is_not_a_regression(mod, tmp_path):
-    prev = make_build(tmp_path, "20260901", accs=["A"],
-                      temporal={"verdict": "weak", "r_squared": 0.4, "slope": 1e-4})
-    curr = make_build(tmp_path, "20261001", accs=["A"],
-                      temporal={"verdict": "pass", "r_squared": 0.4, "slope": 1e-4})
+    prev = make_build(
+        tmp_path,
+        "20260901",
+        accs=["A"],
+        temporal={"verdict": "weak", "r_squared": 0.4, "slope": 1e-4},
+    )
+    curr = make_build(
+        tmp_path,
+        "20261001",
+        accs=["A"],
+        temporal={"verdict": "pass", "r_squared": 0.4, "slope": 1e-4},
+    )
     c = mod.compare(prev, curr, "x")
     assert c.verdict == "ok"
     assert any("improved" in f.message for f in c.findings)
@@ -145,10 +183,14 @@ def test_per_clade_gates_are_compared_separately(mod, tmp_path):
     """
     One clade's trait-signal failing must not be hidden by another's passing.
     """
-    g_prev = {"clades/america2/trait_signal.json": {"verdict": "pass"},
-              "clades/asia1/trait_signal.json": {"verdict": "pass"}}
-    g_curr = {"clades/america2/trait_signal.json": {"verdict": "fail"},
-              "clades/asia1/trait_signal.json": {"verdict": "pass"}}
+    g_prev = {
+        "clades/america2/trait_signal.json": {"verdict": "pass"},
+        "clades/asia1/trait_signal.json": {"verdict": "pass"},
+    }
+    g_curr = {
+        "clades/america2/trait_signal.json": {"verdict": "fail"},
+        "clades/asia1/trait_signal.json": {"verdict": "pass"},
+    }
     prev = make_build(tmp_path, "20260901", accs=["A"], gates=g_prev)
     curr = make_build(tmp_path, "20261001", accs=["A"], gates=g_curr)
     c = mod.compare(prev, curr, "x")
@@ -161,10 +203,18 @@ def test_relative_change_keeps_its_sign(mod, tmp_path):
     Regression. R^2 falling and R^2 rising are not the same event, and a
     magnitude printed with a leading + reads as the opposite of what happened.
     """
-    prev = make_build(tmp_path, "20260901", accs=["A"],
-                      temporal={"verdict": "pass", "r_squared": 0.42, "slope": 1e-4})
-    curr = make_build(tmp_path, "20261001", accs=["A"],
-                      temporal={"verdict": "pass", "r_squared": 0.11, "slope": 1e-4})
+    prev = make_build(
+        tmp_path,
+        "20260901",
+        accs=["A"],
+        temporal={"verdict": "pass", "r_squared": 0.42, "slope": 1e-4},
+    )
+    curr = make_build(
+        tmp_path,
+        "20261001",
+        accs=["A"],
+        temporal={"verdict": "pass", "r_squared": 0.11, "slope": 1e-4},
+    )
     c = mod.compare(prev, curr, "x")
     r2 = [f.message for f in c.findings if "R^2" in f.message][0]
     assert "-74%" in r2
@@ -172,23 +222,37 @@ def test_relative_change_keeps_its_sign(mod, tmp_path):
 
 # --- the cases that must NOT be errors ---------------------------------------
 
+
 def test_a_first_build_is_not_a_failure(tmp_path):
     """A new pathogen has nothing to compare against. That must not block it."""
     make_build(tmp_path / "p", "20261001", accs=["A"])
     out = tmp_path / "r.md"
     r = subprocess.run(
-        [sys.executable, "scripts/12_compare_builds.py",
-         "--builds-dir", str(tmp_path / "p"), "--out", str(out)],
-        cwd=ROOT, capture_output=True, text=True, timeout=60)
+        [
+            sys.executable,
+            "scripts/12_compare_builds.py",
+            "--builds-dir",
+            str(tmp_path / "p"),
+            "--out",
+            str(out),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
     assert r.returncode == 0
     assert "nothing to compare" in out.read_text()
 
 
 def test_a_missing_builds_directory_is_not_a_failure(tmp_path):
     r = subprocess.run(
-        [sys.executable, "scripts/12_compare_builds.py",
-         "--builds-dir", str(tmp_path / "nope")],
-        cwd=ROOT, capture_output=True, text=True, timeout=60)
+        [sys.executable, "scripts/12_compare_builds.py", "--builds-dir", str(tmp_path / "nope")],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
     assert r.returncode == 0
 
 
@@ -210,21 +274,42 @@ def test_auspice_tree_as_a_list_is_handled(mod):
 
 # --- both call signatures ---------------------------------------------------
 
+
 def test_the_ci_invocation_works_without_an_auspice_json(tmp_path):
     """
     CI stops at the temporal gate, so there is no Auspice build to pass. The
     script must still compare what exists.
     """
     root = tmp_path / "cdv"
-    make_build(root, "20260901", accs=["A", "B", "C"],
-               temporal={"verdict": "pass", "r_squared": 0.4, "slope": 1e-4})
-    make_build(root, "20261001", accs=["A", "B"],
-               temporal={"verdict": "pass", "r_squared": 0.4, "slope": 1e-4})
+    make_build(
+        root,
+        "20260901",
+        accs=["A", "B", "C"],
+        temporal={"verdict": "pass", "r_squared": 0.4, "slope": 1e-4},
+    )
+    make_build(
+        root,
+        "20261001",
+        accs=["A", "B"],
+        temporal={"verdict": "pass", "r_squared": 0.4, "slope": 1e-4},
+    )
     out = tmp_path / "r.md"
     r = subprocess.run(
-        [sys.executable, "scripts/12_compare_builds.py",
-         "--pathogen", "cdv", "--builds-dir", str(root), "--out", str(out)],
-        cwd=ROOT, capture_output=True, text=True, timeout=60)
+        [
+            sys.executable,
+            "scripts/12_compare_builds.py",
+            "--pathogen",
+            "cdv",
+            "--builds-dir",
+            str(root),
+            "--out",
+            str(out),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
     assert r.returncode == 1, "a lost sequence should fail the step"
     assert "cdv" in out.read_text()
 
@@ -237,15 +322,33 @@ def test_the_snakemake_invocation_works_with_one(tmp_path):
     cur.write_text(json.dumps(auspice(1964.8)))
     out = tmp_path / "r.md"
     r = subprocess.run(
-        [sys.executable, "scripts/12_compare_builds.py",
-         "--current", str(cur), "--builds-dir", str(root),
-         "--max-tmrca-shift", "5.0", "--out", str(out)],
-        cwd=ROOT, capture_output=True, text=True, timeout=60)
+        [
+            sys.executable,
+            "scripts/12_compare_builds.py",
+            "--current",
+            str(cur),
+            "--builds-dir",
+            str(root),
+            "--max-tmrca-shift",
+            "5.0",
+            "--out",
+            str(out),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
     assert r.returncode == 0, r.stdout[-1000:]
     assert "TMRCA" in out.read_text()
 
 
 def test_cli_help_works():
-    r = subprocess.run([sys.executable, "scripts/12_compare_builds.py", "--help"],
-                       cwd=ROOT, capture_output=True, text=True, timeout=60)
+    r = subprocess.run(
+        [sys.executable, "scripts/12_compare_builds.py", "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
     assert r.returncode == 0

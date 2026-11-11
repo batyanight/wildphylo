@@ -40,11 +40,14 @@ def test_every_script_the_workflow_calls_is_present_or_documented(repo_root):
     text = (repo_root / SNAKEFILE).read_text()
     known = _documented_gaps(repo_root)
     undocumented = sorted(
-        s for s in _referenced_scripts(text)
-        if not (repo_root / s).is_file() and s.split("/")[-1] not in known)
+        s
+        for s in _referenced_scripts(text)
+        if not (repo_root / s).is_file() and s.split("/")[-1] not in known
+    )
     assert not undocumented, (
         "the Snakefile calls scripts that neither exist nor appear in "
-        f"docs/PORTING.md: {undocumented}")
+        f"docs/PORTING.md: {undocumented}"
+    )
 
 
 def test_every_script_ci_calls_is_present_or_documented(repo_root):
@@ -54,8 +57,7 @@ def test_every_script_ci_calls_is_present_or_documented(repo_root):
         for s in _referenced_scripts(wf.read_text()):
             if not (repo_root / s).is_file() and s.split("/")[-1] not in known:
                 undocumented.add(f"{wf.name}:{s}")
-    assert not undocumented, \
-        f"CI references undocumented missing scripts: {sorted(undocumented)}"
+    assert not undocumented, f"CI references undocumented missing scripts: {sorted(undocumented)}"
 
 
 def test_documented_gaps_match_reality(repo_root):
@@ -66,22 +68,26 @@ def test_documented_gaps_match_reality(repo_root):
     """
     porting = (repo_root / "docs" / "PORTING.md").read_text()
     wrongly_claimed = sorted(
-        s for s in _documented_gaps(repo_root)
-        if (repo_root / "scripts" / s).is_file())
+        s for s in _documented_gaps(repo_root) if (repo_root / "scripts" / s).is_file()
+    )
     assert not wrongly_claimed, (
-        f"docs/PORTING.md says these are unwritten, but they exist: "
-        f"{wrongly_claimed}")
+        f"docs/PORTING.md says these are unwritten, but they exist: {wrongly_claimed}"
+    )
 
 
-@pytest.mark.parametrize("script", ["04b_temporal_signal.py",
-                                    "05b_segment_congruence.py"])
+@pytest.mark.parametrize("script", ["04b_temporal_signal.py", "05b_segment_congruence.py"])
 def test_standalone_scripts_have_working_help(repo_root, script):
     """
     The two gate scripts are documented as runnable on their own. A --help that
     crashes means an import error nobody has noticed.
     """
-    r = subprocess.run([sys.executable, f"scripts/{script}", "--help"],
-                       cwd=repo_root, capture_output=True, text=True, timeout=60)
+    r = subprocess.run(
+        [sys.executable, f"scripts/{script}", "--help"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
     assert r.returncode == 0, f"{script} --help failed: {r.stderr[-500:]}"
     assert "usage:" in r.stdout.lower()
 
@@ -90,10 +96,10 @@ def test_doc_links_resolve(repo_root):
     """A broken link in the README is the first thing a new user hits."""
     broken = []
     for doc in list(repo_root.glob("*.md")) + list((repo_root / "docs").glob("*.md")):
-        for target in re.findall(r"\]\(([A-Za-z0-9_./-]+\.(?:md|yaml|toml|sh|cff))\)",
-                                 doc.read_text()):
-            if not ((repo_root / target).is_file()
-                    or (doc.parent / target).is_file()):
+        for target in re.findall(
+            r"\]\(([A-Za-z0-9_./-]+\.(?:md|yaml|toml|sh|cff))\)", doc.read_text()
+        ):
+            if not ((repo_root / target).is_file() or (doc.parent / target).is_file()):
                 broken.append(f"{doc.name} -> {target}")
     assert not broken, f"broken internal links: {broken}"
 
@@ -104,13 +110,13 @@ def test_workflow_yaml_parses(repo_root):
         parsed = yaml.safe_load(wf.read_text())
         assert "jobs" in parsed, f"{wf.name} defines no jobs"
         # PyYAML parses the bare key `on` as the boolean True.
-        assert ("on" in parsed) or (True in parsed), \
-            f"{wf.name} has no trigger"
+        assert ("on" in parsed) or (True in parsed), f"{wf.name} has no trigger"
 
 
 def test_init_script_is_valid_bash(repo_root):
-    r = subprocess.run(["bash", "-n", "INIT_REPO.sh"],
-                       cwd=repo_root, capture_output=True, text=True)
+    r = subprocess.run(
+        ["bash", "-n", "INIT_REPO.sh"], cwd=repo_root, capture_output=True, text=True
+    )
     assert r.returncode == 0, f"INIT_REPO.sh syntax error: {r.stderr}"
 
 
@@ -123,13 +129,17 @@ def test_init_script_does_not_set_branch_protection(repo_root):
     text = (repo_root / "INIT_REPO.sh").read_text()
     # The command appears inside the closing here-doc as advice for the user.
     # Only an occurrence outside that block would actually execute.
-    executable = text.split("say \"Next steps (manual)\"")[0]
-    active = [ln for ln in executable.splitlines()
-              if "branches/main/protection" in ln and not ln.strip().startswith("#")]
+    executable = text.split('say "Next steps (manual)"')[0]
+    active = [
+        ln
+        for ln in executable.splitlines()
+        if "branches/main/protection" in ln and not ln.strip().startswith("#")
+    ]
     assert not active, (
         "INIT_REPO.sh sets branch protection. The required check names depend "
         "on the CI matrix; getting them wrong blocks all merges. Print the "
-        "command for the user instead of running it.")
+        "command for the user instead of running it."
+    )
 
 
 def test_ci_python_versions_are_real(repo_root):
@@ -142,6 +152,7 @@ def test_ci_python_versions_are_real(repo_root):
 
 # --- external tool resolution ----------------------------------------------
 
+
 def test_snakefile_does_not_hardcode_an_iqtree_binary(repo_root):
     """
     IQ-TREE ships as `iqtree`, `iqtree2` or `iqtree3` depending on version and
@@ -150,21 +161,21 @@ def test_snakefile_does_not_hardcode_an_iqtree_binary(repo_root):
     which on a large alignment is discovered hours in.
     """
     text = (repo_root / SNAKEFILE).read_text()
-    shell_lines = [ln for ln in text.splitlines()
-                   if ln.strip().startswith('"') and "iqtree" in ln]
+    shell_lines = [ln for ln in text.splitlines() if ln.strip().startswith('"') and "iqtree" in ln]
     for ln in shell_lines:
-        assert "{params.iqtree}" in ln or "{IQTREE}" in ln, \
+        assert "{params.iqtree}" in ln or "{IQTREE}" in ln, (
             f"shell command hardcodes an IQ-TREE binary name: {ln.strip()}"
+        )
 
 
 def test_iqtree_resolution_prefers_newest_available():
     import shutil
     from unittest import mock
+
     order = ("iqtree3", "iqtree2", "iqtree")
 
     def resolve(present):
-        with mock.patch.object(shutil, "which",
-                               side_effect=lambda c: c if c in present else None):
+        with mock.patch.object(shutil, "which", side_effect=lambda c: c if c in present else None):
             for c in order:
                 if shutil.which(c):
                     return c

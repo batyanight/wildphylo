@@ -32,7 +32,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib import traitsignal as tsig  # noqa: E402
+from lib import traitsignal as tsig
 
 
 def states_from_traits(path: Path) -> dict[str, str]:
@@ -61,44 +61,68 @@ def states_from_labels(labels, field: int, sep: str) -> dict[str, str]:
         raise ValueError(
             f"{len(bad)} tip labels have no field {field} when split on "
             f"{sep!r}; first is {bad[0]!r}. Use --traits instead, or set "
-            f"--label-field / --label-sep to match your labels.")
+            f"--label-field / --label-sep to match your labels."
+        )
     return out
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--trees", nargs="+", required=True,
-                    help="Posterior tree files, one per chain. Burn-in is "
-                         "applied within each file, not to the pooled set.")
-    ap.add_argument("--traits", type=Path,
-                    help="Two-column TSV of taxon and state (what 07 writes).")
-    ap.add_argument("--label-field", type=int, default=1,
-                    help="Field of the tip label holding the state, 0-based. "
-                         "Used when --traits is not given. Default 1, which "
-                         "is the group in ACCESSION|group|year.")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--trees",
+        nargs="+",
+        required=True,
+        help="Posterior tree files, one per chain. Burn-in is "
+        "applied within each file, not to the pooled set.",
+    )
+    ap.add_argument(
+        "--traits", type=Path, help="Two-column TSV of taxon and state (what 07 writes)."
+    )
+    ap.add_argument(
+        "--label-field",
+        type=int,
+        default=1,
+        help="Field of the tip label holding the state, 0-based. "
+        "Used when --traits is not given. Default 1, which "
+        "is the group in ACCESSION|group|year.",
+    )
     ap.add_argument("--label-sep", default="|")
-    ap.add_argument("--config", type=Path,
-                    help="Pathogen config. hosts.dta_states is applied to "
-                         "collapse host groups onto the trait states BEAST "
-                         "actually estimated rates between.")
+    ap.add_argument(
+        "--config",
+        type=Path,
+        help="Pathogen config. hosts.dta_states is applied to "
+        "collapse host groups onto the trait states BEAST "
+        "actually estimated rates between.",
+    )
     ap.add_argument("--burnin", type=float, default=0.10)
     ap.add_argument("--thin", type=int, default=1)
-    ap.add_argument("--max-trees", type=int, default=1000,
-                    help="Cap on retained trees after burn-in and thinning. "
-                         "The statistics converge well before a full "
-                         "posterior; more trees buy precision on the mean, "
-                         "not resolution on p, which --permutations sets.")
-    ap.add_argument("--permutations", type=int, default=1000,
-                    help="Null replicates. The smallest p obtainable is "
-                         "1/(permutations+1).")
+    ap.add_argument(
+        "--max-trees",
+        type=int,
+        default=1000,
+        help="Cap on retained trees after burn-in and thinning. "
+        "The statistics converge well before a full "
+        "posterior; more trees buy precision on the mean, "
+        "not resolution on p, which --permutations sets.",
+    )
+    ap.add_argument(
+        "--permutations",
+        type=int,
+        default=1000,
+        help="Null replicates. The smallest p obtainable is 1/(permutations+1).",
+    )
     ap.add_argument("--seed", type=int, default=12345)
     ap.add_argument("--alpha", type=float, default=0.05)
     ap.add_argument("--out-json", type=Path)
     ap.add_argument("--out-md", type=Path)
-    ap.add_argument("--exit-nonzero-on-fail", action="store_true",
-                    help="Exit 1 when the verdict is fail, so a workflow "
-                         "stops rather than publishing an unsupported table.")
+    ap.add_argument(
+        "--exit-nonzero-on-fail",
+        action="store_true",
+        help="Exit 1 when the verdict is fail, so a workflow "
+        "stops rather than publishing an unsupported table.",
+    )
     a = ap.parse_args()
 
     paths = [Path(p) for p in a.trees]
@@ -107,10 +131,11 @@ def main() -> int:
         print(f"ERROR: no such tree file: {missing[0]}", file=sys.stderr)
         return 1
 
-    trees = tsig.read_posterior(paths, burnin=a.burnin, thin=a.thin,
-                               max_trees=a.max_trees)
-    print(f"read {len(trees)} trees from {len(paths)} file(s) "
-          f"(burnin {a.burnin:.0%}, thin {a.thin}, cap {a.max_trees})")
+    trees = tsig.read_posterior(paths, burnin=a.burnin, thin=a.thin, max_trees=a.max_trees)
+    print(
+        f"read {len(trees)} trees from {len(paths)} file(s) "
+        f"(burnin {a.burnin:.0%}, thin {a.thin}, cap {a.max_trees})"
+    )
 
     labels = sorted(trees[0].tip_index)
     if a.traits:
@@ -126,20 +151,28 @@ def main() -> int:
     # those tips are pruned rather than made into a state of their own.
     if a.config:
         import yaml
+
         cfg = yaml.safe_load(a.config.read_text())
         dta = (cfg.get("hosts") or {}).get("dta_states") or {}
         if dta:
             before = sorted(set(states.values()))
             states = {k: dta.get(v, "?") for k, v in states.items()}
             after = sorted(set(states.values()) - {"?"})
-            print(f"collapsed via hosts.dta_states: "
-                  f"{len(before)} group(s) -> {len(after)} state(s) {after}")
+            print(
+                f"collapsed via hosts.dta_states: "
+                f"{len(before)} group(s) -> {len(after)} state(s) {after}"
+            )
         else:
             print("config has no hosts.dta_states; using states as read")
 
-    res = tsig.trait_signal(trees, states,
-                            n_permutations=a.permutations, seed=a.seed,
-                            ai_threshold=a.alpha, ps_threshold=a.alpha)
+    res = tsig.trait_signal(
+        trees,
+        states,
+        n_permutations=a.permutations,
+        seed=a.seed,
+        ai_threshold=a.alpha,
+        ps_threshold=a.alpha,
+    )
     report = tsig.format_report(res)
     print()
     print(report)
@@ -154,8 +187,7 @@ def main() -> int:
         print(f"wrote {a.out_md}")
 
     if res.verdict == "fail" and a.exit_nonzero_on_fail:
-        print("\nexiting non-zero: the trait carries no demonstrated signal.",
-              file=sys.stderr)
+        print("\nexiting non-zero: the trait carries no demonstrated signal.", file=sys.stderr)
         return 1
     return 0
 

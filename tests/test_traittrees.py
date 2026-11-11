@@ -26,8 +26,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from lib import traittrees as tt  # noqa: E402
 
-
 # --- annotation extraction --------------------------------------------------
+
 
 def test_annotation_value_does_not_match_a_longer_key():
     """
@@ -66,9 +66,11 @@ def test_unterminated_bracket_is_an_error_not_a_truncation():
 
 # --- the parser -------------------------------------------------------------
 
-SIMPLE = ('((A[&host_group="felid"]:1.0,B[&host_group="felid"]:1.0)'
-          '[&host_group="felid"]:2.0,C[&host_group="procyonid"]:3.0)'
-          '[&host_group="procyonid"]:0.0;')
+SIMPLE = (
+    '((A[&host_group="felid"]:1.0,B[&host_group="felid"]:1.0)'
+    '[&host_group="felid"]:2.0,C[&host_group="procyonid"]:3.0)'
+    '[&host_group="procyonid"]:0.0;'
+)
 
 
 def parse(nwk, tag="host_group"):
@@ -88,7 +90,7 @@ def test_parser_reads_states_and_tip_flags():
     tips = [n for n in nodes if n["is_tip"]]
     assert len(tips) == 3
     assert sorted(n["state"] for n in tips) == ["felid", "felid", "procyonid"]
-    assert nodes[0]["state"] == "procyonid"          # root
+    assert nodes[0]["state"] == "procyonid"  # root
 
 
 def test_annotation_is_absorbed_before_or_after_the_colon():
@@ -142,13 +144,16 @@ def test_detect_tag_respects_an_explicit_preference():
 
 # --- NEXUS reading ----------------------------------------------------------
 
+
 def nexus(trees, translate=True):
     out = ["#NEXUS", "Begin trees;"]
     if translate:
-        out += ["\tTranslate",
-                "\t\t1 MT932504|wild_felid|1992,",
-                "\t\t2 MW984525|procyonid|2015",
-                ";"]
+        out += [
+            "\tTranslate",
+            "\t\t1 MT932504|wild_felid|1992,",
+            "\t\t2 MW984525|procyonid|2015",
+            ";",
+        ]
     out += [f"tree STATE_{i} = [&R] {t}" for i, t in enumerate(trees)]
     out.append("End;")
     return "\n".join(out) + "\n"
@@ -171,6 +176,7 @@ def test_iter_trees_yields_every_tree(tmp_path):
 
 def test_gzipped_tree_files_are_read(tmp_path):
     import gzip
+
     p = tmp_path / "x.trees.gz"
     with gzip.open(p, "wt") as fh:
         fh.write(nexus([SIMPLE] * 3, translate=False))
@@ -179,11 +185,13 @@ def test_gzipped_tree_files_are_read(tmp_path):
 
 # --- end to end, against transitions constructed by hand --------------------
 
-KNOWN = ('((A|wild_felid|1990[&host_group="felid"]:5.0,'
-         'B|wild_felid|1992[&host_group="felid"]:3.0)[&host_group="felid"]:10.0,'
-         '(C|procyonid|2015[&host_group="procyonid"]:2.0,'
-         'D|domestic_dog|2018[&host_group="domestic_dog"]:1.0)'
-         '[&host_group="procyonid"]:12.0)[&host_group="felid"]:0.0;')
+KNOWN = (
+    '((A|wild_felid|1990[&host_group="felid"]:5.0,'
+    'B|wild_felid|1992[&host_group="felid"]:3.0)[&host_group="felid"]:10.0,'
+    '(C|procyonid|2015[&host_group="procyonid"]:2.0,'
+    'D|domestic_dog|2018[&host_group="domestic_dog"]:1.0)'
+    '[&host_group="procyonid"]:12.0)[&host_group="felid"]:0.0;'
+)
 # Exactly two changes per tree: felid -> procyonid on an internal branch, and
 # procyonid -> domestic_dog on a terminal one.
 
@@ -198,9 +206,21 @@ def known_posterior(tmp_path):
 def test_jump_history_recovers_the_constructed_transitions(known_posterior, tmp_path):
     out = tmp_path / "jumps.tsv"
     r = subprocess.run(
-        [sys.executable, "scripts/08f_jump_history.py", "--trees", str(known_posterior),
-         "--burnin", "0.0", "--out", str(out)],
-        cwd=ROOT, capture_output=True, text=True, timeout=120)
+        [
+            sys.executable,
+            "scripts/08f_jump_history.py",
+            "--trees",
+            str(known_posterior),
+            "--burnin",
+            "0.0",
+            "--out",
+            str(out),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
     assert r.returncode == 0, r.stderr[-2000:]
     assert "mean 2.00" in r.stdout, "two transitions per tree"
     assert "felid -> procyonid" in r.stdout
@@ -216,9 +236,21 @@ def test_a_jump_on_a_terminal_branch_is_flagged_as_terminal(known_posterior, tmp
     transitions without that distinction is how a tip census becomes a corridor.
     """
     r = subprocess.run(
-        [sys.executable, "scripts/08f_jump_history.py", "--trees", str(known_posterior),
-         "--burnin", "0.0", "--out", str(tmp_path / "j.tsv")],
-        cwd=ROOT, capture_output=True, text=True, timeout=120)
+        [
+            sys.executable,
+            "scripts/08f_jump_history.py",
+            "--trees",
+            str(known_posterior),
+            "--burnin",
+            "0.0",
+            "--out",
+            str(tmp_path / "j.tsv"),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
     line = [l for l in r.stdout.splitlines() if "procyonid -> domestic_dog" in l][0]
     assert "100%" in line.split()[-1], "the dog jump sits on a terminal branch"
     internal = [l for l in r.stdout.splitlines() if "felid -> procyonid" in l][0]
@@ -228,9 +260,23 @@ def test_a_jump_on_a_terminal_branch_is_flagged_as_terminal(known_posterior, tmp
 def test_state_through_time_runs_on_the_same_file(known_posterior, tmp_path):
     out = tmp_path / "stt.tsv"
     r = subprocess.run(
-        [sys.executable, "scripts/08g_state_through_time.py", "--trees",
-         str(known_posterior), "--burnin", "0.0", "--thin", "1", "--out", str(out)],
-        cwd=ROOT, capture_output=True, text=True, timeout=120)
+        [
+            sys.executable,
+            "scripts/08g_state_through_time.py",
+            "--trees",
+            str(known_posterior),
+            "--burnin",
+            "0.0",
+            "--thin",
+            "1",
+            "--out",
+            str(out),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
     assert r.returncode == 0, r.stderr[-2000:]
     assert out.is_file()
     header = out.read_text().splitlines()[0]
@@ -238,6 +284,7 @@ def test_state_through_time_runs_on_the_same_file(known_posterior, tmp_path):
 
 
 # --- the regression that prompted the split ---------------------------------
+
 
 def test_neither_script_imports_the_other_by_filename():
     """
@@ -256,9 +303,9 @@ def test_neither_script_imports_the_other_by_filename():
 def test_both_scripts_and_the_library_agree_on_the_parser():
     """One parser, so a transition count and a lineage share describe one tree."""
     import importlib.util
+
     for name in ("08f_jump_history.py", "08g_state_through_time.py"):
-        spec = importlib.util.spec_from_file_location(
-            name[:3], ROOT / "scripts" / name)
+        spec = importlib.util.spec_from_file_location(name[:3], ROOT / "scripts" / name)
         mod = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = mod
         spec.loader.exec_module(mod)

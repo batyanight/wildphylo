@@ -59,43 +59,53 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from cdv_h_coords import (  # noqa: E402
-    HFrame, read_fasta, pick_reference, resolve_features, build_annotations,
+from cdv_h_coords import (
+    HFrame,
     backup_if_overwriting,
+    build_annotations,
+    pick_reference,
+    read_fasta,
+    resolve_features,
 )
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--json", required=True, type=Path)
     ap.add_argument("--alignment", required=True, type=Path)
     ap.add_argument("--reference", help="Taxon label to use as the coordinate reference")
-    ap.add_argument("--auto-reference", action="store_true",
-                    help="Use the least-gapped sequence")
-    ap.add_argument("--domains", action="store_true",
-                    help="Emit the domain breakdown as well as the full-length gene. "
-                         "The gene feature is always written, so the amino-acid entropy "
-                         "view works either way once 10_add_entropy.py has run.")
-    ap.add_argument("--slam", action="store_true",
-                    help="Include the two SLAM-binding sites as separate features. "
-                         "They overlap the head domain, which Auspice 2.46+ renders as "
-                         "a stacked row. Implies --domains.")
-    ap.add_argument("--gene-name", default="H",
-                    help="Name of the full-length CDS feature.")
-    ap.add_argument("--offset", type=int, default=0,
-                    help=argparse.SUPPRESS)
-    ap.add_argument("--max-feature-aa", type=int, default=None,
-                    help=argparse.SUPPRESS)
-    ap.add_argument("--no-backup", action="store_true",
-                    help="Do not keep a timestamped copy of the output file before "
-                         "overwriting it.")
+    ap.add_argument("--auto-reference", action="store_true", help="Use the least-gapped sequence")
+    ap.add_argument(
+        "--domains",
+        action="store_true",
+        help="Emit the domain breakdown as well as the full-length gene. "
+        "The gene feature is always written, so the amino-acid entropy "
+        "view works either way once 10_add_entropy.py has run.",
+    )
+    ap.add_argument(
+        "--slam",
+        action="store_true",
+        help="Include the two SLAM-binding sites as separate features. "
+        "They overlap the head domain, which Auspice 2.46+ renders as "
+        "a stacked row. Implies --domains.",
+    )
+    ap.add_argument("--gene-name", default="H", help="Name of the full-length CDS feature.")
+    ap.add_argument("--offset", type=int, default=0, help=argparse.SUPPRESS)
+    ap.add_argument("--max-feature-aa", type=int, default=None, help=argparse.SUPPRESS)
+    ap.add_argument(
+        "--no-backup",
+        action="store_true",
+        help="Do not keep a timestamped copy of the output file before overwriting it.",
+    )
     ap.add_argument("--output", required=True, type=Path)
     args = ap.parse_args()
 
-    for dead, msg in (("offset", "coordinates are now anchored to the reference ORF"),
-                      ("max_feature_aa", "feature size was never the problem; see the "
-                                         "module docstring")):
+    for dead, msg in (
+        ("offset", "coordinates are now anchored to the reference ORF"),
+        ("max_feature_aa", "feature size was never the problem; see the module docstring"),
+    ):
         if getattr(args, dead) not in (0, None):
             print(f"note: --{dead.replace('_', '-')} is ignored — {msg}", file=sys.stderr)
 
@@ -112,8 +122,11 @@ def main() -> int:
 
     lengths = {len(s) for s in seqs.values()}
     if len(lengths) != 1:
-        print(f"alignment sequences differ in length {sorted(lengths)[:4]} — "
-              "this file is not aligned", file=sys.stderr)
+        print(
+            f"alignment sequences differ in length {sorted(lengths)[:4]} — "
+            "this file is not aligned",
+            file=sys.stderr,
+        )
         return 1
 
     try:
@@ -127,8 +140,7 @@ def main() -> int:
         print(f"reference: {ref_name}")
 
     frame = HFrame(ref_name, ref_seq)
-    print(f"reference length: {frame.ref_length} nt ungapped, "
-          f"{frame.n_columns} alignment columns")
+    print(f"reference length: {frame.ref_length} nt ungapped, {frame.n_columns} alignment columns")
 
     # --- locate the coding sequence ---
     orf_start, orf_nt = frame.find_orf()
@@ -136,44 +148,58 @@ def main() -> int:
     print(f"internal stops if the sequence began at base 1: {stops_naive}")
 
     if orf_start is None or orf_nt < 1500:
-        print(f"\nERROR: the longest ATG-initiated ORF is only {orf_nt} nt "
-              f"({orf_nt // 3} aa). CDV H is ~1824 nt (604-607 aa). This reference is "
-              "either not a clean H coding sequence or is too fragmentary. Choose a "
-              "different reference, e.g. add A75/17 (AF164967) to the alignment and "
-              "pass --reference for it. No annotation written.", file=sys.stderr)
+        print(
+            f"\nERROR: the longest ATG-initiated ORF is only {orf_nt} nt "
+            f"({orf_nt // 3} aa). CDV H is ~1824 nt (604-607 aa). This reference is "
+            "either not a clean H coding sequence or is too fragmentary. Choose a "
+            "different reference, e.g. add A75/17 (AF164967) to the alignment and "
+            "pass --reference for it. No annotation written.",
+            file=sys.stderr,
+        )
         return 1
 
     n_aa = frame.n_codons
-    print(f"longest ORF: starts at reference base {orf_start + 1}, {orf_nt} nt "
-          f"({n_aa} aa), frame {orf_start % 3}")
+    print(
+        f"longest ORF: starts at reference base {orf_start + 1}, {orf_nt} nt "
+        f"({n_aa} aa), frame {orf_start % 3}"
+    )
     if abs(n_aa - 605) > 25:
-        print(f"\nWARNING: the ORF encodes {n_aa} aa, which is well away from the "
-              "expected 604-607. Domain positions may be shifted. Verify before using "
-              "this figure in a manuscript.", file=sys.stderr)
+        print(
+            f"\nWARNING: the ORF encodes {n_aa} aa, which is well away from the "
+            "expected 604-607. Domain positions may be shifted. Verify before using "
+            "this figure in a manuscript.",
+            file=sys.stderr,
+        )
     if n_aa < 550:
-        print(f"\nWARNING: the reference covers only ~{n_aa} aa of H. Domain "
-              "annotations beyond that will be truncated or wrong. Consider adding a "
-              "complete H reference sequence to the alignment.", file=sys.stderr)
+        print(
+            f"\nWARNING: the reference covers only ~{n_aa} aa of H. Domain "
+            "annotations beyond that will be truncated or wrong. Consider adding a "
+            "complete H reference sequence to the alignment.",
+            file=sys.stderr,
+        )
 
     # How much of the CDS is affected by insertions in other sequences. This is
     # the quantity that used to silently corrupt the annotation.
     cds_cols = frame.col_for_refpos[orf_start + 1], frame.col_for_refpos[orf_start + orf_nt]
     insertions = (cds_cols[1] - cds_cols[0] + 1) - orf_nt
     if insertions:
-        print(f"note: {insertions} alignment column(s) inside the CDS are insertions "
-              f"relative to the reference; codons are assembled around them")
+        print(
+            f"note: {insertions} alignment column(s) inside the CDS are insertions "
+            f"relative to the reference; codons are assembled around them"
+        )
 
     # --- build features ---
-    feats = resolve_features(frame, gene_name=args.gene_name,
-                             domains=args.domains, slam=args.slam)
+    feats = resolve_features(frame, gene_name=args.gene_name, domains=args.domains, slam=args.slam)
     ann = build_annotations(frame, feats, gene_name=args.gene_name)
 
     print("\nFEATURE -> REFERENCE NUCLEOTIDE COORDINATES")
     for name, a1, a2 in feats:
         f = ann[name]
         span = f["end"] - f["start"] + 1
-        print(f"  {name:<16} aa {a1:>3}-{a2:<3}  ->  nt {f['start']}-{f['end']} "
-              f"({span} nt, {span // 3} codons)")
+        print(
+            f"  {name:<16} aa {a1:>3}-{a2:<3}  ->  nt {f['start']}-{f['end']} "
+            f"({span} nt, {span // 3} codons)"
+        )
 
     doc = json.loads(args.json.read_text())
     doc["meta"]["genome_annotations"] = ann
@@ -195,9 +221,11 @@ def main() -> int:
 
     scan(doc["tree"])
     if stale:
-        print(f"\nnote: {len(stale)} stale mutation key(s) in the tree refer to features "
-              f"that no longer exist: {', '.join(sorted(stale)[:6])}"
-              f"{' ...' if len(stale) > 6 else ''}")
+        print(
+            f"\nnote: {len(stale)} stale mutation key(s) in the tree refer to features "
+            f"that no longer exist: {', '.join(sorted(stale)[:6])}"
+            f"{' ...' if len(stale) > 6 else ''}"
+        )
         print("      10_add_entropy.py will clear them when it rebuilds mutations.")
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -205,10 +233,14 @@ def main() -> int:
     args.output.write_text(json.dumps(doc, indent=1))
     print(f"\nwrote {args.output} ({args.output.stat().st_size / 1024:.0f} KB)")
     print(f"{len(feats)} feature(s) added, all in reference nucleotide coordinates.")
-    print("\nNow run 10_add_entropy.py with the same --alignment and --reference to "
-          "rebuild mutations in these coordinates.")
-    print("\nCaveat for the methods: domain boundaries are aa positions from the "
-          "literature, mapped onto the reference ORF. State which reference you used.")
+    print(
+        "\nNow run 10_add_entropy.py with the same --alignment and --reference to "
+        "rebuild mutations in these coordinates."
+    )
+    print(
+        "\nCaveat for the methods: domain boundaries are aa positions from the "
+        "literature, mapped onto the reference ORF. State which reference you used."
+    )
     return 0
 
 

@@ -1,5 +1,4 @@
-"""
-traittrees.py — parsing BEAST ancestral-state tree files.
+"""traittrees.py — parsing BEAST ancestral-state tree files.
 
 Why this is a library and not a script
 --------------------------------------
@@ -49,9 +48,19 @@ import gzip
 import re
 
 __all__ = [
-    "smart_open", "read_bracket", "annotation_value", "NewickParser",
-    "strip_leading_comment", "detect_tag", "iter_trees", "node_depths",
-    "label_date", "parse_all_annotations", "NUMBER_RE", "TREE_LINE_RE", "TRANSLATE_ROW_RE",
+    "NUMBER_RE",
+    "TRANSLATE_ROW_RE",
+    "TREE_LINE_RE",
+    "NewickParser",
+    "annotation_value",
+    "detect_tag",
+    "iter_trees",
+    "label_date",
+    "node_depths",
+    "parse_all_annotations",
+    "read_bracket",
+    "smart_open",
+    "strip_leading_comment",
 ]
 
 # --------------------------------------------------------------------------- #
@@ -59,9 +68,7 @@ __all__ = [
 # --------------------------------------------------------------------------- #
 
 NUMBER_RE = re.compile(r"[-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?")
-TREE_LINE_RE = re.compile(
-    r"^\s*tree\s+\S+\s*(?:\[[^\]]*\]\s*)?=\s*(.*;)\s*$", re.IGNORECASE
-)
+TREE_LINE_RE = re.compile(r"^\s*tree\s+\S+\s*(?:\[[^\]]*\]\s*)?=\s*(.*;)\s*$", re.IGNORECASE)
 TRANSLATE_ROW_RE = re.compile(r"^\s*(\S+)\s+(.+?)[,;]?\s*$")
 
 
@@ -69,7 +76,7 @@ def smart_open(path):
     path = str(path)
     if path.endswith(".gz"):
         return gzip.open(path, "rt")
-    return open(path, "r")
+    return open(path)
 
 
 def read_bracket(s, i):
@@ -98,7 +105,7 @@ def annotation_value(content, key):
     match `location.prob=` or `location.set=`.
     """
     pat = re.compile(
-        r'(?:^|,)\s*&?\s*' + re.escape(key) + r'=\s*(?:"([^"]*)"|\{([^}]*)\}|([^,]+))'
+        r"(?:^|,)\s*&?\s*" + re.escape(key) + r'=\s*(?:"([^"]*)"|\{([^}]*)\}|([^,]+))'
     )
     m = pat.search(content)
     if not m:
@@ -226,13 +233,13 @@ class NewickParser:
 
 
 ANN_PAIR = re.compile(
-    r'(?:^|,)\s*&?\s*([A-Za-z_][\w.%+-]*)\s*=\s*'
-    r'(?:"([^"]*)"|\{([^}]*)\}|([^,]+))')
+    r"(?:^|,)\s*&?\s*([A-Za-z_][\w.%+-]*)\s*=\s*"
+    r'(?:"([^"]*)"|\{([^}]*)\}|([^,]+))'
+)
 
 
 def parse_all_annotations(content):
-    """
-    Every key=value in a BEAST annotation body, as strings.
+    """Every key=value in a BEAST annotation body, as strings.
 
     Set-valued entries ({1950,1972}) keep their braces stripped and are
     returned as the raw comma-joined text, because the caller decides whether
@@ -282,7 +289,7 @@ def detect_tag(newick, preferred=None):
     raise SystemExit(
         "Could not auto-detect the state annotation key. Pass --tag explicitly "
         "(it is the `tag=` attribute on AncestralStateTreeLikelihood in the XML; "
-        "this repo's DTA XML uses tag=\"location\")."
+        'this repo\'s DTA XML uses tag="location").'
     )
 
 

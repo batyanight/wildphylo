@@ -44,7 +44,7 @@ from pathlib import Path
 
 try:
     import pandas as pd
-except ImportError as exc:                       # noqa: F401
+except ImportError as exc:
     # Raise rather than sys.exit: this module gets imported by the notebook,
     # and SystemExit inside a notebook produces a confusing traceback.
     raise ImportError(
@@ -90,7 +90,7 @@ def write_fasta(path: Path, seqs: dict[str, str], width: int = 60) -> None:
         for name, seq in seqs.items():
             fh.write(f">{name}\n")
             for i in range(0, len(seq), width):
-                fh.write(seq[i:i + width] + "\n")
+                fh.write(seq[i : i + width] + "\n")
 
 
 def relabel(seqs: dict[str, str], meta: pd.DataFrame) -> tuple[dict[str, str], list[str]]:
@@ -102,9 +102,9 @@ def relabel(seqs: dict[str, str], meta: pd.DataFrame) -> tuple[dict[str, str], l
         if info is None or pd.isna(info["decimal_year"]):
             dropped.append(acc)
             continue
-        base = acc.split(".")[0]                     # strip GenBank version suffix
+        base = acc.split(".")[0]  # strip GenBank version suffix
         label = f"{base}|{info['host_group']}|{info['decimal_year']:.3f}"
-        if label in seen:                            # defensive; should not happen
+        if label in seen:  # defensive; should not happen
             label = f"{base}_dup|{info['host_group']}|{info['decimal_year']:.3f}"
         seen.add(label)
         out[label] = seq
@@ -112,22 +112,30 @@ def relabel(seqs: dict[str, str], meta: pd.DataFrame) -> tuple[dict[str, str], l
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--fasta", required=True, type=Path)
     ap.add_argument("--metadata", required=True, type=Path)
     ap.add_argument("--outdir", default=Path("data/processed"), type=Path)
     ap.add_argument("--prefix", default="H", help="Output file prefix (default: %(default)s)")
     ap.add_argument("--threads", default="AUTO", help="Threads for MAFFT/IQ-TREE")
-    ap.add_argument("--mafft-mode", default="auto", choices=["auto", "linsi", "ginsi"],
-                    help="linsi is more accurate but slow above ~500 sequences")
+    ap.add_argument(
+        "--mafft-mode",
+        default="auto",
+        choices=["auto", "linsi", "ginsi"],
+        help="linsi is more accurate but slow above ~500 sequences",
+    )
     ap.add_argument("--trim", action="store_true", help="Run trimAl -automated1 after alignment")
     ap.add_argument("--bootstrap", type=int, default=1000)
     ap.add_argument("--stop-after", choices=["relabel", "align", "tree"], default="tree")
     args = ap.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s  %(message)s",
-                        handlers=[logging.StreamHandler(sys.stdout)])
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s  %(levelname)-7s  %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout)],
+    )
     args.outdir.mkdir(parents=True, exist_ok=True)
 
     # --- 1. relabel -------------------------------------------------------
@@ -137,11 +145,16 @@ def main() -> int:
 
     labelled, dropped = relabel(seqs, meta)
     if dropped:
-        logging.warning("%d sequences had no usable metadata and were dropped: %s",
-                        len(dropped), ", ".join(dropped[:8]) + (" ..." if len(dropped) > 8 else ""))
+        logging.warning(
+            "%d sequences had no usable metadata and were dropped: %s",
+            len(dropped),
+            ", ".join(dropped[:8]) + (" ..." if len(dropped) > 8 else ""),
+        )
     if not labelled:
-        logging.error("nothing left after relabelling — check that accessions match "
-                      "between the FASTA and metadata_clean.tsv")
+        logging.error(
+            "nothing left after relabelling — check that accessions match "
+            "between the FASTA and metadata_clean.tsv"
+        )
         return 1
 
     labelled_path = args.outdir / f"{args.prefix}_labelled.fasta"
@@ -166,8 +179,10 @@ def main() -> int:
     thin = [g for g, c in counts.items() if c < 5]
     if thin:
         logging.warning("host groups with <5 sequences: %s", ", ".join(thin))
-        logging.warning("  discrete trait analysis will be unreliable for these. "
-                        "Consider merging them into a broader category or excluding them.")
+        logging.warning(
+            "  discrete trait analysis will be unreliable for these. "
+            "Consider merging them into a broader category or excluding them."
+        )
 
     if args.stop_after == "relabel":
         return 0
@@ -185,9 +200,13 @@ def main() -> int:
         mafft_cmd += ["--globalpair", "--maxiterate", "1000"]
     else:
         mafft_cmd += ["--auto"]
-    mafft_cmd += ["--adjustdirection", "--reorder",
-                  "--thread", "-1" if args.threads == "AUTO" else str(args.threads),
-                  str(labelled_path)]
+    mafft_cmd += [
+        "--adjustdirection",
+        "--reorder",
+        "--thread",
+        "-1" if args.threads == "AUTO" else str(args.threads),
+        str(labelled_path),
+    ]
 
     logging.info("aligning with MAFFT (%s)...", args.mafft_mode)
     with aln_path.open("w") as fh:
@@ -202,9 +221,10 @@ def main() -> int:
     aln = read_fasta(aln_path)
     n_rev = sum(1 for k in aln if k.startswith("_R_"))
     if n_rev:
-        logging.warning("%d sequences were reverse-complemented by MAFFT — "
-                        "worth checking those records", n_rev)
-        aln = {(k[3:] if k.startswith("_R_") else k): v for k, v in aln.items()}
+        logging.warning(
+            "%d sequences were reverse-complemented by MAFFT — worth checking those records", n_rev
+        )
+        aln = {(k.removeprefix("_R_")): v for k, v in aln.items()}
         write_fasta(aln_path, aln)
 
     if args.trim:
@@ -231,9 +251,24 @@ def main() -> int:
     iqtree = "iqtree2" if have("iqtree2") else "iqtree"
 
     tree_prefix = args.outdir / f"{args.prefix}_ml"
-    run([iqtree, "-s", str(aln_path), "-m", "MFP",
-         "-B", str(args.bootstrap), "--alrt", "1000",
-         "-T", str(args.threads), "--prefix", str(tree_prefix), "-redo"])
+    run(
+        [
+            iqtree,
+            "-s",
+            str(aln_path),
+            "-m",
+            "MFP",
+            "-B",
+            str(args.bootstrap),
+            "--alrt",
+            "1000",
+            "-T",
+            str(args.threads),
+            "--prefix",
+            str(tree_prefix),
+            "-redo",
+        ]
+    )
 
     logging.info("")
     logging.info("Tree: %s.treefile", tree_prefix)

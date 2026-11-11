@@ -24,8 +24,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 @pytest.fixture(scope="module")
 def mod():
-    spec = importlib.util.spec_from_file_location(
-        "aus09", ROOT / "scripts" / "09_make_auspice.py")
+    spec = importlib.util.spec_from_file_location("aus09", ROOT / "scripts" / "09_make_auspice.py")
     m = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = m
     spec.loader.exec_module(m)
@@ -47,10 +46,12 @@ tree TREE1 = [&R] ((1[&host_group="felid",host_group.prob=0.95,height=28.0]:12.0
 End;
 """
 
-META = ("label\taccession\thost_group\thost_canonical\n"
-        "MT932504|wild_felid|1992.0\tMT932504\twild_felid\tLynx rufus\n"
-        "MW984525|procyonid|2015.0\tMW984525\tprocyonid\tProcyon lotor\n"
-        "KX024709|domestic_dog|2020.0\tKX024709\tdomestic_dog\tCanis familiaris\n")
+META = (
+    "label\taccession\thost_group\thost_canonical\n"
+    "MT932504|wild_felid|1992.0\tMT932504\twild_felid\tLynx rufus\n"
+    "MW984525|procyonid|2015.0\tMW984525\tprocyonid\tProcyon lotor\n"
+    "KX024709|domestic_dog|2020.0\tKX024709\tdomestic_dog\tCanis familiaris\n"
+)
 
 
 @pytest.fixture
@@ -61,16 +62,24 @@ def build(tmp_path):
 
 
 def run(build, out, *extra, config=None):
-    cmd = [sys.executable, "scripts/09_make_auspice.py",
-           "--mcc", str(build / "mcc.tree"),
-           "--metadata", str(build / "meta.tsv"),
-           "--output", str(out), *extra]
+    cmd = [
+        sys.executable,
+        "scripts/09_make_auspice.py",
+        "--mcc",
+        str(build / "mcc.tree"),
+        "--metadata",
+        str(build / "meta.tsv"),
+        "--output",
+        str(out),
+        *extra,
+    ]
     if config:
         cmd += ["--config", str(config)]
     return subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=120)
 
 
 # --- the time axis ----------------------------------------------------------
+
 
 def test_most_recent_is_derived_from_the_tip_labels(build, tmp_path):
     """
@@ -109,6 +118,7 @@ def test_height_hpd_becomes_a_date_confidence_interval(build, tmp_path):
 
 # --- nothing names the pathogen unless the config does ----------------------
 
+
 def test_the_title_comes_from_the_config(build, tmp_path):
     out = tmp_path / "a.json"
     r = run(build, out, config=ROOT / "config" / "pathogen" / "cdv-1200.yaml")
@@ -133,11 +143,18 @@ def test_no_pathogen_name_is_hardcoded(build, tmp_path):
     # quotes the removed strings in order to explain why they were removed,
     # and a test that forbids naming the bug makes the bug harder to fix.
     import ast
+
     src = (ROOT / "scripts" / "09_make_auspice.py").read_text()
     tree = ast.parse(src)
-    body = tree.body[1:] if (tree.body and isinstance(tree.body[0], ast.Expr)
-                             and isinstance(tree.body[0].value, ast.Constant)) \
+    body = (
+        tree.body[1:]
+        if (
+            tree.body
+            and isinstance(tree.body[0], ast.Expr)
+            and isinstance(tree.body[0].value, ast.Constant)
+        )
         else tree.body
+    )
     code = "\n".join(ast.unparse(n) for n in body).lower()
     for word in ("a75/17", "america-2", "af164967"):
         assert word not in code, f"{word!r} is still hardcoded in the code"
@@ -152,6 +169,7 @@ def test_colourings_come_from_the_config(build, tmp_path):
 
 
 # --- the trait --------------------------------------------------------------
+
 
 def test_tip_and_internal_states_share_a_category(build, tmp_path):
     """
@@ -184,6 +202,7 @@ def test_state_probability_becomes_a_confidence(build, tmp_path):
 
 # --- gate verdicts ----------------------------------------------------------
 
+
 def test_gate_verdicts_appear_in_the_description(build, tmp_path):
     """
     A published tree is read by people who did not run the pipeline, and a
@@ -193,8 +212,7 @@ def test_gate_verdicts_appear_in_the_description(build, tmp_path):
     g1 = tmp_path / "trait_signal.json"
     g1.write_text(json.dumps({"verdict": "pass", "reasons": ["AI p=0.001"]}))
     g2 = tmp_path / "convergence.json"
-    g2.write_text(json.dumps({"verdict": "fail",
-                              "checks": {"errors": ["ESS below 200"]}}))
+    g2.write_text(json.dumps({"verdict": "fail", "checks": {"errors": ["ESS below 200"]}}))
     out = tmp_path / "a.json"
     run(build, out, "--gates", str(g1), str(g2))
     desc = json.loads(out.read_text())["meta"]["description"]
@@ -222,6 +240,7 @@ def test_a_malformed_gate_file_is_skipped_not_fatal(mod, tmp_path):
 
 # --- the workflow's own invocation ------------------------------------------
 
+
 def test_the_snakefile_flags_are_all_accepted(build, tmp_path):
     """
     Regression. The Snakefile passed --config/--alignment/--output while the
@@ -231,9 +250,15 @@ def test_the_snakefile_flags_are_all_accepted(build, tmp_path):
     aln = tmp_path / "sub.fasta"
     aln.write_text(">a\nACGT\n>b\nACGT\n")
     out = tmp_path / "a.json"
-    r = run(build, out, "--alignment", str(aln),
-            "--full-metadata", str(build / "meta.tsv"),
-            config=ROOT / "config" / "pathogen" / "cdv-1200.yaml")
+    r = run(
+        build,
+        out,
+        "--alignment",
+        str(aln),
+        "--full-metadata",
+        str(build / "meta.tsv"),
+        config=ROOT / "config" / "pathogen" / "cdv-1200.yaml",
+    )
     assert r.returncode == 0, r.stderr[-1500:]
     assert "2 sequences" in r.stdout
 
@@ -241,15 +266,21 @@ def test_the_snakefile_flags_are_all_accepted(build, tmp_path):
 def test_the_snakefile_passes_only_flags_the_script_has():
     """Every --flag in the auspice rule must exist in the parser."""
     import re
+
     sf = (ROOT / "workflow" / "Snakefile").read_text()
     rule = sf.split("rule auspice:")[1].split("rule publish:")[0]
     called = set(re.findall(r"(--[a-z-]+)", rule))
     src = (ROOT / "scripts" / "09_make_auspice.py").read_text()
-    declared = set(re.findall(r'ap\.add_argument\("(--[a-z-]+)"', src))
+    declared = set(re.findall(r'ap\.add_argument\(\s*"(--[a-z-]+)"', src))
     assert called <= declared, f"Snakefile passes unknown flags: {called - declared}"
 
 
 def test_cli_help_works():
-    r = subprocess.run([sys.executable, "scripts/09_make_auspice.py", "--help"],
-                       cwd=ROOT, capture_output=True, text=True, timeout=60)
+    r = subprocess.run(
+        [sys.executable, "scripts/09_make_auspice.py", "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
     assert r.returncode == 0

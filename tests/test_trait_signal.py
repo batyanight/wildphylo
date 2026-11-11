@@ -23,7 +23,7 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from lib import traitsignal as ts  # noqa: E402
+from lib import traitsignal as ts
 
 FOUR = "((A:1,B:1):1,(C:1,D:1):1);"
 
@@ -37,6 +37,7 @@ def _states(top, mapping):
 
 
 # --- parser -----------------------------------------------------------------
+
 
 def test_parse_four_tip_tree():
     t = ts.parse_newick(FOUR)
@@ -83,12 +84,13 @@ def test_polytomy_is_resolved_and_counted():
 
 # --- statistics, against hand computation -----------------------------------
 
+
 def test_parsimony_score_hand_computed():
     t = ts.parse_newick(FOUR)
     a, S = _states(t, dict(A=0, B=0, C=1, D=1))
-    assert ts.parsimony_score(t, a, S)[0] == 1        # one change at the root split
+    assert ts.parsimony_score(t, a, S)[0] == 1  # one change at the root split
     a, S = _states(t, dict(A=0, B=1, C=0, D=1))
-    assert ts.parsimony_score(t, a, S)[0] == 2        # alternating needs two
+    assert ts.parsimony_score(t, a, S)[0] == 2  # alternating needs two
 
 
 def test_association_index_hand_computed():
@@ -118,11 +120,12 @@ def test_statistics_vectorise_identically_over_labellings():
     t = ts.parse_newick(FOUR)
     batch = np.array([[0, 0, 1, 1], [0, 1, 0, 1], [1, 1, 1, 0]], dtype=np.int64)
     got = ts.parsimony_score(t, batch, 2)
-    one = [ts.parsimony_score(t, batch[i:i + 1], 2)[0] for i in range(3)]
+    one = [ts.parsimony_score(t, batch[i : i + 1], 2)[0] for i in range(3)]
     assert list(got) == one
 
 
 # --- tree construction helpers for the gate tests ---------------------------
+
 
 def _rand_tree(labels, rng):
     nodes = list(labels)
@@ -146,10 +149,11 @@ def _clustered_tree(groups, rng):
 def two_groups():
     a = [f"a{i}" for i in range(20)]
     b = [f"b{i}" for i in range(20)]
-    return a, b, {**{t: "A" for t in a}, **{t: "B" for t in b}}
+    return a, b, {**dict.fromkeys(a, "A"), **dict.fromkeys(b, "B")}
 
 
 # --- the gate ---------------------------------------------------------------
+
 
 def test_gate_passes_on_known_signal(two_groups):
     a, b, states = two_groups
@@ -228,7 +232,7 @@ def test_single_state_is_refused():
     tips = [f"t{i}" for i in range(10)]
     trees = [ts.parse_newick(_rand_tree(tips, rng))]
     with pytest.raises(ValueError, match="nothing to test"):
-        ts.trait_signal(trees, {t: "A" for t in tips}, n_permutations=10)
+        ts.trait_signal(trees, dict.fromkeys(tips, "A"), n_permutations=10)
 
 
 def test_mismatched_traits_file_is_refused_not_silently_intersected():
@@ -236,15 +240,16 @@ def test_mismatched_traits_file_is_refused_not_silently_intersected():
     tips = [f"t{i}" for i in range(10)]
     trees = [ts.parse_newick(_rand_tree(tips, rng))]
     with pytest.raises(ValueError, match="no tip label"):
-        ts.trait_signal(trees, {f"other{i}": "A" if i % 2 else "B"
-                                for i in range(10)}, n_permutations=10)
+        ts.trait_signal(
+            trees, {f"other{i}": "A" if i % 2 else "B" for i in range(10)}, n_permutations=10
+        )
 
 
 def test_low_power_is_reported_not_silently_passed():
     rng = random.Random(18)
     a = [f"a{i}" for i in range(3)]
     b = [f"b{i}" for i in range(12)]
-    states = {**{t: "A" for t in a}, **{t: "B" for t in b}}
+    states = {**dict.fromkeys(a, "A"), **dict.fromkeys(b, "B")}
     trees = [ts.parse_newick(_clustered_tree([a, b], rng)) for _ in range(20)]
     res = ts.trait_signal(trees, states, n_permutations=100, seed=1)
     joined = " ".join(res.reasons)
@@ -254,6 +259,7 @@ def test_low_power_is_reported_not_silently_passed():
 
 def test_result_is_json_serialisable(two_groups):
     import json
+
     a, b, states = two_groups
     rng = random.Random(19)
     trees = [ts.parse_newick(_clustered_tree([a, b], rng)) for _ in range(10)]
@@ -298,15 +304,16 @@ def test_burnin_is_applied_per_file_not_to_the_pool(tmp_path):
     a.write_text(NEXUS)
     b.write_text(NEXUS)
     both = ts.read_posterior([a, b], burnin=1 / 3)
-    assert len(both) == 4           # 2 kept from each, not 4 from one
+    assert len(both) == 4  # 2 kept from each, not 4 from one
 
 
 def test_label_parsing_in_cli_helper(tmp_path):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
     import importlib.util
+
     spec = importlib.util.spec_from_file_location(
-        "gate08e",
-        Path(__file__).resolve().parents[1] / "scripts" / "08e_trait_signal.py")
+        "gate08e", Path(__file__).resolve().parents[1] / "scripts" / "08e_trait_signal.py"
+    )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     got = mod.states_from_labels(["MT932504|wild_felid|1992"], 1, "|")
@@ -319,22 +326,27 @@ def test_cli_help_works():
     r = subprocess.run(
         [sys.executable, "scripts/08e_trait_signal.py", "--help"],
         cwd=Path(__file__).resolve().parents[1],
-        capture_output=True, text=True, timeout=60)
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
     assert r.returncode == 0
     assert "usage:" in r.stdout.lower()
 
 
 # --- config plumbing --------------------------------------------------------
 
+
 def _base_cfg(repo_root):
     """A minimal valid config, loaded from the shipped CDV one."""
     import yaml
-    return yaml.safe_load(
-        (repo_root / "config" / "pathogen" / "cdv-1200.yaml").read_text())
+
+    return yaml.safe_load((repo_root / "config" / "pathogen" / "cdv-1200.yaml").read_text())
 
 
 def test_signal_gate_keys_validate(repo_root):
     from lib import config as cfgmod
+
     cfg = _base_cfg(repo_root)
     cfg["_path"] = str(repo_root / "config" / "pathogen" / "cdv-1200.yaml")
     errors, _ = cfgmod.validate(cfg)
@@ -343,6 +355,7 @@ def test_signal_gate_keys_validate(repo_root):
 
 def test_bad_on_no_signal_is_an_error(repo_root):
     from lib import config as cfgmod
+
     cfg = _base_cfg(repo_root)
     cfg["_path"] = str(repo_root / "config" / "pathogen" / "cdv-1200.yaml")
     cfg["beast"]["discrete_trait"]["on_no_signal"] = "ignore"
@@ -352,6 +365,7 @@ def test_bad_on_no_signal_is_an_error(repo_root):
 
 def test_too_few_permutations_warns_about_p_resolution(repo_root):
     from lib import config as cfgmod
+
     cfg = _base_cfg(repo_root)
     cfg["_path"] = str(repo_root / "config" / "pathogen" / "cdv-1200.yaml")
     cfg["beast"]["discrete_trait"]["signal_permutations"] = 20
@@ -361,6 +375,7 @@ def test_too_few_permutations_warns_about_p_resolution(repo_root):
 
 def test_disabling_the_gate_warns(repo_root):
     from lib import config as cfgmod
+
     cfg = _base_cfg(repo_root)
     cfg["_path"] = str(repo_root / "config" / "pathogen" / "cdv-1200.yaml")
     cfg["beast"]["discrete_trait"]["signal_gate"] = False
@@ -374,6 +389,7 @@ def test_every_shipped_config_with_a_trait_declares_the_gate(repo_root):
     nothing has checked. Shipping one would make that the default.
     """
     import yaml
+
     missing = []
     for p in sorted((repo_root / "config" / "pathogen").glob("*.yaml")):
         cfg = yaml.safe_load(p.read_text())
@@ -385,6 +401,7 @@ def test_every_shipped_config_with_a_trait_declares_the_gate(repo_root):
 
 # --- the cwd-relative path trap ---------------------------------------------
 
+
 def test_config_paths_resolve_from_any_working_directory(repo_root, tmp_path, monkeypatch):
     """
     Regression test. hosts.table is written relative to the repo root, so
@@ -393,6 +410,7 @@ def test_config_paths_resolve_from_any_working_directory(repo_root, tmp_path, mo
     confusing error much later.
     """
     from lib import config as cfgmod
+
     monkeypatch.chdir(tmp_path)
     cfg = _base_cfg(repo_root)
     cfg["_path"] = str(repo_root / "config" / "pathogen" / "cdv-1200.yaml")
@@ -404,6 +422,7 @@ def test_config_paths_resolve_from_any_working_directory(repo_root, tmp_path, mo
 
 def test_resolve_path_leaves_absolute_paths_alone(repo_root, tmp_path):
     from lib import config as cfgmod
+
     p = tmp_path / "abs.tsv"
     p.write_text("x")
     assert cfgmod.resolve_path({"_path": "whatever"}, str(p)) == p
@@ -412,6 +431,7 @@ def test_resolve_path_leaves_absolute_paths_alone(repo_root, tmp_path):
 def test_resolve_path_prefers_the_working_directory(repo_root, tmp_path, monkeypatch):
     """cwd wins, so behaviour that worked before this change is unchanged."""
     from lib import config as cfgmod
+
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config").mkdir()
     local = tmp_path / "config" / "host_groups.tsv"
@@ -421,6 +441,7 @@ def test_resolve_path_prefers_the_working_directory(repo_root, tmp_path, monkeyp
 
 
 # --- workflow wiring --------------------------------------------------------
+
 
 def test_gate_is_wired_into_the_workflow(repo_root):
     """

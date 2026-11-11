@@ -25,7 +25,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 @pytest.fixture(scope="module")
 def mod():
     spec = importlib.util.spec_from_file_location(
-        "chk13", ROOT / "scripts" / "13_check_updates.py")
+        "chk13", ROOT / "scripts" / "13_check_updates.py"
+    )
     m = importlib.util.module_from_spec(spec)
     # Register before exec: @dataclass resolves cls.__module__ through
     # sys.modules while building __init__, and a path-loaded module is not
@@ -37,12 +38,14 @@ def mod():
 
 @pytest.fixture
 def cfg():
-    return {"id": "demo",
-            "nextstrain": {"update": {"min_new_accessions": 5,
-                                      "max_new_accessions": 500}}}
+    return {
+        "id": "demo",
+        "nextstrain": {"update": {"min_new_accessions": 5, "max_new_accessions": 500}},
+    }
 
 
 # --- the decision table -----------------------------------------------------
+
 
 def test_no_previous_build_proceeds(mod, cfg):
     d = mod.decide(cfg, "demo", current=100, previous=None, prev_build=None)
@@ -94,6 +97,7 @@ def test_force_overrides_everything_including_a_shrinking_dataset(mod, cfg):
 
 # --- reading the previous build ---------------------------------------------
 
+
 def test_previous_build_reads_the_newest_dated_directory(mod, tmp_path):
     for date, n in (("20260101", 3), ("20260301", 7), ("20260201", 5)):
         acc = tmp_path / "demo" / date / "raw" / "demo.acc"
@@ -128,6 +132,7 @@ def test_blank_lines_in_the_accession_file_are_not_counted(mod, tmp_path):
 
 
 # --- config discovery -------------------------------------------------------
+
 
 def test_template_config_is_skipped(mod, repo_root):
     got = mod.load_configs(repo_root / "config" / "pathogen", None)
@@ -164,13 +169,13 @@ def test_the_query_comes_from_01_not_a_copy(mod, repo_root):
     """
     fetch = mod._fetch_module()
     assert hasattr(fetch, "build_query")
-    cfg = yaml.safe_load(
-        (repo_root / "config" / "pathogen" / "cdv-1200.yaml").read_text())
+    cfg = yaml.safe_load((repo_root / "config" / "pathogen" / "cdv-1200.yaml").read_text())
     q = fetch.build_query(cfg)
     assert f"txid{cfg['fetch']['taxid']}" in q
 
 
 # --- CLI, with Entrez stubbed ----------------------------------------------
+
 
 def _run_cli(repo_root, tmp_path, count, extra_env=None):
     """
@@ -189,17 +194,23 @@ sys.modules["chk13"] = m
 spec.loader.exec_module(m)
 m.count_records = lambda q: {count}
 sys.argv = ["13_check_updates.py", "--config-dir", str(ROOT / "config" / "pathogen"),
-            "--builds-dir", {str(tmp_path / 'builds')!r},
+            "--builds-dir", {str(tmp_path / "builds")!r},
             "--only", "cdv-1200", "--github-output",
-            "--out-json", {str(tmp_path / 'out.json')!r}]
+            "--out-json", {str(tmp_path / "out.json")!r}]
 sys.exit(m.main())
 """)
     env = dict(os.environ)
     env["GITHUB_OUTPUT"] = str(tmp_path / "gh_output")
     env.update(extra_env or {})
     (tmp_path / "gh_output").write_text("")
-    r = subprocess.run([sys.executable, str(driver)], cwd=repo_root,
-                       capture_output=True, text=True, timeout=120, env=env)
+    r = subprocess.run(
+        [sys.executable, str(driver)],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=env,
+    )
     return r, (tmp_path / "gh_output").read_text(), tmp_path / "out.json"
 
 
@@ -233,7 +244,12 @@ def test_cli_force_env_overrides_no_change(repo_root, tmp_path):
 
 
 def test_cli_help_works():
-    r = subprocess.run([sys.executable, "scripts/13_check_updates.py", "--help"],
-                       cwd=ROOT, capture_output=True, text=True, timeout=60)
+    r = subprocess.run(
+        [sys.executable, "scripts/13_check_updates.py", "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
     assert r.returncode == 0
     assert "usage:" in r.stdout.lower()

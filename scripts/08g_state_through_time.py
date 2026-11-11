@@ -63,7 +63,7 @@ Usage
 import argparse
 import glob as globmod
 import sys
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 
 # The parser lives in lib/traittrees.py, shared with 08f_jump_history. It used
@@ -72,9 +72,12 @@ from pathlib import Path
 # scripts were renamed out of the 12/13 slots. Shared code does not belong in a
 # file whose name encodes its position in a pipeline.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib.traittrees import (                                    # noqa: E402
-    iter_trees, node_depths, label_date, smart_open,
-    detect_tag, annotation_value, NUMBER_RE, TREE_LINE_RE,
+from lib.traittrees import (
+    TREE_LINE_RE,
+    iter_trees,
+    label_date,
+    node_depths,
+    smart_open,
 )
 
 try:
@@ -92,25 +95,41 @@ def main():
         description="Lineages carrying each discrete state, through time.",
     )
     ap.add_argument("--trees", nargs="+", required=True)
-    ap.add_argument("--burnin", type=float, default=0.10,
-                    help="fraction discarded from the START of each file (default 0.10)")
-    ap.add_argument("--thin", type=int, default=10,
-                    help="keep every Nth post-burnin tree (default 10)")
-    ap.add_argument("--tag", default=None,
-                    help="annotation key holding the state (default: auto-detect)")
-    ap.add_argument("--code-map", default=None,
-                    help='BEAST codeMap string, if the trees store numeric codes')
-    ap.add_argument("--most-recent", type=float, default=None,
-                    help="decimal year of the most recent tip (default: from tip labels)")
-    ap.add_argument("--min-lineages", type=float, default=3.0,
-                    help="suppress slices holding fewer than this many lineages; "
-                         "proportions there are not interpretable (default 3)")
-    ap.add_argument("--step", type=float, default=1.0,
-                    help="slice interval in years (default 1.0)")
-    ap.add_argument("--focus", default=None,
-                    help="state to summarise in the verdict lines, e.g. felid")
-    ap.add_argument("--out", type=Path, default=None,
-                    help="write the year x state table here")
+    ap.add_argument(
+        "--burnin",
+        type=float,
+        default=0.10,
+        help="fraction discarded from the START of each file (default 0.10)",
+    )
+    ap.add_argument(
+        "--thin", type=int, default=10, help="keep every Nth post-burnin tree (default 10)"
+    )
+    ap.add_argument(
+        "--tag", default=None, help="annotation key holding the state (default: auto-detect)"
+    )
+    ap.add_argument(
+        "--code-map", default=None, help="BEAST codeMap string, if the trees store numeric codes"
+    )
+    ap.add_argument(
+        "--most-recent",
+        type=float,
+        default=None,
+        help="decimal year of the most recent tip (default: from tip labels)",
+    )
+    ap.add_argument(
+        "--min-lineages",
+        type=float,
+        default=3.0,
+        help="suppress slices holding fewer than this many lineages; "
+        "proportions there are not interpretable (default 3)",
+    )
+    ap.add_argument(
+        "--step", type=float, default=1.0, help="slice interval in years (default 1.0)"
+    )
+    ap.add_argument(
+        "--focus", default=None, help="state to summarise in the verdict lines, e.g. felid"
+    )
+    ap.add_argument("--out", type=Path, default=None, help="write the year x state table here")
     args = ap.parse_args()
 
     code_lookup = {}
@@ -128,14 +147,17 @@ def main():
 
     files = []
     for pattern in args.trees:
-        hits = ([Path(h) for h in sorted(globmod.glob(pattern))]
-                if any(c in pattern for c in "*?[") else [Path(pattern)])
+        hits = (
+            [Path(h) for h in sorted(globmod.glob(pattern))]
+            if any(c in pattern for c in "*?[")
+            else [Path(pattern)]
+        )
         if not hits:
             sys.exit(f"no file matched: {pattern}")
         files.extend(hits)
 
     # ---- pass 1: parse retained trees into flat branch lists ---------------- #
-    per_tree = []          # [[(y_parent, y_child, state_parent, state_child), ...], ...]
+    per_tree = []  # [[(y_parent, y_child, state_parent, state_child), ...], ...]
     root_years = []
     tip_census = None
     resolved_tag = args.tag
@@ -181,9 +203,7 @@ def main():
                 if p is None:
                     root_years.append(year(i))
                     continue
-                branches.append(
-                    (year(p), year(i), decode(nodes[p]["state"]), decode(nd["state"]))
-                )
+                branches.append((year(p), year(i), decode(nodes[p]["state"]), decode(nd["state"])))
             if not branches:
                 continue
             per_tree.append(branches)
@@ -227,8 +247,7 @@ def main():
                 if total[k] <= 0:
                     continue
                 for s in states:
-                    fh.write(f"{yr:.1f}\t{s}\t{counts[s][k]:.4f}\t"
-                             f"{counts[s][k] / total[k]:.4f}\n")
+                    fh.write(f"{yr:.1f}\t{s}\t{counts[s][k]:.4f}\t{counts[s][k] / total[k]:.4f}\n")
 
     W = 78
     print("=" * W)
@@ -236,20 +255,30 @@ def main():
     print("=" * W)
     print(f"state annotation key : {resolved_tag}")
     print(f"trees retained       : {kept}  (burnin {args.burnin:.0%}, thin {args.thin})")
-    print(f"root year            : mean {np.mean(root_years):.1f}, "
-          f"95% range {np.percentile(root_years, 2.5):.1f}-"
-          f"{np.percentile(root_years, 97.5):.1f}")
+    print(
+        f"root year            : mean {np.mean(root_years):.1f}, "
+        f"95% range {np.percentile(root_years, 2.5):.1f}-"
+        f"{np.percentile(root_years, 97.5):.1f}"
+    )
     if tip_census:
         n = sum(tip_census.values())
-        print("tips                 : " +
-              ", ".join(f"{s} {c} ({c / n:.0%})" for s, c in tip_census.most_common()))
+        print(
+            "tips                 : "
+            + ", ".join(f"{s} {c} ({c / n:.0%})" for s, c in tip_census.most_common())
+        )
 
     tip_total = sum(tip_census.values()) if tip_census else 0
-    tip_share = {s: (tip_census.get(s, 0) / tip_total if tip_total else float("nan"))
-                 for s in states}
+    tip_share = {
+        s: (tip_census.get(s, 0) / tip_total if tip_total else float("nan")) for s in states
+    }
 
-    print("\n  " + "year".ljust(7) + "lin".rjust(6) + "   " +
-          "".join(s[:8].rjust(10) for s in states))
+    print(
+        "\n  "
+        + "year".ljust(7)
+        + "lin".rjust(6)
+        + "   "
+        + "".join(s[:8].rjust(10) for s in states)
+    )
     suppressed = 0
     for k, yr in enumerate(grid):
         if abs(yr - round(yr)) > 1e-9 or int(round(yr)) % 5:
@@ -263,12 +292,15 @@ def main():
     print("\n  Columns are the share of lineages in each state at that year.")
     print("  'lin' is the mean number of lineages alive in the tree then.")
     if suppressed:
-        print(f"  {suppressed} slice(s) hidden: fewer than {args.min_lineages:.0f} "
-              "lineages, so a percentage there describes one or two branches.")
+        print(
+            f"  {suppressed} slice(s) hidden: fewer than {args.min_lineages:.0f} "
+            "lineages, so a percentage there describes one or two branches."
+        )
 
     print("\n  ENRICHMENT (share of lineages / share of tips; 1.0 = as expected)")
-    print("  " + "year".ljust(7) + "lin".rjust(6) + "   " +
-          "".join(s[:8].rjust(10) for s in states))
+    print(
+        "  " + "year".ljust(7) + "lin".rjust(6) + "   " + "".join(s[:8].rjust(10) for s in states)
+    )
     for k, yr in enumerate(grid):
         if abs(yr - round(yr)) > 1e-9 or int(round(yr)) % 5:
             continue
@@ -295,31 +327,38 @@ def main():
             ts = tip_share[f]
             print(f"\n--- FOCUS: {f} " + "-" * (W - 12 - len(f)))
             print(f"  tip share: {ts:.0%}  ({tip_census[f]} of {tip_total} tips)")
-            print(f"  interpretable window: {grid[valid[0]]:.0f}-{grid[valid[-1]]:.0f} "
-                  f"({len(valid)} slices with >= {args.min_lineages:.0f} lineages)")
+            print(
+                f"  interpretable window: {grid[valid[0]]:.0f}-{grid[valid[-1]]:.0f} "
+                f"({len(valid)} slices with >= {args.min_lineages:.0f} lineages)"
+            )
 
             # thirds of the interpretable window, weighted by lineages present
             third = max(1, len(valid) // 3)
-            blocks = [("earliest", valid[:third]),
-                      ("middle", valid[third:2 * third]),
-                      ("latest", valid[2 * third:])]
+            blocks = [
+                ("earliest", valid[:third]),
+                ("middle", valid[third : 2 * third]),
+                ("latest", valid[2 * third :]),
+            ]
             enr = {}
-            print(f"\n  {'window':<10}{'years':>14}{'mean lin':>10}"
-                  f"{'share':>9}{'enrichment':>12}")
+            print(f"\n  {'window':<10}{'years':>14}{'mean lin':>10}{'share':>9}{'enrichment':>12}")
             for name, ks in blocks:
                 if not ks:
                     continue
                 w = np.array([total[k] for k in ks])
                 sh = float(np.average([share[k] for k in ks], weights=w))
                 enr[name] = sh / ts if ts else float("nan")
-                print(f"  {name:<10}{f'{grid[ks[0]]:.0f}-{grid[ks[-1]]:.0f}':>14}"
-                      f"{float(np.mean(w)):>10.1f}{sh:>9.0%}{enr[name]:>12.1f}x")
+                print(
+                    f"  {name:<10}{f'{grid[ks[0]]:.0f}-{grid[ks[-1]]:.0f}':>14}"
+                    f"{float(np.mean(w)):>10.1f}{sh:>9.0%}{enr[name]:>12.1f}x"
+                )
 
             e0, e1 = enr.get("earliest", float("nan")), enr.get("latest", float("nan"))
             print()
             if e0 >= 1.5 and e1 < 1.25:
-                print(f"  READ: {e0:.1f}x enrichment in the deep tree decaying to "
-                      f"{e1:.1f}x. This state's")
+                print(
+                    f"  READ: {e0:.1f}x enrichment in the deep tree decaying to "
+                    f"{e1:.1f}x. This state's"
+                )
                 print("  prominence is carried by its oldest tips. Outbound transition")
                 print("  counts from it are a counting consequence of that anchoring,")
                 print("  not a rate. Do not report them as transition frequencies.")
@@ -328,8 +367,10 @@ def main():
                 print("  Not explained by deep-node anchoring. Whether it is signal or")
                 print("  label noise is now a question for tip-label randomization.")
             else:
-                print(f"  READ: no meaningful enrichment at any depth "
-                      f"({e0:.1f}x early, {e1:.1f}x late).")
+                print(
+                    f"  READ: no meaningful enrichment at any depth "
+                    f"({e0:.1f}x early, {e1:.1f}x late)."
+                )
                 print("  The state tracks its tip frequency; there is nothing here to")
                 print("  explain as transmission structure.")
 

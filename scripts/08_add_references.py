@@ -63,8 +63,14 @@ def load_references(path: Path):
         if len(parts) < 4:
             print(f"  skipping malformed line: {line[:60]}", file=sys.stderr)
             continue
-        refs.append({"accession": parts[0].strip(), "lineage": parts[1].strip(),
-                     "strain": parts[2].strip(), "type": parts[3].strip()})
+        refs.append(
+            {
+                "accession": parts[0].strip(),
+                "lineage": parts[1].strip(),
+                "strain": parts[2].strip(),
+                "type": parts[3].strip(),
+            }
+        )
     return refs
 
 
@@ -74,7 +80,7 @@ def resolve_protein(acc: str) -> str | None:
         handle = Entrez.efetch(db="protein", id=acc, rettype="gb", retmode="text")
         text = handle.read()
         handle.close()
-    except Exception as exc:                          # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         print(f"    could not fetch protein {acc}: {exc}")
         return None
     m = re.search(r'coded_by="(?:complement\()?([A-Z]+\d+(?:\.\d+)?)', text)
@@ -97,7 +103,7 @@ def extract_H(record):
         if label in H_NAMES or any(label.startswith(n + " ") for n in H_NAMES):
             try:
                 seq = str(feat.extract(record.seq))
-            except Exception:                          # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 continue
             if H_MIN <= len(seq) <= H_MAX:
                 return seq, "annotation"
@@ -125,7 +131,7 @@ def write_fasta(path: Path, seqs: dict[str, str], width: int = 60) -> None:
         for name, seq in seqs.items():
             fh.write(f">{name}\n")
             for i in range(0, len(seq), width):
-                fh.write(seq[i:i + width] + "\n")
+                fh.write(seq[i : i + width] + "\n")
 
 
 def safe(text: str) -> str:
@@ -133,13 +139,18 @@ def safe(text: str) -> str:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--email", required=True)
     ap.add_argument("--api-key", default=None)
     ap.add_argument("--refs", default=Path("config/lineage_references.tsv"), type=Path)
-    ap.add_argument("--query-fasta", required=True, type=Path,
-                    help="Your sequences — UNALIGNED or aligned; gaps are stripped")
+    ap.add_argument(
+        "--query-fasta",
+        required=True,
+        type=Path,
+        help="Your sequences — UNALIGNED or aligned; gaps are stripped",
+    )
     ap.add_argument("--outdir", default=Path("data/processed"), type=Path)
     ap.add_argument("--prefix", default="clade3_with_refs")
     ap.add_argument("--cache", default=Path("data/raw/references.gb"), type=Path)
@@ -176,7 +187,8 @@ def main() -> int:
             time.sleep(0.4)
             if not nuc:
                 print("FAILED")
-                unresolved.append(r); continue
+                unresolved.append(r)
+                continue
             print(f"-> {nuc}")
             acc = nuc
         nuc_ids.append(acc)
@@ -192,11 +204,10 @@ def main() -> int:
     print(f"fetching {len(nuc_ids)} nucleotide records ...")
     args.cache.parent.mkdir(parents=True, exist_ok=True)
     try:
-        handle = Entrez.efetch(db="nuccore", id=",".join(nuc_ids),
-                               rettype="gb", retmode="text")
+        handle = Entrez.efetch(db="nuccore", id=",".join(nuc_ids), rettype="gb", retmode="text")
         args.cache.write_text(handle.read())
         handle.close()
-    except Exception as exc:                           # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         print(f"fetch failed: {exc}", file=sys.stderr)
         return 1
 
@@ -217,8 +228,7 @@ def main() -> int:
                 if m:
                     year = m.group(1)
                 break
-        label = (f"REF_{safe(info['lineage'])}_{safe(info['strain'])}_{base}"
-                 f"|reference|{year}")
+        label = f"REF_{safe(info['lineage'])}_{safe(info['strain'])}_{base}|reference|{year}"
         ref_seqs[label] = seq
         print(f"  {record.id:<12} {info['lineage']:<22} {len(seq):>5} nt  ({how})")
 
@@ -246,8 +256,8 @@ def main() -> int:
     print(f"""
 NEXT
 
-  mafft --auto {out} > {args.outdir / (args.prefix + '_aln.fasta')}
-  iqtree2 -s {args.outdir / (args.prefix + '_aln.fasta')} -m MFP -B 1000 --alrt 1000 \\
+  mafft --auto {out} > {args.outdir / (args.prefix + "_aln.fasta")}
+  iqtree2 -s {args.outdir / (args.prefix + "_aln.fasta")} -m MFP -B 1000 --alrt 1000 \\
       -T AUTO --prefix {args.outdir / args.prefix} -redo
 
 Then open {args.prefix}.treefile and answer two questions:

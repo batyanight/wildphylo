@@ -8,12 +8,13 @@ check fires on the failure it exists to catch, and stays quiet otherwise.
 import sys
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from lib.preflight import (  # noqa: E402
-    check_fetch, check_curation, check_trait_states, check_clock_prior,
+from lib.preflight import (
+    check_clock_prior,
     check_convergence,
+    check_curation,
+    check_fetch,
+    check_trait_states,
 )
 
 CFG = {
@@ -22,25 +23,38 @@ CFG = {
     "hosts": {
         "min_group_size": 5,
         "dta_states": {
-            "procyonid": "procyonid", "wild_canid": "wild_canid",
-            "mustelid": "mustelid", "wild_felid": "felid",
-            "domestic_cat": "felid", "domestic_dog": "domestic_dog",
+            "procyonid": "procyonid",
+            "wild_canid": "wild_canid",
+            "mustelid": "mustelid",
+            "wild_felid": "felid",
+            "domestic_cat": "felid",
+            "domestic_dog": "domestic_dog",
         },
         "dta_other": None,
     },
-    "beast": {"min_ess": 200, "clock_rate_prior": 7.46e-4,
-              "clock_rate_source": "Panzera et al.",
-              "discrete_trait": {"symmetric": True}},
+    "beast": {
+        "min_ess": 200,
+        "clock_rate_prior": 7.46e-4,
+        "clock_rate_source": "Panzera et al.",
+        "discrete_trait": {"symmetric": True},
+    },
     "dates": {"imprecise_date_policy": "midpoint"},
     "nextstrain": {"update": {"max_new_accessions": 500}},
 }
 
 # The real clade-3 host composition.
-CLADE3 = {"procyonid": 91, "wild_canid": 32, "mustelid": 23,
-          "domestic_dog": 8, "wild_felid": 7, "ailurid": 1}
+CLADE3 = {
+    "procyonid": 91,
+    "wild_canid": 32,
+    "mustelid": 23,
+    "domestic_dog": 8,
+    "wild_felid": 7,
+    "ailurid": 1,
+}
 
 
 # --- fetch ------------------------------------------------------------------
+
 
 def test_empty_fetch_is_fatal():
     c = check_fetch(CFG, 0)
@@ -66,6 +80,7 @@ def test_normal_growth_is_clean():
 
 # --- curation ---------------------------------------------------------------
 
+
 def test_zero_retained_points_at_locus_aliases():
     c = check_curation(CFG, 900, 0, 0, {})
     assert not c.ok and "locus.aliases" in c.errors[0]
@@ -87,6 +102,7 @@ def test_pending_review_warns():
 
 
 # --- trait states -----------------------------------------------------------
+
 
 def test_undeclared_state_map_warns():
     cfg = {**CFG, "hosts": {**CFG["hosts"], "dta_states": None}}
@@ -136,21 +152,20 @@ def test_thin_state_warns_when_collapse_does_not_rescue_it():
 
 
 def test_single_state_is_fatal():
-    cfg = {**CFG, "hosts": {**CFG["hosts"],
-                            "dta_states": {"procyonid": "procyonid"}}}
+    cfg = {**CFG, "hosts": {**CFG["hosts"], "dta_states": {"procyonid": "procyonid"}}}
     c = check_trait_states(cfg, {"procyonid": 91})
     assert not c.ok
 
 
 def test_asymmetric_model_doubles_rates_and_warns():
-    cfg = {**CFG, "beast": {**CFG["beast"],
-                            "discrete_trait": {"symmetric": False}}}
+    cfg = {**CFG, "beast": {**CFG["beast"], "discrete_trait": {"symmetric": False}}}
     c = check_trait_states(cfg, CLADE3)
     assert any("5 trait states -> 20" in n for n in c.notes)
     assert any("asymmetric" in w for w in c.warnings)
 
 
 # --- clock prior ------------------------------------------------------------
+
 
 def test_prior_matching_the_data_is_clean():
     c = check_clock_prior(CFG, rtt_slope=8.54e-4)
@@ -172,8 +187,7 @@ def test_moderate_prior_data_disagreement_warns_only():
 
 
 def test_rate_outside_genome_class_range_warns():
-    cfg = {**CFG, "beast": {**CFG["beast"], "clock_rate_prior": 1.0e-6,
-                            "clock_rate_source": "x"}}
+    cfg = {**CFG, "beast": {**CFG["beast"], "clock_rate_prior": 1.0e-6, "clock_rate_source": "x"}}
     c = check_clock_prior(cfg, rtt_slope=1.1e-6)
     assert any("genome class" in w for w in c.warnings)
 
@@ -198,6 +212,7 @@ def test_null_prior_with_slope_uses_the_data():
 
 # --- convergence ------------------------------------------------------------
 
+
 def test_low_ess_is_fatal():
     c = check_convergence(CFG, {"posterior": 1200, "clockRate": 88}, 2)
     assert not c.ok and "clockRate" in c.errors[0]
@@ -209,8 +224,7 @@ def test_good_ess_passes():
 
 
 def test_disagreeing_chains_are_fatal():
-    c = check_convergence(CFG, {"posterior": 900}, 2,
-                          between_chain_overlap={"treeHeight": 0.2})
+    c = check_convergence(CFG, {"posterior": 900}, 2, between_chain_overlap={"treeHeight": 0.2})
     assert not c.ok and "disagree" in c.errors[0]
 
 
@@ -233,15 +247,19 @@ def test_render_is_readable():
 
 # --- segmented-pathogen config validation ----------------------------------
 
-import yaml  # noqa: E402
+
 from lib.config import validate  # noqa: E402
 
 
 def seg_cfg(**over):
     c = {
-        "id": "btv", "name": "BTV",
-        "virus": {"segmented": True, "reassortment_expected": True,
-                  "expected_rate_range": [1e-5, 1e-2]},
+        "id": "btv",
+        "name": "BTV",
+        "virus": {
+            "segmented": True,
+            "reassortment_expected": True,
+            "expected_rate_range": [1e-5, 1e-2],
+        },
         "fetch": {"taxid": 40051},
         "loci": [
             {"name": "seg2", "aliases": ["VP2"], "analyse": True},
@@ -252,8 +270,12 @@ def seg_cfg(**over):
         "dates": {"min_year": 1940, "imprecise_date_policy": "interval"},
         "hosts": {"table": "config/host_groups_btv.tsv", "vector_policy": "annotate"},
         "tree": {"model": "MFP"},
-        "beast": {"clock_rate_prior": None, "n_chains": 2, "seeds": [1, 2],
-                  "discrete_trait": {"enabled": False}},
+        "beast": {
+            "clock_rate_prior": None,
+            "n_chains": 2,
+            "seeds": [1, 2],
+            "discrete_trait": {"enabled": False},
+        },
         "references": {"assign_from": "seg2"},
     }
     c.update(over)
@@ -317,22 +339,20 @@ def test_duplicate_locus_names_fatal():
 
 
 def test_vector_as_state_warns():
-    c = seg_cfg(hosts={"table": "config/host_groups_btv.tsv",
-                       "vector_policy": "state"})
+    c = seg_cfg(hosts={"table": "config/host_groups_btv.tsv", "vector_policy": "state"})
     _e, w = validate(c)
     assert any("where sequences were sampled" in x for x in w)
 
 
 def test_bad_vector_policy_fatal():
-    c = seg_cfg(hosts={"table": "config/host_groups_btv.tsv",
-                       "vector_policy": "ignore"})
+    c = seg_cfg(hosts={"table": "config/host_groups_btv.tsv", "vector_policy": "ignore"})
     e, _w = validate(c)
     assert any("vector_policy" in x for x in e)
 
 
 def test_per_locus_clock_prior_is_bounds_checked():
     c = seg_cfg()
-    c["loci"][0]["clock_rate_prior"] = 5.0     # subs/site/yr, absurd
+    c["loci"][0]["clock_rate_prior"] = 5.0  # subs/site/yr, absurd
     e, _w = validate(c)
     assert any("seg2" in x and "outside" in x for x in e)
 

@@ -49,15 +49,18 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib.config import load, ConfigError            # noqa: E402
-from lib.preflight import check_convergence         # noqa: E402
-
 # The log reader, ESS, HPD and overlap live in lib/beastlog.py, shared with
 # 08d_drt_summary. One parser and one HPD, so a convergence verdict and a
 # date-randomisation verdict describe the same chain.
-from lib.beastlog import (                               # noqa: E402
-    MAX_LAG, NON_PARAMETERS, read_beast_log, ess, hpd, overlap,
+from lib.beastlog import (
+    NON_PARAMETERS,
+    ess,
+    hpd,
+    overlap,
+    read_beast_log,
 )
+from lib.config import ConfigError, load
+from lib.preflight import check_convergence
 
 
 def analyse(paths: list[Path], burnin: float, min_ess: int) -> dict:
@@ -65,13 +68,20 @@ def analyse(paths: list[Path], burnin: float, min_ess: int) -> dict:
     for p in paths:
         header, data = read_beast_log(p)
         cut = int(round(burnin * len(data)))
-        chains.append({"path": str(p), "header": header,
-                       "data": data[cut:], "n_total": len(data),
-                       "n_kept": len(data) - cut})
+        chains.append(
+            {
+                "path": str(p),
+                "header": header,
+                "data": data[cut:],
+                "n_total": len(data),
+                "n_kept": len(data) - cut,
+            }
+        )
         if len(data) - cut < 10:
             raise ValueError(
                 f"{p}: only {len(data) - cut} samples survive a "
-                f"{burnin:.0%} burn-in; the chain is too short to assess")
+                f"{burnin:.0%} burn-in; the chain is too short to assess"
+            )
 
     # Every chain must log the same parameters. A mismatch means the XMLs
     # differ, which is a different analysis, not a different seed -- exactly
@@ -85,7 +95,8 @@ def analyse(paths: list[Path], burnin: float, min_ess: int) -> dict:
             raise ValueError(
                 f"chains log different parameters, so they are not replicates "
                 f"of one analysis. Only in {chains[0]['path']}: {only_a}; "
-                f"only in {c['path']}: {only_b}")
+                f"only in {c['path']}: {only_b}"
+            )
 
     cols = {name: i for i, name in enumerate(chains[0]["header"])}
 
@@ -111,15 +122,24 @@ def analyse(paths: list[Path], burnin: float, min_ess: int) -> dict:
     if len(chains) > 1:
         for name in ref:
             j = cols[name]
-            pairwise = [overlap(chains[a]["data"][:, j], chains[b]["data"][:, j])
-                        for a in range(len(chains))
-                        for b in range(a + 1, len(chains))]
+            pairwise = [
+                overlap(chains[a]["data"][:, j], chains[b]["data"][:, j])
+                for a in range(len(chains))
+                for b in range(a + 1, len(chains))
+            ]
             ovl[name] = round(min(pairwise), 4)
 
-    return {"chains": chains, "params": ref, "cols": cols,
-            "ess": ess_pooled, "ess_per_chain": ess_per_chain,
-            "overlap": ovl, "hpd": hpds, "min_ess": min_ess,
-            "burnin": burnin}
+    return {
+        "chains": chains,
+        "params": ref,
+        "cols": cols,
+        "ess": ess_pooled,
+        "ess_per_chain": ess_per_chain,
+        "overlap": ovl,
+        "hpd": hpds,
+        "min_ess": min_ess,
+        "burnin": burnin,
+    }
 
 
 def write_combined(res: dict, out: Path) -> int:
@@ -130,33 +150,41 @@ def write_combined(res: dict, out: Path) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     n = 0
     with out.open("w") as fh:
-        fh.write("# pooled post-burn-in samples from: "
-                 + ", ".join(c["path"] for c in chains) + "\n")
-        fh.write("# burn-in " + f"{res['burnin']:.0%}"
-                 + " applied within each chain before pooling\n")
+        fh.write(
+            "# pooled post-burn-in samples from: " + ", ".join(c["path"] for c in chains) + "\n"
+        )
+        fh.write(
+            "# burn-in " + f"{res['burnin']:.0%}" + " applied within each chain before pooling\n"
+        )
         fh.write("\t".join(header) + "\n")
         for c in chains:
             for row in c["data"]:
                 vals = list(row)
                 if sample_col is not None:
                     vals[sample_col] = n
-                fh.write("\t".join(
-                    (f"{int(v)}" if i == sample_col else f"{v:.6g}")
-                    for i, v in enumerate(vals)) + "\n")
+                fh.write(
+                    "\t".join(
+                        (f"{int(v)}" if i == sample_col else f"{v:.6g}")
+                        for i, v in enumerate(vals)
+                    )
+                    + "\n"
+                )
                 n += 1
     return n
 
 
 def report(res: dict, checks) -> str:
     W = 78
-    L = ["=" * W, "CONVERGENCE", "=" * W,
-         f"chains        : {len(res['chains'])}",
-         f"burn-in       : {res['burnin']:.0%} within each chain"]
+    L = [
+        "=" * W,
+        "CONVERGENCE",
+        "=" * W,
+        f"chains        : {len(res['chains'])}",
+        f"burn-in       : {res['burnin']:.0%} within each chain",
+    ]
     for c in res["chains"]:
         L.append(f"  {c['path']}: {c['n_kept']} of {c['n_total']} samples kept")
-    L += ["",
-          f"  {'parameter':<28}{'ESS':>10}{'per chain':>20}{'OVL':>8}",
-          "  " + "-" * (W - 4)]
+    L += ["", f"  {'parameter':<28}{'ESS':>10}{'per chain':>20}{'OVL':>8}", "  " + "-" * (W - 4)]
     worst = sorted(res["params"], key=lambda p: res["ess"][p])
     for name in worst:
         per = "/".join(f"{e:.0f}" for e in res["ess_per_chain"][name])
@@ -166,36 +194,50 @@ def report(res: dict, checks) -> str:
             flag = "  <- ESS"
         elif o is not None and o < 0.5:
             flag = "  <- chains disagree"
-        L.append(f"  {name[:28]:<28}{res['ess'][name]:>10.0f}{per:>20}"
-                 f"{('' if o is None else f'{o:.2f}'):>8}{flag}")
-    L += ["",
-          "  ESS is the pooled figure (chains summed). OVL is the smallest",
-          "  pairwise overlap of the chains' marginal posteriors: 1.0 means",
-          "  they agree, below 0.5 means at least one chain is somewhere the",
-          "  others never went.",
-          "", checks.render(), "=" * W]
+        L.append(
+            f"  {name[:28]:<28}{res['ess'][name]:>10.0f}{per:>20}"
+            f"{('' if o is None else f'{o:.2f}'):>8}{flag}"
+        )
+    L += [
+        "",
+        "  ESS is the pooled figure (chains summed). OVL is the smallest",
+        "  pairwise overlap of the chains' marginal posteriors: 1.0 means",
+        "  they agree, below 0.5 means at least one chain is somewhere the",
+        "  others never went.",
+        "",
+        checks.render(),
+        "=" * W,
+    ]
     return "\n".join(L)
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--logs", nargs="+", required=True,
-                    help="BEAST .log files, one per chain.")
-    ap.add_argument("--burnin", type=float, default=0.10,
-                    help="Fraction discarded from the head of EACH chain. "
-                         "Applied per chain, not to the pooled set.")
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument("--logs", nargs="+", required=True, help="BEAST .log files, one per chain.")
+    ap.add_argument(
+        "--burnin",
+        type=float,
+        default=0.10,
+        help="Fraction discarded from the head of EACH chain. "
+        "Applied per chain, not to the pooled set.",
+    )
     ap.add_argument("--min-ess", type=int, default=200)
-    ap.add_argument("--config", type=Path,
-                    help="Pathogen config, for min_ess and the date-policy "
-                         "check in preflight.check_convergence.")
+    ap.add_argument(
+        "--config",
+        type=Path,
+        help="Pathogen config, for min_ess and the date-policy "
+        "check in preflight.check_convergence.",
+    )
     ap.add_argument("--out-json", type=Path)
     ap.add_argument("--out-combined", type=Path)
     ap.add_argument("--out-md", type=Path)
-    ap.add_argument("--allow-fail", action="store_true",
-                    help="Report and exit 0 even on failure. For looking at a "
-                         "chain that is still running.")
+    ap.add_argument(
+        "--allow-fail",
+        action="store_true",
+        help="Report and exit 0 even on failure. For looking at a chain that is still running.",
+    )
     a = ap.parse_args()
 
     paths = [Path(p) for p in a.logs]
@@ -211,8 +253,7 @@ def main() -> int:
         except ConfigError as e:
             print(f"ERROR: {e}", file=sys.stderr)
             return 1
-        cfg.setdefault("beast", {})["min_ess"] = (
-            cfg.get("beast", {}).get("min_ess") or a.min_ess)
+        cfg.setdefault("beast", {})["min_ess"] = cfg.get("beast", {}).get("min_ess") or a.min_ess
 
     try:
         res = analyse(paths, a.burnin, cfg["beast"]["min_ess"])
@@ -220,8 +261,7 @@ def main() -> int:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
 
-    checks = check_convergence(cfg, res["ess"], len(res["chains"]),
-                               res["overlap"] or None)
+    checks = check_convergence(cfg, res["ess"], len(res["chains"]), res["overlap"] or None)
     text = report(res, checks)
     print(text)
 
@@ -231,19 +271,24 @@ def main() -> int:
 
     if a.out_json:
         a.out_json.parent.mkdir(parents=True, exist_ok=True)
-        a.out_json.write_text(json.dumps({
-            "verdict": "pass" if checks.ok else "fail",
-            "n_chains": len(res["chains"]),
-            "burnin": res["burnin"],
-            "min_ess": res["min_ess"],
-            "logs": [c["path"] for c in res["chains"]],
-            "samples_kept": [c["n_kept"] for c in res["chains"]],
-            "ess": res["ess"],
-            "ess_per_chain": res["ess_per_chain"],
-            "overlap": res["overlap"],
-            "hpd": res["hpd"],
-            "checks": checks.to_dict(),
-        }, indent=2))
+        a.out_json.write_text(
+            json.dumps(
+                {
+                    "verdict": "pass" if checks.ok else "fail",
+                    "n_chains": len(res["chains"]),
+                    "burnin": res["burnin"],
+                    "min_ess": res["min_ess"],
+                    "logs": [c["path"] for c in res["chains"]],
+                    "samples_kept": [c["n_kept"] for c in res["chains"]],
+                    "ess": res["ess"],
+                    "ess_per_chain": res["ess_per_chain"],
+                    "overlap": res["overlap"],
+                    "hpd": res["hpd"],
+                    "checks": checks.to_dict(),
+                },
+                indent=2,
+            )
+        )
         print(f"wrote {a.out_json}")
 
     if a.out_md:
@@ -252,8 +297,7 @@ def main() -> int:
         print(f"wrote {a.out_md}")
 
     if not checks.ok and not a.allow_fail:
-        print("\nexiting non-zero: the chains have not converged.",
-              file=sys.stderr)
+        print("\nexiting non-zero: the chains have not converged.", file=sys.stderr)
         return 1
     return 0
 

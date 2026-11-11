@@ -41,8 +41,16 @@ except ImportError as exc:
         "  notebook: %pip install biopython   (then restart the kernel)"
     ) from exc
 
-WILD = {"wild_felid", "wild_canid", "mustelid", "procyonid",
-        "pinniped", "ursid", "ailurid", "viverrid"}
+WILD = {
+    "wild_felid",
+    "wild_canid",
+    "mustelid",
+    "procyonid",
+    "pinniped",
+    "ursid",
+    "ailurid",
+    "viverrid",
+}
 
 
 def parse_label(name: str):
@@ -63,8 +71,9 @@ def split_into_clades(tree, target: int, min_size: int):
     """Repeatedly split the largest group at its own deepest division."""
     groups = [tree.root]
     while len(groups) < target:
-        splittable = [g for g in groups
-                      if len(g.get_terminals()) >= max(min_size * 2, 4) and g.clades]
+        splittable = [
+            g for g in groups if len(g.get_terminals()) >= max(min_size * 2, 4) and g.clades
+        ]
         if not splittable:
             break
         biggest = max(splittable, key=lambda c: len(c.get_terminals()))
@@ -77,15 +86,20 @@ def split_into_clades(tree, target: int, min_size: int):
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--tree", required=True, type=Path)
     ap.add_argument("--n-clades", type=int, default=8)
     ap.add_argument("--min-size", type=int, default=3)
-    ap.add_argument("--no-midpoint-root", action="store_true",
-                    help="Skip midpoint rooting (use if the tree is already rooted)")
-    ap.add_argument("--write-table", action="store_true",
-                    help="Write a per-tip table with clade membership")
+    ap.add_argument(
+        "--no-midpoint-root",
+        action="store_true",
+        help="Skip midpoint rooting (use if the tree is already rooted)",
+    )
+    ap.add_argument(
+        "--write-table", action="store_true", help="Write a per-tip table with clade membership"
+    )
     ap.add_argument("--outdir", type=Path, default=Path("data/processed"))
     args = ap.parse_args()
 
@@ -95,17 +109,20 @@ def main() -> int:
         if parent.is_dir():
             found = sorted(p.name for p in parent.glob("*.tree*"))
             print(f"Tree files in {parent}: {found or '(none)'}", file=sys.stderr)
-        print("\nBuild the tree first:\n"
-              "    python scripts/03_align_and_tree.py "
-              "--fasta data/processed/sequences_H.fasta "
-              "--metadata data/processed/metadata_clean.tsv", file=sys.stderr)
+        print(
+            "\nBuild the tree first:\n"
+            "    python scripts/03_align_and_tree.py "
+            "--fasta data/processed/sequences_H.fasta "
+            "--metadata data/processed/metadata_clean.tsv",
+            file=sys.stderr,
+        )
         return 1
 
     tree = Phylo.read(str(args.tree), "newick")
     if not args.no_midpoint_root:
         try:
             tree.root_at_midpoint()
-        except Exception as exc:                       # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             print(f"(midpoint rooting failed: {exc}; using the tree as-is)\n")
 
     tips = tree.get_terminals()
@@ -121,14 +138,16 @@ def main() -> int:
     print("\nHOST COMPOSITION")
     for host, n in hosts.most_common():
         marker = "  <- wild" if host in WILD else ""
-        print(f"  {host:<18} {n:>5}   {n/len(tips):>5.1%}{marker}")
+        print(f"  {host:<18} {n:>5}   {n / len(tips):>5.1%}{marker}")
     n_wild = sum(n for h, n in hosts.items() if h in WILD)
-    print(f"\n  wild carnivores total: {n_wild} ({n_wild/len(tips):.1%})")
+    print(f"\n  wild carnivores total: {n_wild} ({n_wild / len(tips):.1%})")
     if years:
         print(f"  sampling years: {min(years):.1f} - {max(years):.1f}")
     if "unparsed" in hosts:
-        print(f"\n  WARNING: {hosts['unparsed']} tips didn't parse as "
-              "ACCESSION|host_group|year — check the tip labels.")
+        print(
+            f"\n  WARNING: {hosts['unparsed']} tips didn't parse as "
+            "ACCESSION|host_group|year — check the tip labels."
+        )
 
     # ---- clade structure -------------------------------------------------
     groups = split_into_clades(tree, args.n_clades, args.min_size)
@@ -150,10 +169,13 @@ def main() -> int:
         wild_here = sum(n for h, n in comp.items() if h in WILD)
         support = getattr(clade, "confidence", None)
 
-        print(f"\n  {label}  ({len(members)} tips"
-              + (f", support {support}" if support is not None else "") + ")")
+        print(
+            f"\n  {label}  ({len(members)} tips"
+            + (f", support {support}" if support is not None else "")
+            + ")"
+        )
         if yrs:
-            print(f"    years: {min(yrs):.1f} - {max(yrs):.1f}  (span {max(yrs)-min(yrs):.1f})")
+            print(f"    years: {min(yrs):.1f} - {max(yrs):.1f}  (span {max(yrs) - min(yrs):.1f})")
         for host, n in comp.most_common():
             marker = "  <-" if host in WILD else ""
             print(f"    {host:<18} {n:>4}{marker}")
@@ -162,8 +184,9 @@ def main() -> int:
 
         for acc, host, year in members:
             tip_to_clade[acc] = label
-            rows.append({"accession": acc, "host_group": host,
-                         "decimal_year": year, "clade": label})
+            rows.append(
+                {"accession": acc, "host_group": host, "decimal_year": year, "clade": label}
+            )
 
     # ---- where the wild sequences are ------------------------------------
     print("\n" + "=" * 64)
@@ -186,6 +209,7 @@ def main() -> int:
     if args.write_table:
         try:
             import pandas as pd
+
             args.outdir.mkdir(parents=True, exist_ok=True)
             out = args.outdir / (args.tree.stem + "_clades.tsv")
             pd.DataFrame(rows).to_csv(out, sep="\t", index=False)

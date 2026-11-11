@@ -42,8 +42,7 @@ def fixtures(tmp_path_factory):
     """Generate the synthetic GenBank files once per session."""
     out = tmp_path_factory.mktemp("gb")
     script = ROOT / "tests" / "fixtures" / "make_genbank.py"
-    r = subprocess.run([sys.executable, str(script)], capture_output=True,
-                       text=True, cwd=ROOT)
+    r = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, cwd=ROOT)
     assert r.returncode == 0, f"fixture generation failed: {r.stderr}"
     src = ROOT / "tests" / "fixtures"
     return {"cdv": src / "cdv_test.gb", "btv": src / "btv_test.gb", "tmp": out}
@@ -51,14 +50,27 @@ def fixtures(tmp_path_factory):
 
 def run_curate(cfg: str, gb: Path, out: Path, *extra) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, "scripts/02_curate_metadata.py",
-         "--config", cfg, "--gb", str(gb), "--out-dir", str(out), *extra],
-        capture_output=True, text=True, cwd=ROOT)
+        [
+            sys.executable,
+            "scripts/02_curate_metadata.py",
+            "--config",
+            cfg,
+            "--gb",
+            str(gb),
+            "--out-dir",
+            str(out),
+            *extra,
+        ],
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+    )
 
 
 # =============================================================================
 # 01 — query construction
 # =============================================================================
+
 
 def test_query_uses_organism_exp(fetch_mod):
     """
@@ -100,16 +112,25 @@ def test_empty_query_filter_leaves_no_dangling_operator(fetch_mod):
 def test_fetch_requires_email(fetch_mod, tmp_path):
     """NCBI blocks anonymous bulk download; failing late wastes the run."""
     r = subprocess.run(
-        [sys.executable, "scripts/01_fetch_sequences.py",
-         "--config", "config/pathogen/cdv.yaml", "--dry-run"],
-        capture_output=True, text=True, cwd=ROOT,
-        env={"PATH": "/usr/bin:/bin", "NCBI_EMAIL": ""})
+        [
+            sys.executable,
+            "scripts/01_fetch_sequences.py",
+            "--config",
+            "config/pathogen/cdv.yaml",
+            "--dry-run",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+        env={"PATH": "/usr/bin:/bin", "NCBI_EMAIL": ""},
+    )
     assert r.returncode == 2
 
 
 # =============================================================================
 # 02 — curation, single locus (CDV)
 # =============================================================================
+
 
 @pytest.fixture(scope="session")
 def cdv_out(fixtures, tmp_path_factory):
@@ -124,8 +145,13 @@ def _tsv(out: Path, name: str):
 
 
 def test_curation_writes_every_expected_output(cdv_out):
-    for f in ("metadata_all.tsv", "metadata_clean.tsv", "exclusions.tsv",
-              "needs_review.tsv", "H.fasta"):
+    for f in (
+        "metadata_all.tsv",
+        "metadata_clean.tsv",
+        "exclusions.tsv",
+        "needs_review.tsv",
+        "H.fasta",
+    ):
         assert (cdv_out / f).is_file(), f"{f} was not written"
 
 
@@ -182,7 +208,7 @@ def test_missing_date_is_excluded_but_not_flagged_for_review(cdv_out):
 def test_locus_alias_spellings_are_matched(cdv_out):
     """GenBank spells the same gene several ways; aliases come from config."""
     clean = _tsv(cdv_out, "metadata_clean.tsv")
-    assert "AF100003.1" in set(clean["accession"])   # 'haemagglutinin'
+    assert "AF100003.1" in set(clean["accession"])  # 'haemagglutinin'
 
 
 def test_length_heuristic_fallback_and_review_flag(cdv_out):
@@ -216,8 +242,9 @@ def test_pinniped_resolves_to_its_own_species_and_group(cdv_out):
 
 def test_tip_labels_follow_the_downstream_contract(cdv_out):
     """ACCESSION|host_group|decimal_year is what 04 and 06 parse."""
-    labels = [l[1:].strip() for l in (cdv_out / "H.fasta").read_text().splitlines()
-              if l.startswith(">")]
+    labels = [
+        l[1:].strip() for l in (cdv_out / "H.fasta").read_text().splitlines() if l.startswith(">")
+    ]
     assert labels
     for lab in labels:
         parts = lab.split("|")
@@ -235,8 +262,7 @@ def test_nothing_is_dropped_silently(cdv_out):
 
 
 def test_keep_vaccines_flag_retains_them(fixtures, tmp_path):
-    r = run_curate("config/pathogen/cdv.yaml", fixtures["cdv"], tmp_path,
-                   "--keep-vaccines")
+    r = run_curate("config/pathogen/cdv.yaml", fixtures["cdv"], tmp_path, "--keep-vaccines")
     assert r.returncode == 0
     clean = pd.read_csv(tmp_path / "metadata_clean.tsv", sep="\t")
     assert "AF100006.1" in set(clean["accession"])
@@ -245,6 +271,7 @@ def test_keep_vaccines_flag_retains_them(fixtures, tmp_path):
 # =============================================================================
 # 02 — curation, multi-locus (BTV)
 # =============================================================================
+
 
 @pytest.fixture(scope="session")
 def btv_out(fixtures, tmp_path_factory):
@@ -269,12 +296,18 @@ def test_segments_share_taxon_labels(btv_out):
     reason for analysing segments separately, cannot be assessed at all.
     Labels must key on the isolate.
     """
+
     def labels(seg):
-        return {l[1:].strip() for l in (btv_out / f"{seg}.fasta").read_text().splitlines()
-                if l.startswith(">")}
+        return {
+            l[1:].strip()
+            for l in (btv_out / f"{seg}.fasta").read_text().splitlines()
+            if l.startswith(">")
+        }
+
     a, b, c = labels("seg2"), labels("seg6"), labels("seg10")
     assert a and a == b == c, (
-        "segment trees share no taxa; congruence screening would be impossible")
+        "segment trees share no taxa; congruence screening would be impossible"
+    )
 
 
 def test_segment_qualifier_assigns_the_right_locus(btv_out):
@@ -321,6 +354,7 @@ REFS = "tests/fixtures/refs_test.tsv"
 @pytest.fixture(scope="session")
 def anchor_cfg(tmp_path_factory):
     import yaml
+
     cfg = yaml.safe_load((ROOT / "config/pathogen/cdv.yaml").read_text())
     cfg["references"]["table"] = REFS
     cfg["references"]["include_as_anchors"] = True
@@ -417,6 +451,7 @@ def test_an_anchor_without_the_locus_is_still_dropped(anchored):
 # 29 of 162 published clade-3 sequences have lengths that are not multiples
 # of 3 and therefore cannot be translated in frame.
 
+
 def test_overlong_annotated_feature_is_flagged(cdv_out):
     """
     1946 nt against an 1824 nt CDS — a `gene` feature spanning UTR, or a
@@ -434,7 +469,7 @@ def test_out_of_frame_length_is_flagged(cdv_out):
     assert "AF100016.1" in set(_tsv(cdv_out, "flagged.tsv")["accession"])
     allr = _tsv(cdv_out, "metadata_all.tsv")
     row = allr[allr["accession"] == "AF100016.1"].iloc[0]
-    assert row["H_in_frame"] == False        # noqa: E712 — pandas bool column
+    assert row["H_in_frame"] == False  # noqa: E712 — pandas bool column
 
 
 def test_partial_annotations_are_not_flagged(cdv_out):
@@ -446,8 +481,7 @@ def test_partial_annotations_are_not_flagged(cdv_out):
     dominates the published clade 3.
     """
     allr = _tsv(cdv_out, "metadata_all.tsv")
-    partial = allr[allr["has_H"] & (allr["H_length"] < 1824)
-                   & (allr["H_length"] >= 400)]
+    partial = allr[allr["has_H"] & (allr["H_length"] < 1824) & (allr["H_length"] >= 400)]
     assert len(partial), "fixture has no partial-H record to test with"
     flagged = partial["H_source"].astype(str).str.endswith("_overlength")
     assert not flagged.any(), "a partial annotation was flagged as suspicious"
@@ -458,7 +492,7 @@ def test_correct_length_is_not_flagged(cdv_out):
     allr = _tsv(cdv_out, "metadata_all.tsv")
     row = allr[allr["accession"] == "AF100001.1"].iloc[0]
     assert row["H_length"] == 1824
-    assert row["H_in_frame"] == True         # noqa: E712
+    assert row["H_in_frame"] == True  # noqa: E712
     assert row["H_source"] == "annotation"
 
 
@@ -475,12 +509,15 @@ def test_cds_span_must_be_a_multiple_of_three():
     annotation scripts.
     """
     import yaml
+
     from lib.config import validate
+
     cfg = yaml.safe_load((ROOT / "config/pathogen/cdv.yaml").read_text())
     cfg["_path"] = "x"
     errors, _ = validate(cfg)
-    assert not any("multiple of 3" in e for e in errors), \
+    assert not any("multiple of 3" in e for e in errors), (
         "the shipped CDV cds span is not a multiple of 3"
+    )
 
     cfg["locus"]["coordinate_reference"]["cds"] = [21, 1836]
     errors, _ = validate(cfg)
@@ -489,7 +526,9 @@ def test_cds_span_must_be_a_multiple_of_three():
 
 def test_cds_span_disagreeing_with_expected_length_warns():
     import yaml
+
     from lib.config import validate
+
     cfg = yaml.safe_load((ROOT / "config/pathogen/cdv.yaml").read_text())
     cfg["_path"] = "x"
     cfg["locus"]["coordinate_reference"]["cds"] = [1, 1200]
@@ -503,6 +542,7 @@ def test_cds_span_disagreeing_with_expected_length_warns():
 #
 # The two were conflated and the pile reached 1209 records on the real CDV
 # dataset — a volume nobody adjudicates, which makes the gate worthless.
+
 
 def test_review_holds_only_records_needing_a_decision(cdv_out):
     rv = _tsv(cdv_out, "needs_review.tsv")

@@ -36,8 +36,9 @@ def clade(prefix, n, t0, span, host, stem, rng):
     tips = []
     for i in range(n):
         d = t0 + rng.random() * span
-        tips.append((f"{prefix}{i:03d}|{host}|{d:.3f}",
-                     max((d - t0) * RATE, 1e-6)))     # target root-to-tip depth
+        tips.append(
+            (f"{prefix}{i:03d}|{host}|{d:.3f}", max((d - t0) * RATE, 1e-6))
+        )  # target root-to-tip depth
 
     def build(items, parent_depth):
         if len(items) == 1:
@@ -47,11 +48,13 @@ def clade(prefix, n, t0, span, host, stem, rng):
         # every descendant keeps its exact target depth.
         node_depth = parent_depth + 0.5 * (min(d for _, d in items) - parent_depth)
         mid = len(items) // 2
-        return (f"({build(items[:mid], node_depth)},"
-                f"{build(items[mid:], node_depth)})"
-                f":{max(node_depth - parent_depth, 1e-7):.8f}")
+        return (
+            f"({build(items[:mid], node_depth)},"
+            f"{build(items[mid:], node_depth)})"
+            f":{max(node_depth - parent_depth, 1e-7):.8f}"
+        )
 
-    return f"{build(tips, 0.0)[:-len(build(tips, 0.0).split(':')[-1]) - 1]}:{stem}"
+    return f"{build(tips, 0.0)[: -len(build(tips, 0.0).split(':')[-1]) - 1]}:{stem}"
 
 
 def structured_tree(path, stems=(2.5, 2.7, 2.6), seed=7):
@@ -67,13 +70,26 @@ def structured_tree(path, stems=(2.5, 2.7, 2.6), seed=7):
 
 def run(tree, out, *extra):
     return subprocess.run(
-        [sys.executable, "scripts/05c_cut_clades.py", "--tree", str(tree),
-         "--out-tsv", str(out), "--permutations", "200", *map(str, extra)],
-        capture_output=True, text=True, cwd=ROOT)
+        [
+            sys.executable,
+            "scripts/05c_cut_clades.py",
+            "--tree",
+            str(tree),
+            "--out-tsv",
+            str(out),
+            "--permutations",
+            "200",
+            *map(str, extra),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+    )
 
 
 def rows(path):
     import csv
+
     with open(path) as fh:
         return list(csv.DictReader(fh, delimiter="\t"))
 
@@ -99,7 +115,7 @@ def test_small_groups_are_excluded(tmp_path):
     t = structured_tree(tmp_path / "t.nwk")
     run(t, tmp_path / "c.tsv", "--max-diversity", 0.10, "--min-size", 50)
     got = rows(tmp_path / "c.tsv")
-    assert len(got) == 1                      # only the 60-tip clade qualifies
+    assert len(got) == 1  # only the 60-tip clade qualifies
     assert int(got[0]["n_tips"]) == 60
 
 
@@ -133,8 +149,16 @@ def test_clade_diversity_stays_under_the_threshold(tmp_path):
 
 def test_tip_lists_are_written(tmp_path):
     t = structured_tree(tmp_path / "t.nwk")
-    run(t, tmp_path / "c.tsv", "--max-diversity", 0.10, "--min-size", 20,
-        "--out-dir", tmp_path / "tips")
+    run(
+        t,
+        tmp_path / "c.tsv",
+        "--max-diversity",
+        0.10,
+        "--min-size",
+        20,
+        "--out-dir",
+        tmp_path / "tips",
+    )
     files = sorted((tmp_path / "tips").glob("*_tips.txt"))
     assert len(files) == 3
     assert sum(1 for _ in files[0].open()) >= 20
@@ -147,12 +171,11 @@ def test_references_label_clades_when_they_fall_inside(tmp_path):
         "# comment header\n"
         "A000\tAmerica-2\tstrain\tnuc\tsource\n"
         "B000\tEurope\tstrain\tnuc\tsource\n"
-        "ZZZZ\tAsia-4\tstrain\tprot\tsource\n")   # protein: must be ignored
-    r = run(t, tmp_path / "c.tsv", "--max-diversity", 0.10, "--min-size", 20,
-            "--references", refs)
+        "ZZZZ\tAsia-4\tstrain\tprot\tsource\n"
+    )  # protein: must be ignored
+    r = run(t, tmp_path / "c.tsv", "--max-diversity", 0.10, "--min-size", 20, "--references", refs)
     assert "2 usable nucleotide references loaded" in r.stdout
-    labels = {row["clade"]: row["reference_lineages"]
-              for row in rows(tmp_path / "c.tsv")}
+    labels = {row["clade"]: row["reference_lineages"] for row in rows(tmp_path / "c.tsv")}
     assert "America-2" in "".join(labels.values())
     assert "Europe" in "".join(labels.values())
     assert "Asia-4" not in "".join(labels.values())
@@ -166,13 +189,24 @@ def test_coverage_filter_prunes_tips(tmp_path):
     pd = pytest.importorskip("pandas")
     t = structured_tree(tmp_path / "t.nwk")
     from Bio import Phylo
+
     names = [x.name for x in Phylo.read(str(t), "newick").get_terminals()]
     qc = tmp_path / "qc.tsv"
-    pd.DataFrame({"name": names,
-                  "ungapped_len": [1800 if n.startswith("A") else 500
-                                   for n in names]}).to_csv(qc, sep="\t", index=False)
-    r = run(t, tmp_path / "c.tsv", "--max-diversity", 0.10, "--min-size", 20,
-            "--qc", qc, "--min-ungapped", 1500)
+    pd.DataFrame(
+        {"name": names, "ungapped_len": [1800 if n.startswith("A") else 500 for n in names]}
+    ).to_csv(qc, sep="\t", index=False)
+    r = run(
+        t,
+        tmp_path / "c.tsv",
+        "--max-diversity",
+        0.10,
+        "--min-size",
+        20,
+        "--qc",
+        qc,
+        "--min-ungapped",
+        1500,
+    )
     assert "pruned 80 tips" in r.stdout
     got = rows(tmp_path / "c.tsv")
     assert len(got) == 1 and int(got[0]["n_tips"]) == 60
@@ -193,9 +227,11 @@ def test_no_clades_when_everything_is_too_divergent(tmp_path):
 
 # --- bootstrap support ------------------------------------------------------
 
+
 def supported_tree(path, value=98, seed=7):
     """The same structured tree with a support value on every internal node."""
     import re
+
     src = structured_tree(path.with_suffix(".plain"), seed=seed).read_text()
     path.write_text(re.sub(r"\)(:)", lambda m: f"){value}" + m.group(1), src))
     return path
@@ -216,8 +252,7 @@ def test_absent_support_is_not_treated_as_zero(tmp_path):
     reader to ignore the column.
     """
     t = structured_tree(tmp_path / "p.nwk")
-    r = run(t, tmp_path / "c.tsv", "--max-diversity", 0.10, "--min-size", 20,
-            "--min-support", 95)
+    r = run(t, tmp_path / "c.tsv", "--max-diversity", 0.10, "--min-size", 20, "--min-support", 95)
     assert r.returncode == 0
     assert "carries no support values" in r.stdout
     for row in rows(tmp_path / "c.tsv"):
@@ -231,8 +266,7 @@ def test_weak_stem_support_is_called_out(tmp_path):
     days of BEAST go into it.
     """
     t = supported_tree(tmp_path / "w.nwk", value=42)
-    r = run(t, tmp_path / "c.tsv", "--max-diversity", 0.10, "--min-size", 20,
-            "--min-support", 95)
+    r = run(t, tmp_path / "c.tsv", "--max-diversity", 0.10, "--min-size", 20, "--min-support", 95)
     assert r.returncode == 0
     assert "stem support below 95" in r.stdout
     assert "may not exist" in r.stdout
@@ -240,6 +274,5 @@ def test_weak_stem_support_is_called_out(tmp_path):
 
 def test_strong_support_produces_no_warning(tmp_path):
     t = supported_tree(tmp_path / "g.nwk", value=99)
-    r = run(t, tmp_path / "c.tsv", "--max-diversity", 0.10, "--min-size", 20,
-            "--min-support", 95)
+    r = run(t, tmp_path / "c.tsv", "--max-diversity", 0.10, "--min-size", 20, "--min-support", 95)
     assert "stem support below" not in r.stdout

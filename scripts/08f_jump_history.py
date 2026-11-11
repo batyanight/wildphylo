@@ -65,8 +65,6 @@ The most recent tip date is taken from those labels unless --most-recent is give
 
 import argparse
 import glob as globmod
-import gzip
-import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -107,13 +105,13 @@ def sd(vals):
 # --------------------------------------------------------------------------- #
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib.traittrees import (                                    # noqa: E402
-    NUMBER_RE, TREE_LINE_RE, TRANSLATE_ROW_RE,
-    smart_open, read_bracket, annotation_value, NewickParser,
-    strip_leading_comment, detect_tag, iter_trees,
-    node_depths, label_date,
+from lib.traittrees import (  # noqa: E402
+    TREE_LINE_RE,
+    iter_trees,
+    label_date,
+    node_depths,
+    smart_open,
 )
-
 
 # --------------------------------------------------------------------------- #
 # main
@@ -125,28 +123,60 @@ def main():
         description="Height-stratified host-transition counter for BEAST2 DTA trees.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("--trees", nargs="+", required=True,
-                    help="one or more .host.trees files (.gz ok); pass every seed")
-    ap.add_argument("--burnin", type=float, default=0.10,
-                    help="fraction of trees discarded from the START of each file (default 0.10)")
-    ap.add_argument("--tag", default=None,
-                    help="annotation key holding the state (default: auto-detect; "
-                         "this repo's XML uses 'location')")
-    ap.add_argument("--code-map", default=None,
-                    help='BEAST codeMap string, e.g. "domestic_dog=0,mustelid=1,..." '
-                         "— only needed if the trees store numeric codes")
-    ap.add_argument("--most-recent", type=float, default=None,
-                    help="decimal year of the most recent tip (default: read from tip labels)")
-    ap.add_argument("--min-prob", type=float, default=None,
-                    help="drop jumps where either endpoint's state probability is below this "
-                         "(only works if the logger wrote <tag>.prob)")
-    ap.add_argument("--cutoff", type=float, default=None,
-                    help="year separating 'deep' from 'shallow' jumps "
-                         "(default: median of all jump midpoints)")
-    ap.add_argument("--focus", default=None,
-                    help="transition to interrogate, as FROM:TO, e.g. wild_felid:procyonid")
-    ap.add_argument("--out", type=Path, default=None,
-                    help="write the per-jump TSV here (default: no file, summary only)")
+    ap.add_argument(
+        "--trees",
+        nargs="+",
+        required=True,
+        help="one or more .host.trees files (.gz ok); pass every seed",
+    )
+    ap.add_argument(
+        "--burnin",
+        type=float,
+        default=0.10,
+        help="fraction of trees discarded from the START of each file (default 0.10)",
+    )
+    ap.add_argument(
+        "--tag",
+        default=None,
+        help="annotation key holding the state (default: auto-detect; "
+        "this repo's XML uses 'location')",
+    )
+    ap.add_argument(
+        "--code-map",
+        default=None,
+        help='BEAST codeMap string, e.g. "domestic_dog=0,mustelid=1,..." '
+        "— only needed if the trees store numeric codes",
+    )
+    ap.add_argument(
+        "--most-recent",
+        type=float,
+        default=None,
+        help="decimal year of the most recent tip (default: read from tip labels)",
+    )
+    ap.add_argument(
+        "--min-prob",
+        type=float,
+        default=None,
+        help="drop jumps where either endpoint's state probability is below this "
+        "(only works if the logger wrote <tag>.prob)",
+    )
+    ap.add_argument(
+        "--cutoff",
+        type=float,
+        default=None,
+        help="year separating 'deep' from 'shallow' jumps (default: median of all jump midpoints)",
+    )
+    ap.add_argument(
+        "--focus",
+        default=None,
+        help="transition to interrogate, as FROM:TO, e.g. wild_felid:procyonid",
+    )
+    ap.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="write the per-jump TSV here (default: no file, summary only)",
+    )
     args = ap.parse_args()
 
     code_lookup = {}
@@ -174,9 +204,9 @@ def main():
             sys.exit(f"no file matched: {pattern}")
         files.extend(hits)
 
-    jumps = []              # see TSV header below for column order
-    tip_census = None       # [(state, decimal_year)] taken from the first tree
-    per_tree_counts = []    # jumps per retained tree
+    jumps = []  # see TSV header below for column order
+    tip_census = None  # [(state, decimal_year)] taken from the first tree
+    per_tree_counts = []  # jumps per retained tree
     root_states = Counter()
     trees_seen = defaultdict(int)
     trees_used = 0
@@ -212,9 +242,7 @@ def main():
                 dates = [label_date(nodes[i]["label"]) for i in tip_idx]
                 dates = [d for d in dates if d is not None]
                 if not dates:
-                    sys.exit(
-                        "Tip labels carry no parseable date and --most-recent was not given."
-                    )
+                    sys.exit("Tip labels carry no parseable date and --most-recent was not given.")
                 most_recent = max(dates)
 
             def year(i):
@@ -243,8 +271,7 @@ def main():
                 r = next(i for i, nd in enumerate(nodes) if nd["parent"] == r)
             root_states[decode(nodes[r]["state"])] += 1
             missing_states[0] += sum(
-                1 for i, nd in enumerate(nodes)
-                if nd["state"] is None and i != r and i not in stem
+                1 for i, nd in enumerate(nodes) if nd["state"] is None and i != r and i not in stem
             )
 
             n_here = 0
@@ -263,8 +290,19 @@ def main():
                         continue
                 y_p, y_c = year(p), year(i)
                 jumps.append(
-                    (path.name, tree_i, s_from, s_to, y_p, y_c, (y_p + y_c) / 2.0,
-                     nd["length"], nodes[p]["prob"], nd["prob"], nd["is_tip"])
+                    (
+                        path.name,
+                        tree_i,
+                        s_from,
+                        s_to,
+                        y_p,
+                        y_c,
+                        (y_p + y_c) / 2.0,
+                        nd["length"],
+                        nodes[p]["prob"],
+                        nd["prob"],
+                        nd["is_tip"],
+                    )
                 )
                 n_here += 1
             per_tree_counts.append(n_here)
@@ -276,17 +314,23 @@ def main():
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         with open(args.out, "w") as fh:
-            fh.write("file\ttree\tfrom\tto\tparent_year\tchild_year\tmid_year\t"
-                     "branch_length\tparent_prob\tchild_prob\tchild_is_tip\n")
-            for row in jumps:
-                fh.write(
-                    "{}\t{}\t{}\t{}\t{:.4f}\t{:.4f}\t{:.4f}\t{:.6f}\t{}\t{}\t{}\n".format(
-                        row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7],
+            fh.write(
+                "file\ttree\tfrom\tto\tparent_year\tchild_year\tmid_year\t"
+                "branch_length\tparent_prob\tchild_prob\tchild_is_tip\n"
+            )
+            fh.writelines("{}\t{}\t{}\t{}\t{:.4f}\t{:.4f}\t{:.4f}\t{:.6f}\t{}\t{}\t{}\n".format(
+                        row[0],
+                        row[1],
+                        row[2],
+                        row[3],
+                        row[4],
+                        row[5],
+                        row[6],
+                        row[7],
                         "" if row[8] is None else f"{row[8]:.4f}",
                         "" if row[9] is None else f"{row[9]:.4f}",
                         int(row[10]),
-                    )
-                )
+                    ) for row in jumps)
 
     W = 78
     print("=" * W)
@@ -299,15 +343,19 @@ def main():
     print(f"transitions recorded : {len(jumps)}")
     print(f"per tree             : mean {mean(per_tree_counts):.2f}, sd {sd(per_tree_counts):.2f}")
     if missing_states[0]:
-        print(f"WARNING              : {missing_states[0]} nodes carried no "
-              f"'{resolved_tag}' state and were skipped — transition counts are "
-              "incomplete. Check --tag.")
+        print(
+            f"WARNING              : {missing_states[0]} nodes carried no "
+            f"'{resolved_tag}' state and were skipped — transition counts are "
+            "incomplete. Check --tag."
+        )
     if date_errors:
-        print(f"tip-date check       : max |reconstructed - label| = {max(date_errors):.4f} yr "
-              f"({'OK' if max(date_errors) < 0.01 else 'MISMATCH — heights are suspect'})")
+        print(
+            f"tip-date check       : max |reconstructed - label| = {max(date_errors):.4f} yr "
+            f"({'OK' if max(date_errors) < 0.01 else 'MISMATCH — heights are suspect'})"
+        )
 
     census = defaultdict(list)
-    for st, yr in (tip_census or []):
+    for st, yr in tip_census or []:
         census[st].append(yr)
     n_tips = sum(len(v) for v in census.values())
 
@@ -318,7 +366,7 @@ def main():
         ys = [y for y in yrs if y is not None]
         lo = min(ys) if ys else float("nan")
         hi = max(ys) if ys else float("nan")
-        print(f"  {str(st):<16}{len(yrs):>6}{len(yrs) / n_tips:>8.1%}{lo:>10.1f}{hi:>10.1f}")
+        print(f"  {st!s:<16}{len(yrs):>6}{len(yrs) / n_tips:>8.1%}{lo:>10.1f}{hi:>10.1f}")
         if ys and (oldest_overall is None or lo < oldest_overall):
             oldest_overall = lo
     if oldest_overall is not None:
@@ -331,13 +379,17 @@ def main():
     total_roots = sum(root_states.values())
     top_state, top_n = root_states.most_common(1)[0]
     for state, n in root_states.most_common():
-        print(f"  {str(state):<16} {n / total_roots:6.1%}  ({n})")
+        print(f"  {state!s:<16} {n / total_roots:6.1%}  ({n})")
     tip_share = len(census.get(top_state, [])) / n_tips if n_tips else float("nan")
-    print(f"\n  {top_state} holds the root in {top_n / total_roots:.0%} of trees "
-          f"while carrying {tip_share:.0%} of the tips.")
+    print(
+        f"\n  {top_state} holds the root in {top_n / total_roots:.0%} of trees "
+        f"while carrying {tip_share:.0%} of the tips."
+    )
     if oldest_states:
-        print(f"  Oldest tips (within 1 yr of {oldest_overall:.1f}): "
-              f"{', '.join(sorted(oldest_states))}")
+        print(
+            f"  Oldest tips (within 1 yr of {oldest_overall:.1f}): "
+            f"{', '.join(sorted(oldest_states))}"
+        )
     if top_state in oldest_states and tip_share < 0.25:
         print("  READ: a minority state that also anchors the oldest tips is winning")
         print("  the root. Outbound transitions from it are inflated by that anchoring;")
@@ -354,17 +406,18 @@ def main():
             term_type[(j[2], j[3])] += 1
 
     print(f"\n--- TRANSITIONS, ranked  (cutoff for 'deep' = {cutoff:.1f}) " + "-" * 12)
-    print(f"  {'transition':<30}{'n':>7}{'%':>7}{'median':>8}{'IQR':>16}"
-          f"{'%deep':>7}{'%term':>7}")
+    print(f"  {'transition':<30}{'n':>7}{'%':>7}{'median':>8}{'IQR':>16}{'%deep':>7}{'%term':>7}")
     for (a, b), yrs in sorted(by_type.items(), key=lambda kv: -len(kv[1])):
         ys = sorted(yrs)
         pct = len(ys) / len(jumps)
         deep = sum(1 for y in ys if y < cutoff) / len(ys)
         term = term_type[(a, b)] / len(ys)
-        print(f"  {a + ' -> ' + b:<30}{len(ys):>7}{pct:>7.1%}"
-              f"{quantile(ys, 0.5):>8.1f}"
-              f"{f'{quantile(ys, 0.25):.1f}-{quantile(ys, 0.75):.1f}':>16}"
-              f"{deep:>7.0%}{term:>7.0%}")
+        print(
+            f"  {a + ' -> ' + b:<30}{len(ys):>7}{pct:>7.1%}"
+            f"{quantile(ys, 0.5):>8.1f}"
+            f"{f'{quantile(ys, 0.25):.1f}-{quantile(ys, 0.75):.1f}':>16}"
+            f"{deep:>7.0%}{term:>7.0%}"
+        )
     print("  %deep = share older than the cutoff. %term = share landing on a")
     print("  terminal branch, i.e. explaining one tip's label rather than any")
     print("  onward transmission.")
@@ -382,11 +435,15 @@ def main():
             others = sorted(y for (a, b), v in by_type.items() if (a, b) != (fa, fb) for y in v)
             print(f"\n--- FOCUS: {fa} -> {fb} " + "-" * (W - 13 - len(fa) - len(fb)))
             print(f"  n = {len(ys)}  ({len(ys) / len(jumps):.1%} of all transitions)")
-            print(f"  jump year   median {quantile(ys, 0.5):.1f}, "
-                  f"IQR {quantile(ys, 0.25):.1f}-{quantile(ys, 0.75):.1f}, "
-                  f"range {ys[0]:.1f}-{ys[-1]:.1f}")
-            print(f"  all others  median {quantile(others, 0.5):.1f}, "
-                  f"IQR {quantile(others, 0.25):.1f}-{quantile(others, 0.75):.1f}")
+            print(
+                f"  jump year   median {quantile(ys, 0.5):.1f}, "
+                f"IQR {quantile(ys, 0.25):.1f}-{quantile(ys, 0.75):.1f}, "
+                f"range {ys[0]:.1f}-{ys[-1]:.1f}"
+            )
+            print(
+                f"  all others  median {quantile(others, 0.5):.1f}, "
+                f"IQR {quantile(others, 0.25):.1f}-{quantile(others, 0.75):.1f}"
+            )
             oldest_decade = sum(1 for y in ys if y < ys[0] + 10) / len(ys)
             print(f"  share within 10 yr of its own oldest jump: {oldest_decade:.0%}")
             n_term = sum(1 for j in focus_rows if j[10])
@@ -401,8 +458,10 @@ def main():
                     continue
                 bar = "#" * max(1, round(40 * len(rows) / len(focus_rows)))
                 t = sum(1 for j in rows if j[10]) / len(rows)
-                print(f"    {d}s {len(rows):>7} ({len(rows) / len(focus_rows):>4.0%}) "
-                      f"term {t:>4.0%}  {bar}")
+                print(
+                    f"    {d}s {len(rows):>7} ({len(rows) / len(focus_rows):>4.0%}) "
+                    f"term {t:>4.0%}  {bar}"
+                )
             print("\n  Two separated humps mean two processes are being pooled: deep")
             print("  jumps from root anchoring, and shallow ones from something else.")
             print("  If the shallow hump is mostly terminal, it is tip labels, not spread.")

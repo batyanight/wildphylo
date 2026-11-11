@@ -1,5 +1,4 @@
-"""
-temporal.py — does the data actually support tip-dating?
+"""temporal.py — does the data actually support tip-dating?
 
 This replaces the manual TempEst step. Nothing in the original pipeline asked
 whether a molecular clock was estimable before writing a clock prior into a
@@ -31,14 +30,14 @@ from __future__ import annotations
 
 import math
 import random
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, dataclass, field
 
 
 @dataclass
 class RegressionResult:
     rooting: str
     n: int
-    slope: float              # substitutions/site/year
+    slope: float  # substitutions/site/year
     intercept: float
     r_squared: float
     correlation: float
@@ -53,8 +52,8 @@ class TemporalReport:
     latest: float
     precision_counts: dict = field(default_factory=dict)
     frac_year_only: float = 0.0
-    occupancy: float = 0.0       # fraction of year-bins in the span with >=1 tip
-    concentration: float = 0.0   # largest fraction of tips in any 10-year window
+    occupancy: float = 0.0  # fraction of year-bins in the span with >=1 tip
+    concentration: float = 0.0  # largest fraction of tips in any 10-year window
     regressions: list = field(default_factory=list)
     permutation_p: float | None = None
     permutation_n: int = 0
@@ -63,8 +62,7 @@ class TemporalReport:
 
     def to_dict(self) -> dict:
         d = asdict(self)
-        d["regressions"] = [asdict(r) if not isinstance(r, dict) else r
-                            for r in self.regressions]
+        d["regressions"] = [asdict(r) if not isinstance(r, dict) else r for r in self.regressions]
         return d
 
 
@@ -84,18 +82,19 @@ def _linreg(xs: list[float], ys: list[float]) -> tuple[float, float, float, floa
     return slope, intercept, r * r, r
 
 
-def root_to_tip(dates: list[float], distances: list[float],
-                rooting: str = "given") -> RegressionResult:
+def root_to_tip(
+    dates: list[float], distances: list[float], rooting: str = "given"
+) -> RegressionResult:
     """Regress root-to-tip genetic distance on sampling date."""
     slope, intercept, r2, r = _linreg(dates, distances)
     x_int = (-intercept / slope) if slope > 0 else None
     return RegressionResult(rooting, len(dates), slope, intercept, r2, r, x_int)
 
 
-def permutation_test(dates: list[float], distances: list[float],
-                     n_perm: int = 1000, seed: int = 12345) -> float:
-    """
-    One-sided p: how often does a random date assignment produce a slope at
+def permutation_test(
+    dates: list[float], distances: list[float], n_perm: int = 1000, seed: int = 12345
+) -> float:
+    """One-sided p: how often does a random date assignment produce a slope at
     least as steep as the observed one? A p above ~0.05 means the apparent
     clock signal is indistinguishable from noise, and any TMRCA estimated
     from these dates is an artefact of the tree shape, not of time.
@@ -112,10 +111,8 @@ def permutation_test(dates: list[float], distances: list[float],
     return (hits + 1) / (n_perm + 1)
 
 
-def sampling_diagnostics(dates: list[float],
-                         precisions: list[str] | None = None) -> dict:
-    """
-    Describe the temporal design of the dataset. These are the numbers that
+def sampling_diagnostics(dates: list[float], precisions: list[str] | None = None) -> dict:
+    """Describe the temporal design of the dataset. These are the numbers that
     decide whether a deep TMRCA is inference or extrapolation.
     """
     if not dates:
@@ -139,25 +136,31 @@ def sampling_diagnostics(dates: list[float],
         concentration = 1.0
 
     out = {
-        "earliest": lo, "latest": hi, "span_years": span,
-        "occupancy": occupancy, "concentration": concentration,
+        "earliest": lo,
+        "latest": hi,
+        "span_years": span,
+        "occupancy": occupancy,
+        "concentration": concentration,
     }
     if precisions:
         from collections import Counter
+
         c = Counter(precisions)
         out["precision_counts"] = dict(c)
         out["frac_year_only"] = (c.get("year", 0) + c.get("range", 0)) / len(precisions)
     return out
 
 
-def assess(dates: list[float], distances: list[float],
-           precisions: list[str] | None = None,
-           n_perm: int = 1000,
-           min_r2: float = 0.10,
-           min_span: float = 5.0,
-           seed: int = 12345) -> TemporalReport:
-    """
-    Run the whole assessment and return a verdict of pass / weak / fail.
+def assess(
+    dates: list[float],
+    distances: list[float],
+    precisions: list[str] | None = None,
+    n_perm: int = 1000,
+    min_r2: float = 0.10,
+    min_span: float = 5.0,
+    seed: int = 12345,
+) -> TemporalReport:
+    """Run the whole assessment and return a verdict of pass / weak / fail.
 
     The thresholds are deliberately not strict statistical tests -- there is no
     universally right R^2 for a molecular clock. They are tripwires. 'weak'
@@ -194,48 +197,57 @@ def assess(dates: list[float], distances: list[float],
                 "TIME AXIS INVERTED: this looks like a time-scaled tree, and "
                 "the root-to-tip slope is -1.0. Tip heights run backwards "
                 "relative to sampling dates. Check date-forward vs "
-                "date-backward before interpreting anything downstream")
+                "date-backward before interpreting anything downstream"
+            )
             rep.verdict = "fail"
             rep.notes = notes
             return rep
         notes.append(
             "slope is +1.0: this is a time-scaled tree, so the slope confirms "
             "the time axis is correct but is not a substitution-rate estimate. "
-            "For a rate, run this on the ML tree in substitutions per site")
+            "For a rate, run this on the ML tree in substitutions per site"
+        )
 
     if rep.span_years < min_span:
         notes.append(
             f"sampling span is {rep.span_years:.1f} years; below {min_span} "
-            "there is rarely enough accumulated change to calibrate a clock")
+            "there is rarely enough accumulated change to calibrate a clock"
+        )
     if reg.slope <= 0:
         notes.append(
             "root-to-tip slope is non-positive: divergence does not increase "
-            "with sampling date, which rules out a simple clock on this rooting")
+            "with sampling date, which rules out a simple clock on this rooting"
+        )
     if reg.r_squared < min_r2:
-        notes.append(
-            f"R^2 = {reg.r_squared:.3f} is below {min_r2}; the clock signal is weak")
+        notes.append(f"R^2 = {reg.r_squared:.3f} is below {min_r2}; the clock signal is weak")
     if rep.permutation_p is not None and rep.permutation_p > 0.05:
         notes.append(
             f"date-shuffling p = {rep.permutation_p:.3f}: the observed slope is "
-            "not distinguishable from randomly assigned dates")
+            "not distinguishable from randomly assigned dates"
+        )
     if rep.concentration > 0.75:
         notes.append(
             f"{rep.concentration:.0%} of tips fall within a single 10-year window; "
             "any TMRCA far outside the sampled period is extrapolation, and its "
-            "credible interval will understate that")
+            "credible interval will understate that"
+        )
     if rep.frac_year_only > 0.5:
         notes.append(
             f"{rep.frac_year_only:.0%} of dates are year-only or ranges; consider "
             "sampling tip dates as intervals in BEAST rather than fixing them at "
-            "the year midpoint")
+            "the year midpoint"
+        )
     if rep.occupancy < 0.3 and rep.span_years >= min_span:
         notes.append(
             f"only {rep.occupancy:.0%} of years in the span contain a sample; "
-            "the series is sparse and gappy rather than continuous")
+            "the series is sparse and gappy rather than continuous"
+        )
 
-    fatal = (reg.slope <= 0
-             or (rep.permutation_p is not None and rep.permutation_p > 0.05)
-             or rep.span_years < min_span)
+    fatal = (
+        reg.slope <= 0
+        or (rep.permutation_p is not None and rep.permutation_p > 0.05)
+        or rep.span_years < min_span
+    )
     if fatal:
         rep.verdict = "fail"
     elif reg.r_squared < min_r2 or rep.concentration > 0.75:

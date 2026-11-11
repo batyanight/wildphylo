@@ -13,8 +13,11 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from lib.temporal import (  # noqa: E402
-    assess, root_to_tip, permutation_test, sampling_diagnostics,
+from lib.temporal import (
+    assess,
+    permutation_test,
+    root_to_tip,
+    sampling_diagnostics,
 )
 
 
@@ -82,14 +85,16 @@ def test_permutation_p_is_small_for_real_signal():
 
 # --- sampling design diagnostics -------------------------------------------
 
+
 def test_temporal_concentration_flagged():
     """
     The CDV dataset has 90% of tips in 2010-2019 but a TMRCA reported at 1976.
     The gate should say so out loud rather than leaving it to a footnote.
     """
     rng = random.Random(3)
-    dates = [2010 + rng.random() * 9 for _ in range(90)] + \
-            [1992 + rng.random() * 15 for _ in range(10)]
+    dates = [2010 + rng.random() * 9 for _ in range(90)] + [
+        1992 + rng.random() * 15 for _ in range(10)
+    ]
     d0 = min(dates)
     dist = [(d - d0) * 8.5e-4 + 0.001 for d in dates]
     rep = assess(dates, dist, n_perm=200)
@@ -121,6 +126,7 @@ def test_diagnostics_on_empty_input():
 
 def test_report_is_json_serialisable():
     import json
+
     dates, dist = clocklike()
     rep = assess(dates, dist, n_perm=100)
     json.dumps(rep.to_dict())
@@ -128,12 +134,13 @@ def test_report_is_json_serialisable():
 
 # --- time-scaled tree detection --------------------------------------------
 
+
 def test_time_scaled_tree_recognised():
     """On a BEAST MCC tree branch lengths are years, so the slope must be +1."""
     rng = random.Random(11)
     dates = [1992 + rng.random() * 31 for _ in range(162)]
     root = 1976.0
-    dist = [d - root for d in dates]          # exactly elapsed time
+    dist = [d - root for d in dates]  # exactly elapsed time
     rep = assess(dates, dist, n_perm=200)
     assert any("time-scaled tree" in n for n in rep.notes)
 
@@ -146,7 +153,7 @@ def test_inverted_time_scaled_tree_is_fatal():
     rng = random.Random(11)
     dates = [1992 + rng.random() * 31 for _ in range(162)]
     latest = max(dates)
-    dist = [latest - d for d in dates]        # reversed axis
+    dist = [latest - d for d in dates]  # reversed axis
     rep = assess(dates, dist, n_perm=200)
     assert rep.verdict == "fail"
     assert any("TIME AXIS INVERTED" in n for n in rep.notes)
@@ -159,33 +166,62 @@ def test_a_failing_gate_still_writes_its_report(tmp_path):
     when the data turns out not to support tip-dating. Exit 0 by default; the
     workflow reads the verdict from the JSON.
     """
-    import json, subprocess, sys
+    import json
+    import subprocess
+    import sys
     from pathlib import Path
+
     root = Path(__file__).resolve().parents[1]
     # A tree whose branch lengths carry no relation to the dates in the labels.
     nwk = "((A|x|2001.0:0.9,B|x|2002.0:0.1):0.5,(C|x|2003.0:0.8,D|x|2004.0:0.2):0.4,(E|x|2005.0:0.7,F|x|2006.0:0.3):0.6);"
-    tree = tmp_path / "t.nwk"; tree.write_text(nwk)
+    tree = tmp_path / "t.nwk"
+    tree.write_text(nwk)
     out = tmp_path / "r.json"
     r = subprocess.run(
-        [sys.executable, "scripts/04b_temporal_signal.py", "--tree", str(tree),
-         "--permutations", "50", "--out-json", str(out)],
-        capture_output=True, text=True, cwd=root)
+        [
+            sys.executable,
+            "scripts/04b_temporal_signal.py",
+            "--tree",
+            str(tree),
+            "--permutations",
+            "50",
+            "--out-json",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=root,
+    )
     assert r.returncode == 0, f"gate exited {r.returncode}; report would be deleted"
     assert out.is_file(), "the report was not written"
     json.loads(out.read_text())
 
 
 def test_exit_code_can_be_opted_into_for_shell_use(tmp_path):
-    import subprocess, sys
+    import subprocess
+    import sys
     from pathlib import Path
+
     root = Path(__file__).resolve().parents[1]
     nwk = "((A|x|2001.0:0.9,B|x|2002.0:0.1):0.5,(C|x|2003.0:0.8,D|x|2004.0:0.2):0.4,(E|x|2005.0:0.7,F|x|2006.0:0.3):0.6);"
-    tree = tmp_path / "t.nwk"; tree.write_text(nwk)
+    tree = tmp_path / "t.nwk"
+    tree.write_text(nwk)
     out = tmp_path / "r.json"
     r = subprocess.run(
-        [sys.executable, "scripts/04b_temporal_signal.py", "--tree", str(tree),
-         "--permutations", "50", "--out-json", str(out),
-         "--exit-nonzero-on-fail"],
-        capture_output=True, text=True, cwd=root)
+        [
+            sys.executable,
+            "scripts/04b_temporal_signal.py",
+            "--tree",
+            str(tree),
+            "--permutations",
+            "50",
+            "--out-json",
+            str(out),
+            "--exit-nonzero-on-fail",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=root,
+    )
     assert r.returncode == 1
     assert out.is_file(), "the report must survive even when exiting non-zero"

@@ -1,5 +1,4 @@
-"""
-hosts.py — host normalisation, taxon-agnostic.
+"""hosts.py — host normalisation, taxon-agnostic.
 
 The original matcher tested `pattern in raw.lower()`, an unbounded substring
 test. That makes "hot dog vendor" a domestic dog and, more plausibly, makes
@@ -29,12 +28,12 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-
 # Specimen descriptions that arrive via /isolation_source when /host is absent.
 SAMPLE_TYPE_RE = re.compile(
     r"(?:[\w\s-]*\b(?:urine|blood|serum|swab|tissue|lung|brain|spleen|"
     r"faeces|feces|stool|saliva|csf|plasma|biopsy|necropsy|cell culture|"
-    r"supernatant)\b[\w\s-]*)")
+    r"supernatant)\b[\w\s-]*)"
+)
 
 
 @dataclass(frozen=True)
@@ -57,8 +56,7 @@ class HostMatch:
 
 
 def normalize_text(raw: str) -> str:
-    """
-    Tidy a /host string before matching.
+    """Tidy a /host string before matching.
 
     Submitters write `Canis_lupus_familiaris` with underscores, and underscore
     is a word character — so a word-boundary pattern can never match inside it.
@@ -88,8 +86,7 @@ def _compile(pattern: str) -> tuple[re.Pattern, bool]:
 
 
 def load_host_table(path: Path) -> list[HostRule]:
-    """
-    Load a TSV of  pattern <TAB> canonical_host <TAB> host_group.
+    """Load a TSV of  pattern <TAB> canonical_host <TAB> host_group.
     Blank lines and lines starting with # are ignored. Order matters: the
     first matching rule wins.
     """
@@ -113,8 +110,7 @@ def load_host_table(path: Path) -> list[HostRule]:
 
 
 def audit_host_table(rules: list[HostRule]) -> list[str]:
-    """
-    Return human-readable warnings about a host table. Called at load time by
+    """Return human-readable warnings about a host table. Called at load time by
     the curation step; failing to act on these is a choice, but an informed one.
     """
     warnings: list[str] = []
@@ -147,19 +143,18 @@ def audit_host_table(rules: list[HostRule]) -> list[str]:
 
     # Groups with a single rule are often typos ("mustelid" vs "mustelidae").
     from collections import Counter
+
     gc = Counter(r.group for r in rules)
     singles = sorted(g for g, n in gc.items() if n == 1)
     if len(gc) > 3 and singles:
         warnings.append(
-            "host groups defined by a single pattern (check for typos): "
-            + ", ".join(singles)
+            "host groups defined by a single pattern (check for typos): " + ", ".join(singles)
         )
     return warnings
 
 
 def normalize_host(raw: str, rules: list[HostRule]) -> HostMatch:
-    """
-    Map a free-text /host qualifier onto a canonical name and functional group.
+    """Map a free-text /host qualifier onto a canonical name and functional group.
     Unmatched input is returned as ambiguous rather than guessed at, so it
     lands in needs_review.tsv instead of silently becoming 'unknown' in a tree.
     """

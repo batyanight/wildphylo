@@ -1,5 +1,4 @@
-"""
-segments.py — segment congruence and reassortment screening.
+"""segments.py — segment congruence and reassortment screening.
 
 Why this exists
 ---------------
@@ -48,7 +47,7 @@ analysis from being run unnoticed, which is the common failure.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from itertools import combinations
 
 
@@ -56,12 +55,12 @@ from itertools import combinations
 class CongruenceResult:
     segments: list = field(default_factory=list)
     n_shared_taxa: int = 0
-    pairwise_rf: dict = field(default_factory=dict)      # "seg2|seg6" -> normalised RF
+    pairwise_rf: dict = field(default_factory=dict)  # "seg2|seg6" -> normalised RF
     mean_rf: float = 0.0
     max_rf: float = 0.0
     reassortant_candidates: list = field(default_factory=list)
     concatenate: bool = False
-    verdict: str = "unknown"          # congruent | mixed | decoupled
+    verdict: str = "unknown"  # congruent | mixed | decoupled
     notes: list = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -69,8 +68,7 @@ class CongruenceResult:
 
 
 def splits(tree, taxa: set[str], collapse_support: float | None = None) -> set[frozenset]:
-    """
-    Every non-trivial bipartition of an unrooted tree, as a frozenset of the
+    """Every non-trivial bipartition of an unrooted tree, as a frozenset of the
     smaller side. Restricted to `taxa` so trees with different sampling can be
     compared.
 
@@ -91,10 +89,8 @@ def splits(tree, taxa: set[str], collapse_support: float | None = None) -> set[f
     return out
 
 
-def normalised_rf(tree_a, tree_b, taxa: set[str],
-                  collapse_support: float | None = None) -> float:
-    """
-    Robinson-Foulds distance scaled to [0, 1]. 0 = identical topology on the
+def normalised_rf(tree_a, tree_b, taxa: set[str], collapse_support: float | None = None) -> float:
+    """Robinson-Foulds distance scaled to [0, 1]. 0 = identical topology on the
     shared taxa; 1 = no split in common.
     """
     sa = splits(tree_a, taxa, collapse_support)
@@ -106,8 +102,7 @@ def normalised_rf(tree_a, tree_b, taxa: set[str],
 
 
 def neighbour_sets(tree, taxa: set[str], k: int = 5) -> dict[str, set[str]]:
-    """
-    For each taxon, its k nearest other taxa by patristic distance. Comparing
+    """For each taxon, its k nearest other taxa by patristic distance. Comparing
     these across segments localises incongruence to individual taxa, which
     pairwise RF cannot do -- RF says the trees differ, not which tip moved.
     """
@@ -127,10 +122,10 @@ def neighbour_sets(tree, taxa: set[str], k: int = 5) -> dict[str, set[str]]:
     return out
 
 
-def find_reassortant_candidates(trees: dict, taxa: set[str], k: int = 5,
-                                threshold: float = 0.6) -> list[dict]:
-    """
-    Score each taxon by how unstable its neighbourhood is across segments.
+def find_reassortant_candidates(
+    trees: dict, taxa: set[str], k: int = 5, threshold: float = 0.6
+) -> list[dict]:
+    """Score each taxon by how unstable its neighbourhood is across segments.
 
     score = 1 - (mean Jaccard similarity of its neighbour set between all
                  pairs of segment trees)
@@ -162,13 +157,16 @@ def find_reassortant_candidates(trees: dict, taxa: set[str], k: int = 5,
     return sorted(scored, key=lambda d: -d["incongruence"])
 
 
-def assess_congruence(trees: dict, *, collapse_support: float | None = 70.0,
-                      congruent_max_rf: float = 0.15,
-                      decoupled_min_rf: float = 0.40,
-                      neighbour_k: int = 5,
-                      reassortant_threshold: float = 0.6) -> CongruenceResult:
-    """
-    Decide whether segment trees may be concatenated, and flag reassortant
+def assess_congruence(
+    trees: dict,
+    *,
+    collapse_support: float | None = 70.0,
+    congruent_max_rf: float = 0.15,
+    decoupled_min_rf: float = 0.40,
+    neighbour_k: int = 5,
+    reassortant_threshold: float = 0.6,
+) -> CongruenceResult:
+    """Decide whether segment trees may be concatenated, and flag reassortant
     candidates.
 
     trees: {segment_name: Bio.Phylo tree}
@@ -179,8 +177,8 @@ def assess_congruence(trees: dict, *, collapse_support: float | None = 70.0,
         res.verdict = "congruent"
         res.concatenate = True
         res.notes.append(
-            "only one segment supplied; congruence cannot be assessed and "
-            "concatenation is vacuous")
+            "only one segment supplied; congruence cannot be assessed and concatenation is vacuous"
+        )
         return res
 
     taxon_sets = [{t.name for t in tr.get_terminals()} for tr in trees.values()]
@@ -194,7 +192,8 @@ def assess_congruence(trees: dict, *, collapse_support: float | None = 70.0,
             f"only {len(shared)} taxa are present in every segment. Congruence "
             "cannot be assessed, so concatenation cannot be justified. For "
             "segmented viruses this usually means segments were sequenced from "
-            "different isolates and cannot be joined at all")
+            "different isolates and cannot be joined at all"
+        )
         return res
 
     union = set().union(*taxon_sets)
@@ -202,7 +201,8 @@ def assess_congruence(trees: dict, *, collapse_support: float | None = 70.0,
         res.notes.append(
             f"only {len(shared)}/{len(union)} taxa have all segments. "
             "Concatenating would either discard most of the data or introduce "
-            "large blocks of missing sequence, which biases branch lengths")
+            "large blocks of missing sequence, which biases branch lengths"
+        )
 
     for a, b in combinations(sorted(trees), 2):
         rf = normalised_rf(trees[a], trees[b], shared, collapse_support)
@@ -213,7 +213,8 @@ def assess_congruence(trees: dict, *, collapse_support: float | None = 70.0,
     res.max_rf = round(max(vals), 4)
 
     res.reassortant_candidates = find_reassortant_candidates(
-        trees, shared, neighbour_k, reassortant_threshold)
+        trees, shared, neighbour_k, reassortant_threshold
+    )
 
     if res.max_rf <= congruent_max_rf:
         res.verdict = "congruent"
@@ -221,7 +222,8 @@ def assess_congruence(trees: dict, *, collapse_support: float | None = 70.0,
         res.notes.append(
             f"segment topologies agree (max normalised RF {res.max_rf:.3f}); "
             "concatenation is defensible, though segments may still differ in "
-            "rate and should keep separate clock partitions")
+            "rate and should keep separate clock partitions"
+        )
     elif res.max_rf >= decoupled_min_rf:
         res.verdict = "decoupled"
         res.concatenate = False
@@ -230,14 +232,16 @@ def assess_congruence(trees: dict, *, collapse_support: float | None = 70.0,
             "Concatenation would average over conflicting histories and produce "
             "a tree matching no segment's actual ancestry. Analyse segments "
             "separately, and treat any host transition that is not recovered in "
-            "several segments as unsupported")
+            "several segments as unsupported"
+        )
     else:
         res.verdict = "mixed"
         res.concatenate = False
         res.notes.append(
             f"segment topologies partly disagree (max normalised RF {res.max_rf:.3f}). "
             "Default is to analyse separately. Concatenating a congruent subset "
-            "is defensible if the subset is chosen on the RF matrix and stated")
+            "is defensible if the subset is chosen on the RF matrix and stated"
+        )
 
     if res.reassortant_candidates:
         names = ", ".join(c["taxon"] for c in res.reassortant_candidates[:5])
@@ -246,11 +250,13 @@ def assess_congruence(trees: dict, *, collapse_support: float | None = 70.0,
             f"(showing up to 5): {names}. Each sits among different relatives "
             "depending on the segment. In a discrete-trait host analysis such a "
             "taxon generates a host transition that reflects reassortment "
-            "rather than transmission")
+            "rather than transmission"
+        )
 
     if collapse_support is not None:
         res.notes.append(
             f"splits with support below {collapse_support} were ignored before "
             "comparison; report this threshold, since RF is sensitive to it and "
-            "short segments lose resolution rather than gaining real conflict")
+            "short segments lose resolution rather than gaining real conflict"
+        )
     return res

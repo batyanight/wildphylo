@@ -1,5 +1,4 @@
-"""
-beastlog.py — reading BEAST .log files, and the statistics computed from them.
+"""beastlog.py — reading BEAST .log files, and the statistics computed from them.
 
 Shared by 08b_convergence (did the chains converge and agree?) and
 08d_drt_summary (does the real clock rate sit outside the date-randomised
@@ -15,10 +14,20 @@ the pipeline numbering changes. The numbers are a reading order for humans.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 
-__all__ = ["MAX_LAG", "NON_PARAMETERS", "read_beast_log", "ess", "hpd",
-           "overlap", "find_clock_parameter", "CLOCK_CANDIDATES"]
+__all__ = [
+    "CLOCK_CANDIDATES",
+    "MAX_LAG",
+    "NON_PARAMETERS",
+    "ess",
+    "find_clock_parameter",
+    "hpd",
+    "overlap",
+    "read_beast_log",
+]
 
 # Tracer stops accumulating autocovariance at this lag. Kept identical to
 # BEAST's ESS.java so the ESS reported here is the ESS the user sees in Tracer.
@@ -31,8 +40,7 @@ NON_PARAMETERS = {"Sample", "state", "STATE"}
 
 
 def read_beast_log(path: Path) -> tuple[list[str], np.ndarray]:
-    """
-    Parse a BEAST .log: '#' comment lines, then a tab-separated header whose
+    """Parse a BEAST .log: '#' comment lines, then a tab-separated header whose
     first column is Sample, then numeric rows.
 
     A truncated final line is dropped rather than raising: a log from a chain
@@ -51,19 +59,18 @@ def read_beast_log(path: Path) -> tuple[list[str], np.ndarray]:
                 header = [p.strip() for p in parts]
                 continue
             if len(parts) != len(header):
-                continue                      # truncated or interleaved line
+                continue  # truncated or interleaved line
             try:
                 rows.append([float(p) for p in parts])
             except ValueError:
-                continue                      # a non-numeric column; skip row
+                continue  # a non-numeric column; skip row
     if header is None or not rows:
         raise ValueError(f"{path}: no usable samples found")
     return header, np.asarray(rows, dtype=np.float64)
 
 
 def ess(x: np.ndarray) -> float:
-    """
-    Effective sample size, by Tracer's algorithm.
+    """Effective sample size, by Tracer's algorithm.
 
     Tracer accumulates the autocovariance gamma[lag], adding lag pairs to the
     variance estimate until a consecutive pair sums to a negative value, which
@@ -81,14 +88,14 @@ def ess(x: np.ndarray) -> float:
         return float(n)
     v = x - x.mean()
     if not np.any(v):
-        return float(n)                        # constant: every sample identical
+        return float(n)  # constant: every sample identical
 
     max_lag = min(n, MAX_LAG)
     # Linear (not circular) autocovariance via zero-padded FFT.
     size = 1 << (2 * n - 1).bit_length()
     f = np.fft.rfft(v, size)
     acov = np.fft.irfft(f * np.conjugate(f), size)[:max_lag]
-    acov /= (n - np.arange(max_lag))            # Tracer divides by n - lag
+    acov /= n - np.arange(max_lag)  # Tracer divides by n - lag
 
     var_stat = acov[0]
     if var_stat == 0:
@@ -110,14 +117,13 @@ def hpd(x: np.ndarray, level: float = 0.95) -> tuple[float, float]:
     k = max(1, int(np.floor(level * n)))
     if k >= n:
         return float(s[0]), float(s[-1])
-    widths = s[k:] - s[:n - k]
+    widths = s[k:] - s[: n - k]
     i = int(np.argmin(widths))
     return float(s[i]), float(s[i + k])
 
 
 def overlap(a: np.ndarray, b: np.ndarray, bins: int = 100) -> float:
-    """
-    Overlapping coefficient of two samples: sum of min(p, q) over a shared
+    """Overlapping coefficient of two samples: sum of min(p, q) over a shared
     histogram grid. 1.0 identical, 0.0 disjoint.
 
     The grid spans both samples, so two chains that explored different regions
@@ -141,14 +147,20 @@ def overlap(a: np.ndarray, b: np.ndarray, bins: int = 100) -> float:
 # Guessing wrong here means the date-randomisation test compares the wrong
 # parameter and returns a confident verdict about something else.
 CLOCK_CANDIDATES = (
-    "clockRate", "clock.rate", "ucldMean", "ucedMean", "rate.mean",
-    "meanRate", "rate", "clockRate.c", "ucldMean.c",
+    "clockRate",
+    "clock.rate",
+    "ucldMean",
+    "ucedMean",
+    "rate.mean",
+    "meanRate",
+    "rate",
+    "clockRate.c",
+    "ucldMean.c",
 )
 
 
 def find_clock_parameter(header, preferred=None):
-    """
-    Pick the column holding the clock rate.
+    """Pick the column holding the clock rate.
 
     Matching is exact first, then by prefix, because BEAST appends the
     partition name (clockRate.c:america2). Explicitly refuses ucldStdev and
@@ -161,18 +173,19 @@ def find_clock_parameter(header, preferred=None):
         hits = [h for h in header if h.startswith(preferred)]
         if len(hits) == 1:
             return hits[0]
-        raise ValueError(
-            f"--clock-param {preferred!r} matches {len(hits)} columns: {hits}")
-    usable = [h for h in header
-              if not h.endswith(("Stdev", "stdev", ".prob", ".indicator"))]
+        raise ValueError(f"--clock-param {preferred!r} matches {len(hits)} columns: {hits}")
+    usable = [h for h in header if not h.endswith(("Stdev", "stdev", ".prob", ".indicator"))]
     for cand in CLOCK_CANDIDATES:
         if cand in usable:
             return cand
     for cand in CLOCK_CANDIDATES:
-        hits = [h for h in usable if h.split(".")[0] == cand
-                or h.split(":")[0].rstrip(".c") == cand]
+        hits = [
+            h for h in usable if h.split(".")[0] == cand or h.split(":")[0].rstrip(".c") == cand
+        ]
         if hits:
             return sorted(hits, key=len)[0]
     raise ValueError(
-        "no clock-rate column found. Tried " + ", ".join(CLOCK_CANDIDATES)
-        + f"; the log has {sorted(usable)[:12]}. Pass --clock-param.")
+        "no clock-rate column found. Tried "
+        + ", ".join(CLOCK_CANDIDATES)
+        + f"; the log has {sorted(usable)[:12]}. Pass --clock-param."
+    )

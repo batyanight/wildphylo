@@ -46,11 +46,11 @@ AMBIG = set("NnXx?-.~RYKMSWBDHVryknmswbdhv")
 
 # H protein domains: (name, first aa, last aa), 1-based inclusive.
 DOMAINS = [
-    ("cytoplasmic",   1,   35),
-    ("transmembrane", 36,  58),
-    ("stalk",         59,  154),
-    ("connector",     155, 187),
-    ("head",          188, 604),
+    ("cytoplasmic", 1, 35),
+    ("transmembrane", 36, 58),
+    ("stalk", 59, 154),
+    ("connector", 155, 187),
+    ("head", 188, 604),
 ]
 
 # SLAM (CD150) contact residues. These sit inside the head domain. Modern Auspice
@@ -62,25 +62,25 @@ SLAM_SITES = [
 ]
 
 COLORS = {
-    "H":              "#5097BA",
-    "cytoplasmic":    "#4C90C0",
-    "transmembrane":  "#8EBC66",
-    "stalk":          "#E4B143",
-    "connector":      "#DE8A5A",
-    "head":           "#DB2823",
-    "SLAM_526_529":   "#7F4CA5",
-    "SLAM_547_548":   "#B14C8F",
+    "H": "#5097BA",
+    "cytoplasmic": "#4C90C0",
+    "transmembrane": "#8EBC66",
+    "stalk": "#E4B143",
+    "connector": "#DE8A5A",
+    "head": "#DB2823",
+    "SLAM_526_529": "#7F4CA5",
+    "SLAM_547_548": "#B14C8F",
 }
 
 DESCRIPTIONS = {
-    "H":             "Hemagglutinin (attachment) glycoprotein, full CDS",
-    "cytoplasmic":   "H protein cytoplasmic tail",
+    "H": "Hemagglutinin (attachment) glycoprotein, full CDS",
+    "cytoplasmic": "H protein cytoplasmic tail",
     "transmembrane": "H protein transmembrane anchor",
-    "stalk":         "H protein stalk",
-    "connector":     "H protein connecting region",
-    "head":          "H protein receptor-binding head (beta-propeller)",
-    "SLAM_526_529":  "SLAM/CD150 contact residues 526-529",
-    "SLAM_547_548":  "SLAM/CD150 contact residues 547-548",
+    "stalk": "H protein stalk",
+    "connector": "H protein connecting region",
+    "head": "H protein receptor-binding head (beta-propeller)",
+    "SLAM_526_529": "SLAM/CD150 contact residues 526-529",
+    "SLAM_547_548": "SLAM/CD150 contact residues 547-548",
 }
 
 
@@ -173,10 +173,10 @@ class HFrame:
         for f in (0, 1, 2):
             i = f
             while i < len(s) - 2:
-                if s[i:i + 3] == "ATG":
+                if s[i : i + 3] == "ATG":
                     j = i
                     while j < len(s) - 2:
-                        if s[j:j + 3] in STOPS:
+                        if s[j : j + 3] in STOPS:
                             break
                         j += 3
                     if j - i > best_len:
@@ -191,7 +191,7 @@ class HFrame:
 
     def internal_stops(self, frame: int) -> int:
         s = self.ungapped[frame:]
-        codons = [s[i:i + 3] for i in range(0, len(s) - 2, 3)]
+        codons = [s[i : i + 3] for i in range(0, len(s) - 2, 3)]
         return sum(1 for c in codons[:-1] if c in STOPS)
 
     # -- coordinate conversion ---------------------------------------------
@@ -208,16 +208,16 @@ class HFrame:
         Insertion columns are skipped, which is the whole point: this is what
         keeps the reading frame correct across indels.
         """
-        p = self.orf_start + 3 * codon_index          # 0-based ungapped offset
+        p = self.orf_start + 3 * codon_index  # 0-based ungapped offset
         return tuple(self.col_for_refpos[p + k + 1] for k in range(3))
 
     def feature_codon_columns(self, a1: int, a2: int) -> list[tuple[int, int, int]]:
         return [self.codon_columns(i - 1) for i in range(a1, a2 + 1)]
 
 
-def resolve_features(frame: HFrame, gene_name: str = "H",
-                     domains: bool = False, slam: bool = False,
-                     log=print) -> list[tuple[str, int, int]]:
+def resolve_features(
+    frame: HFrame, gene_name: str = "H", domains: bool = False, slam: bool = False, log=print
+) -> list[tuple[str, int, int]]:
     """Build the ordered feature list as (name, first_aa, last_aa).
 
     The full-length gene is always emitted first so the entropy panel has a
@@ -238,8 +238,10 @@ def resolve_features(frame: HFrame, gene_name: str = "H",
             # The head runs to the C-terminus; follow this reference's ORF rather
             # than the literature's exact length.
             if n != a2:
-                log(f"  note: head extended to aa {n} to match this reference's ORF "
-                    f"(literature boundary is {a2})")
+                log(
+                    f"  note: head extended to aa {n} to match this reference's ORF "
+                    f"(literature boundary is {a2})"
+                )
             end = n
         elif a2 > n:
             log(f"  note: {name} truncated at aa {n} (ORF ends there)")
@@ -257,9 +259,7 @@ def resolve_features(frame: HFrame, gene_name: str = "H",
 
 def build_annotations(frame: HFrame, feats, gene_name: str = "H") -> dict:
     """Feature list -> the `genome_annotations` object, in reference coordinates."""
-    ann = {
-        "nuc": {"start": 1, "end": frame.ref_length, "strand": "+", "type": "source"}
-    }
+    ann = {"nuc": {"start": 1, "end": frame.ref_length, "strand": "+", "type": "source"}}
     for name, a1, a2 in feats:
         start, end = frame.aa_span_to_ref_nt(a1, a2)
         span = end - start + 1
@@ -279,8 +279,9 @@ def build_annotations(frame: HFrame, feats, gene_name: str = "H") -> dict:
     return ann
 
 
-def backup_if_overwriting(source: Path, output: Path, enabled: bool = True,
-                          log=print) -> Path | None:
+def backup_if_overwriting(
+    source: Path, output: Path, enabled: bool = True, log=print
+) -> Path | None:
     """Timestamped copy of `output` before it is overwritten.
 
     Both scripts edit the dataset in place, so a failure part way through leaves
@@ -291,6 +292,7 @@ def backup_if_overwriting(source: Path, output: Path, enabled: bool = True,
     if not enabled or not output.is_file():
         return None
     from datetime import datetime
+
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     dest = output.with_suffix(f".{stamp}.bak.json")
     dest.write_bytes(output.read_bytes())
@@ -315,5 +317,8 @@ def annotation_feature_spans(ann: dict) -> list[tuple[str, int, int]]:
 
 if __name__ == "__main__":
     import sys
-    sys.exit("cdv_h_coords.py is a module imported by 10_add_entropy.py and "
-             "11_annotate_H.py, not a pipeline step. Run those instead.")
+
+    sys.exit(
+        "cdv_h_coords.py is a module imported by 10_add_entropy.py and "
+        "11_annotate_H.py, not a pipeline step. Run those instead."
+    )

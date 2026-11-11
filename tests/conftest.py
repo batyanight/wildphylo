@@ -17,5 +17,6 @@ def repo_root() -> Path:
 @pytest.fixture(scope="session")
 def configs(repo_root) -> list[Path]:
     """Every shipped pathogen config except the template."""
-    return sorted(p for p in (repo_root / "config" / "pathogen").glob("*.yaml")
-                  if not p.name.startswith("_"))
+    return sorted(
+        p for p in (repo_root / "config" / "pathogen").glob("*.yaml") if not p.name.startswith("_")
+    )

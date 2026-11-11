@@ -24,27 +24,36 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib.segments import assess_congruence  # noqa: E402
+from lib.segments import assess_congruence
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter)
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--trees", nargs="+", required=True)
-    ap.add_argument("--names", nargs="+",
-                    help="Segment names, in the same order as --trees. "
-                         "Defaults to the tree filenames.")
+    ap.add_argument(
+        "--names",
+        nargs="+",
+        help="Segment names, in the same order as --trees. Defaults to the tree filenames.",
+    )
     ap.add_argument("--tree-format", default="newick")
-    ap.add_argument("--collapse-support", type=float, default=70.0,
-                    help="Ignore splits below this support before comparing. "
-                         "Set to a negative number to disable.")
+    ap.add_argument(
+        "--collapse-support",
+        type=float,
+        default=70.0,
+        help="Ignore splits below this support before comparing. "
+        "Set to a negative number to disable.",
+    )
     ap.add_argument("--congruent-max-rf", type=float, default=0.15)
     ap.add_argument("--decoupled-min-rf", type=float, default=0.40)
     ap.add_argument("--neighbour-k", type=int, default=5)
     ap.add_argument("--reassortant-threshold", type=float, default=0.6)
-    ap.add_argument("--require-concatenation", action="store_true",
-                    help="Fail if the segments cannot legitimately be joined.")
+    ap.add_argument(
+        "--require-concatenation",
+        action="store_true",
+        help="Fail if the segments cannot legitimately be joined.",
+    )
     ap.add_argument("--out-json", required=True)
     ap.add_argument("--out-md")
     ap.add_argument("--out-tsv", help="Reassortant candidates, one per row.")
@@ -52,20 +61,22 @@ def main() -> int:
 
     names = a.names or [Path(t).stem for t in a.trees]
     if len(names) != len(a.trees):
-        print(f"ERROR: {len(a.trees)} trees but {len(names)} names",
-              file=sys.stderr)
+        print(f"ERROR: {len(a.trees)} trees but {len(names)} names", file=sys.stderr)
         return 2
     if len(a.trees) < 2:
-        print("ERROR: at least two segment trees are needed; congruence "
-              "cannot be assessed from one", file=sys.stderr)
+        print(
+            "ERROR: at least two segment trees are needed; congruence cannot be assessed from one",
+            file=sys.stderr,
+        )
         return 2
 
     from Bio import Phylo
+
     trees = {}
     for name, path in zip(names, a.trees):
         try:
             trees[name] = Phylo.read(path, a.tree_format)
-        except Exception as e:                       # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             print(f"ERROR: could not read {path}: {e}", file=sys.stderr)
             return 2
 
@@ -83,10 +94,13 @@ def main() -> int:
     Path(a.out_json).write_text(json.dumps(res.to_dict(), indent=2))
 
     lines = [
-        "# Segment congruence", "",
+        "# Segment congruence",
+        "",
         f"**Verdict: {res.verdict.upper()}** — "
-        f"concatenation {'permitted' if res.concatenate else 'refused'}", "",
-        "| Metric | Value |", "|---|---|",
+        f"concatenation {'permitted' if res.concatenate else 'refused'}",
+        "",
+        "| Metric | Value |",
+        "|---|---|",
         f"| Segments | {', '.join(res.segments)} |",
         f"| Taxa present in every segment | {res.n_shared_taxa} |",
         f"| Mean normalised RF | {res.mean_rf:.4f} |",
@@ -95,21 +109,27 @@ def main() -> int:
         "",
     ]
     if res.pairwise_rf:
-        lines += ["## Pairwise topological distance", "",
-                  "| Pair | normalised RF |", "|---|---|"]
+        lines += ["## Pairwise topological distance", "", "| Pair | normalised RF |", "|---|---|"]
         # Pair keys contain "|", which would break the Markdown table.
-        lines += [f"| {k.replace('|', ' vs ')} | {v:.4f} |"
-                  for k, v in sorted(res.pairwise_rf.items())]
+        lines += [
+            f"| {k.replace('|', ' vs ')} | {v:.4f} |" for k, v in sorted(res.pairwise_rf.items())
+        ]
         lines.append("")
     if res.reassortant_candidates:
-        lines += ["## Reassortant candidates", "",
-                  "Each sits among different relatives depending on the "
-                  "segment. In a discrete-trait host analysis such a taxon "
-                  "produces a host transition that reflects reassortment "
-                  "rather than transmission.", "",
-                  "| Taxon | Incongruence |", "|---|---|"]
-        lines += [f"| {c['taxon']} | {c['incongruence']:.3f} |"
-                  for c in res.reassortant_candidates[:25]]
+        lines += [
+            "## Reassortant candidates",
+            "",
+            "Each sits among different relatives depending on the "
+            "segment. In a discrete-trait host analysis such a taxon "
+            "produces a host transition that reflects reassortment "
+            "rather than transmission.",
+            "",
+            "| Taxon | Incongruence |",
+            "|---|---|",
+        ]
+        lines += [
+            f"| {c['taxon']} | {c['incongruence']:.3f} |" for c in res.reassortant_candidates[:25]
+        ]
         if len(res.reassortant_candidates) > 25:
             lines.append(f"| … and {len(res.reassortant_candidates) - 25} more | |")
         lines.append("")
@@ -136,8 +156,10 @@ def main() -> int:
         pass
 
     if a.require_concatenation and not res.concatenate:
-        print("\nERROR: concatenation was required but the segments do not "
-              "support it.", file=sys.stderr)
+        print(
+            "\nERROR: concatenation was required but the segments do not support it.",
+            file=sys.stderr,
+        )
         return 1
     return 0
 

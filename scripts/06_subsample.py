@@ -41,7 +41,7 @@ dropped. Use --seed to make the selection reproducible (it is by default).
 
 import argparse
 import sys
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 
 try:
@@ -56,8 +56,16 @@ except ImportError as exc:
 # Default wild groups. Overridden per pathogen by hosts.wild_groups in the
 # config — this set is CDV's carnivore range and means nothing for a pathogen
 # of ruminants or rodents. Kept only as a fallback when no config is given.
-WILD = {"wild_felid", "wild_canid", "mustelid", "procyonid",
-        "pinniped", "ursid", "ailurid", "viverrid"}
+WILD = {
+    "wild_felid",
+    "wild_canid",
+    "mustelid",
+    "procyonid",
+    "pinniped",
+    "ursid",
+    "ailurid",
+    "viverrid",
+}
 GAP = set("-.")
 
 
@@ -82,7 +90,7 @@ def write_fasta(path: Path, seqs: dict[str, str], width: int = 60) -> None:
         for name, seq in seqs.items():
             fh.write(f">{name}\n")
             for i in range(0, len(seq), width):
-                fh.write(seq[i:i + width] + "\n")
+                fh.write(seq[i : i + width] + "\n")
 
 
 def strip_all_gap_columns(seqs: dict[str, str]) -> tuple[dict[str, str], int]:
@@ -117,28 +125,34 @@ def parse_label(label: str):
 
 def build_records(seqs, clades_df, meta_df):
     """One row per aligned sequence, with clade, host, year, quality fields."""
-    clade_of = dict(zip(clades_df["accession"], clades_df["clade"])) if clades_df is not None else {}
+    clade_of = (
+        dict(zip(clades_df["accession"], clades_df["clade"])) if clades_df is not None else {}
+    )
     prec_of, len_of = {}, {}
     if meta_df is not None:
         base = meta_df["accession"].astype(str).str.split(".").str[0]
-        prec_of = dict(zip(base, meta_df.get("date_precision", pd.Series(["year"] * len(meta_df)))))
+        prec_of = dict(
+            zip(base, meta_df.get("date_precision", pd.Series(["year"] * len(meta_df))))
+        )
         len_of = dict(zip(base, meta_df.get("H_length", pd.Series([0] * len(meta_df)))))
 
     rows = []
     for label, seq in seqs.items():
         acc, host, year = parse_label(label)
         ungapped = "".join(c for c in seq if c not in GAP)
-        rows.append({
-            "label": label,
-            "accession": acc,
-            "host_group": host,
-            "decimal_year": year,
-            "clade": clade_of.get(acc, "unassigned"),
-            "date_precision": prec_of.get(acc, "unknown"),
-            "ungapped_len": len(ungapped),
-            "ambig": sum(1 for c in ungapped.upper() if c in "NX?"),
-            "seq_key": ungapped.upper(),
-        })
+        rows.append(
+            {
+                "label": label,
+                "accession": acc,
+                "host_group": host,
+                "decimal_year": year,
+                "clade": clade_of.get(acc, "unassigned"),
+                "date_precision": prec_of.get(acc, "unknown"),
+                "ungapped_len": len(ungapped),
+                "ambig": sum(1 for c in ungapped.upper() if c in "NX?"),
+                "seq_key": ungapped.upper(),
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -149,8 +163,9 @@ def rank_within_stratum(df: pd.DataFrame) -> pd.DataFrame:
     d = df.copy()
     d["prec_rank"] = d["date_precision"].map(lambda p: PRECISION_RANK.get(p, 4))
     d["ambig_frac"] = d["ambig"] / d["ungapped_len"].clip(lower=1)
-    return d.sort_values(["prec_rank", "ambig_frac", "ungapped_len"],
-                         ascending=[True, True, False])
+    return d.sort_values(
+        ["prec_rank", "ambig_frac", "ungapped_len"], ascending=[True, True, False]
+    )
 
 
 def drop_duplicates(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
@@ -160,8 +175,9 @@ def drop_duplicates(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
     return kept, len(df) - len(kept)
 
 
-def stratified_sample(df: pd.DataFrame, target: int, year_bin: int, seed: int,
-                      min_per_stratum: int = 1) -> pd.DataFrame:
+def stratified_sample(
+    df: pd.DataFrame, target: int, year_bin: int, seed: int, min_per_stratum: int = 1
+) -> pd.DataFrame:
     """
     Allocate the target across clade x host x time-bin strata.
 
@@ -171,20 +187,22 @@ def stratified_sample(df: pd.DataFrame, target: int, year_bin: int, seed: int,
     """
     d = df.copy()
     d["year_bin"] = d["decimal_year"].apply(
-        lambda y: int(y // year_bin) * year_bin if pd.notna(y) else -1)
+        lambda y: int(y // year_bin) * year_bin if pd.notna(y) else -1
+    )
     d["stratum"] = d["clade"] + "|" + d["host_group"] + "|" + d["year_bin"].astype(str)
 
     strata = {k: g for k, g in d.groupby("stratum")}
     if len(strata) >= target:
         # more strata than budget: one per stratum, prioritising wild-host strata
         picks = []
-        order = sorted(strata.items(),
-                       key=lambda kv: (kv[1]["host_group"].iloc[0] not in WILD, -len(kv[1])))
+        order = sorted(
+            strata.items(), key=lambda kv: (kv[1]["host_group"].iloc[0] not in WILD, -len(kv[1]))
+        )
         for _, g in order[:target]:
             picks.append(rank_within_stratum(g).head(1))
         return pd.concat(picks)
 
-    allocation = {k: min_per_stratum for k in strata}
+    allocation = dict.fromkeys(strata, min_per_stratum)
     remaining = target - sum(allocation.values())
     if remaining > 0:
         weights = {k: max(len(g) - min_per_stratum, 0) ** 0.5 for k, g in strata.items()}
@@ -206,8 +224,7 @@ def stratified_sample(df: pd.DataFrame, target: int, year_bin: int, seed: int,
             if leftover <= 0:
                 break
 
-    picks = [rank_within_stratum(g).head(min(allocation[k], len(g)))
-             for k, g in strata.items()]
+    picks = [rank_within_stratum(g).head(min(allocation[k], len(g))) for k, g in strata.items()]
     return pd.concat(picks)
 
 
@@ -219,7 +236,7 @@ def summarise(df: pd.DataFrame, title: str) -> None:
     n_wild = sum(n for h, n in hosts.items() if h in WILD)
     for host, n in hosts.most_common():
         print(f"    {host:<16} {n:>5}{'  <- wild' if host in WILD else ''}")
-    print(f"    {'wild total':<16} {n_wild:>5}  ({n_wild/len(df):.1%})")
+    print(f"    {'wild total':<16} {n_wild:>5}  ({n_wild / len(df):.1%})")
     yrs = df["decimal_year"].dropna()
     if len(yrs):
         print(f"    years {yrs.min():.1f} - {yrs.max():.1f}")
@@ -229,32 +246,52 @@ def summarise(df: pd.DataFrame, title: str) -> None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--mode", choices=["global", "clade"], required=True)
     ap.add_argument("--aln", required=True, type=Path)
     ap.add_argument("--clades", type=Path, help="H_ml_clades.tsv from 05_tree_summary.py")
     ap.add_argument("--metadata", type=Path)
     ap.add_argument("--clade", help="Clade name, required for --mode clade")
-    ap.add_argument("--target", type=int, default=None,
-                    help="Target sequence count (global default 400; clade default = keep all)")
+    ap.add_argument(
+        "--target",
+        type=int,
+        default=None,
+        help="Target sequence count (global default 400; clade default = keep all)",
+    )
     ap.add_argument("--year-bin", type=int, default=5, help="Time bin width in years")
     ap.add_argument("--seed", type=int, default=20260819)
     ap.add_argument("--keep-duplicates", action="store_true")
-    ap.add_argument("--keep-all-gap-columns", action="store_true",
-                    help="Keep columns that are all-gap in the subset. Off by default: "
-                         "such columns shift every downstream column coordinate and are "
-                         "invisible when you look at the alignment.")
+    ap.add_argument(
+        "--keep-all-gap-columns",
+        action="store_true",
+        help="Keep columns that are all-gap in the subset. Off by default: "
+        "such columns shift every downstream column coordinate and are "
+        "invisible when you look at the alignment.",
+    )
     ap.add_argument("--outdir", type=Path, default=Path("data/processed"))
     ap.add_argument("--prefix", default=None)
     # Explicit outputs, so Snakemake can track what this rule produces.
-    ap.add_argument("--out-aln", type=Path, default=None,
-                    help="Subsampled alignment. Overrides --outdir/--prefix.")
-    ap.add_argument("--out-meta", type=Path, default=None,
-                    help="Subsampled metadata. Overrides --outdir/--prefix.")
-    ap.add_argument("--config", type=Path, default=None,
-                    help="Pathogen config: supplies hosts.wild_groups, "
-                         "subsample.target_tips, year_bin and seed.")
+    ap.add_argument(
+        "--out-aln",
+        type=Path,
+        default=None,
+        help="Subsampled alignment. Overrides --outdir/--prefix.",
+    )
+    ap.add_argument(
+        "--out-meta",
+        type=Path,
+        default=None,
+        help="Subsampled metadata. Overrides --outdir/--prefix.",
+    )
+    ap.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="Pathogen config: supplies hosts.wild_groups, "
+        "subsample.target_tips, year_bin and seed.",
+    )
     args = ap.parse_args()
 
     if args.mode == "clade" and not args.clade:
@@ -273,6 +310,7 @@ def main() -> int:
     if args.config:
         try:
             from lib.config import load as _load_cfg
+
             _cfg = _load_cfg(args.config)
             _wg = (_cfg.get("hosts") or {}).get("wild_groups")
             if _wg:
@@ -284,30 +322,39 @@ def main() -> int:
                 args.year_bin = int(_sub["year_bin"])
             if args.seed == 20260819 and "seed" in _sub:
                 args.seed = int(_sub["seed"])
-        except Exception as exc:                       # noqa: BLE001
-            print(f"NOTE: could not read settings from {args.config}: {exc}",
-                  file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001
+            print(f"NOTE: could not read settings from {args.config}: {exc}", file=sys.stderr)
     print(f"wild host groups: {', '.join(sorted(WILD)) or '(none)'}")
 
-    clades_df = pd.read_csv(args.clades, sep="\t") if args.clades and args.clades.is_file() else None
-    meta_df = pd.read_csv(args.metadata, sep="\t") if args.metadata and args.metadata.is_file() else None
+    clades_df = (
+        pd.read_csv(args.clades, sep="\t") if args.clades and args.clades.is_file() else None
+    )
+    meta_df = (
+        pd.read_csv(args.metadata, sep="\t") if args.metadata and args.metadata.is_file() else None
+    )
     if clades_df is None and args.mode == "clade":
-        print("--mode clade needs --clades (run 05_tree_summary.py --write-table)", file=sys.stderr)
+        print(
+            "--mode clade needs --clades (run 05_tree_summary.py --write-table)", file=sys.stderr
+        )
         return 1
 
     df = build_records(seqs, clades_df, meta_df)
     print(f"Loaded {len(df)} aligned sequences")
     if (df["clade"] == "unassigned").any():
         n = int((df["clade"] == "unassigned").sum())
-        print(f"  note: {n} sequences had no clade assignment "
-              "(present in the alignment but not the tree)")
+        print(
+            f"  note: {n} sequences had no clade assignment "
+            "(present in the alignment but not the tree)"
+        )
 
     # ---- select pool ----------------------------------------------------
     if args.mode == "clade":
         pool = df[df["clade"] == args.clade].copy()
         if pool.empty:
-            print(f"No sequences in {args.clade}. Available: "
-                  f"{sorted(df['clade'].unique())}", file=sys.stderr)
+            print(
+                f"No sequences in {args.clade}. Available: {sorted(df['clade'].unique())}",
+                file=sys.stderr,
+            )
             return 1
         title = args.clade
     else:
@@ -320,8 +367,10 @@ def main() -> int:
     if not args.keep_duplicates:
         pool, n_dropped = drop_duplicates(pool)
         if n_dropped:
-            print(f"\nRemoved {n_dropped} exact duplicate sequences "
-                  "(kept the best-dated representative of each)")
+            print(
+                f"\nRemoved {n_dropped} exact duplicate sequences "
+                "(kept the best-dated representative of each)"
+            )
 
     # ---- subsample --------------------------------------------------------
     target = args.target
@@ -345,8 +394,10 @@ def main() -> int:
         print("  them into a broader category, or raising --target.")
     yrs = pool["decimal_year"].dropna()
     if len(yrs) and (yrs.max() - yrs.min()) < 10:
-        print(f"\n  WARNING: temporal span is only {yrs.max()-yrs.min():.1f} years — "
-              "weak clock signal likely.")
+        print(
+            f"\n  WARNING: temporal span is only {yrs.max() - yrs.min():.1f} years — "
+            "weak clock signal likely."
+        )
 
     # ---- write -------------------------------------------------------------
     # Only create the fallback directory when it will actually be used;
@@ -361,9 +412,11 @@ def main() -> int:
         subset, n_stripped = strip_all_gap_columns(subset)
         if n_stripped:
             L_before = len(next(iter(seqs.values())))
-            print(f"\nStripped {n_stripped} all-gap columns "
-                  f"({L_before} -> {L_before - n_stripped}); they held only bases from "
-                  "sequences this subset dropped")
+            print(
+                f"\nStripped {n_stripped} all-gap columns "
+                f"({L_before} -> {L_before - n_stripped}); they held only bases from "
+                "sequences this subset dropped"
+            )
     out_fasta = args.out_aln or args.outdir / f"{prefix}.fasta"
     out_fasta.parent.mkdir(parents=True, exist_ok=True)
     write_fasta(out_fasta, subset)
@@ -375,8 +428,11 @@ def main() -> int:
     # Follow --out-meta when it is given, so no file escapes the build
     # directory. A rule that writes outside its declared outputs cannot be
     # tracked or cleaned, and the stray file silently goes stale.
-    out_dates = (out_meta.with_name(out_meta.stem.replace("_metadata", "") + "_dates.tsv")
-                 if args.out_meta else args.outdir / f"{prefix}_dates.tsv")
+    out_dates = (
+        out_meta.with_name(out_meta.stem.replace("_metadata", "") + "_dates.tsv")
+        if args.out_meta
+        else args.outdir / f"{prefix}_dates.tsv"
+    )
     out_dates.parent.mkdir(parents=True, exist_ok=True)
     with out_dates.open("w") as fh:
         fh.write("taxon\tdate\n")

@@ -50,11 +50,14 @@ import re
 import sys
 from pathlib import Path
 
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib.traittrees import (                                    # noqa: E402
-    NewickParser, strip_leading_comment, detect_tag, label_date,
-    TREE_LINE_RE, TRANSLATE_ROW_RE,
+from lib.traittrees import (
+    TRANSLATE_ROW_RE,
+    TREE_LINE_RE,
+    NewickParser,
+    detect_tag,
+    label_date,
+    strip_leading_comment,
 )
 
 
@@ -108,6 +111,7 @@ def load_metadata(sub_path, full_path, dta_states=None):
     if not sub_path or not Path(sub_path).is_file():
         return meta
     import csv
+
     with open(sub_path) as fh:
         rows = list(csv.DictReader(fh, delimiter="\t"))
     extra = {}
@@ -153,8 +157,10 @@ def convert(nodes, idx, most_recent, meta, trait_key, trait_name, div=0.0):
     if lo:
         try:
             a, b = [float(x) for x in re.split(r"[,\s]+", lo.strip()) if x]
-            attrs["num_date"]["confidence"] = [round(most_recent - max(a, b), 4),
-                                               round(most_recent - min(a, b), 4)]
+            attrs["num_date"]["confidence"] = [
+                round(most_recent - max(a, b), 4),
+                round(most_recent - min(a, b), 4),
+            ]
         except (ValueError, TypeError):
             pass
 
@@ -176,16 +182,20 @@ def convert(nodes, idx, most_recent, meta, trait_key, trait_name, div=0.0):
         if "confidence" not in entry:
             pr = node["ann"].get(f"{trait_key}.prob")
             if pr:
-                try: entry["confidence"] = {node["ann"][trait_key]: round(float(pr), 4)}
-                except ValueError: pass
+                try:
+                    entry["confidence"] = {node["ann"][trait_key]: round(float(pr), 4)}
+                except ValueError:
+                    pass
         attrs[trait_name] = entry
 
     post = node["ann"].get("posterior")
     if post:
-        try: attrs["posterior"] = {"value": round(float(post), 4)}
-        except ValueError: pass
+        try:
+            attrs["posterior"] = {"value": round(float(post), 4)}
+        except ValueError:
+            pass
 
-    if node["label"]:                                # tip
+    if node["label"]:  # tip
         out["name"] = node["label"]
         m = meta.get(node["label"], {})
         for k in ("country", "species", "accession"):
@@ -194,7 +204,7 @@ def convert(nodes, idx, most_recent, meta, trait_key, trait_name, div=0.0):
         if m.get("host") and trait_name not in attrs:
             attrs[trait_name] = {"value": m["host"]}
         elif m.get("host"):
-            attrs[trait_name] = {"value": m["host"]}   # tip state is observed, not inferred
+            attrs[trait_name] = {"value": m["host"]}  # tip state is observed, not inferred
     else:
         convert.counter += 1
         out["name"] = f"NODE_{convert.counter:07d}"
@@ -203,7 +213,8 @@ def convert(nodes, idx, most_recent, meta, trait_key, trait_name, div=0.0):
     if node["children"]:
         out["children"] = [
             convert(nodes, c, most_recent, meta, trait_key, trait_name, div)
-            for c in node["children"]]
+            for c in node["children"]
+        ]
     return out
 
 
@@ -244,32 +255,49 @@ def gate_summary(paths):
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter)
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--mcc", required=True, type=Path)
-    ap.add_argument("--config", type=Path,
-                    help="Pathogen config. Title, maintainer, build URL, "
-                         "colourings and the trait key come from here; "
-                         "nothing naming the pathogen is hardcoded.")
-    ap.add_argument("--metadata", type=Path,
-                    help="Subsampled metadata with a 'label' column.")
-    ap.add_argument("--full-metadata", type=Path,
-                    help="metadata_clean.tsv, for country and species.")
-    ap.add_argument("--alignment", type=Path,
-                    help="Subsampled alignment. Used only to report how many "
-                         "sequences the tree was built from.")
-    ap.add_argument("--gates", nargs="*", type=Path, default=[],
-                    help="Gate JSONs whose verdicts belong in the description.")
-    ap.add_argument("--most-recent", type=float, default=None,
-                    help="Decimal date of the most recent sample. Derived from "
-                         "the tip labels when omitted, which is safer: a value "
-                         "passed by hand that is a year stale shifts every "
-                         "node together, so nothing looks wrong.")
-    ap.add_argument("--trait-key", default=None,
-                    help="Annotation key in the MCC tree. Auto-detected, or "
-                         "taken from beast.discrete_trait.trait in the config.")
-    ap.add_argument("--trait-name", default=None,
-                    help="What to call the trait in Auspice.")
+    ap.add_argument(
+        "--config",
+        type=Path,
+        help="Pathogen config. Title, maintainer, build URL, "
+        "colourings and the trait key come from here; "
+        "nothing naming the pathogen is hardcoded.",
+    )
+    ap.add_argument("--metadata", type=Path, help="Subsampled metadata with a 'label' column.")
+    ap.add_argument(
+        "--full-metadata", type=Path, help="metadata_clean.tsv, for country and species."
+    )
+    ap.add_argument(
+        "--alignment",
+        type=Path,
+        help="Subsampled alignment. Used only to report how many "
+        "sequences the tree was built from.",
+    )
+    ap.add_argument(
+        "--gates",
+        nargs="*",
+        type=Path,
+        default=[],
+        help="Gate JSONs whose verdicts belong in the description.",
+    )
+    ap.add_argument(
+        "--most-recent",
+        type=float,
+        default=None,
+        help="Decimal date of the most recent sample. Derived from "
+        "the tip labels when omitted, which is safer: a value "
+        "passed by hand that is a year stale shifts every "
+        "node together, so nothing looks wrong.",
+    )
+    ap.add_argument(
+        "--trait-key",
+        default=None,
+        help="Annotation key in the MCC tree. Auto-detected, or "
+        "taken from beast.discrete_trait.trait in the config.",
+    )
+    ap.add_argument("--trait-name", default=None, help="What to call the trait in Auspice.")
     ap.add_argument("--title", default=None)
     ap.add_argument("--maintainer", default=None)
     ap.add_argument("--output", required=True, type=Path)
@@ -282,6 +310,7 @@ def main() -> int:
     cfg = {}
     if args.config:
         import yaml
+
         cfg = yaml.safe_load(args.config.read_text()) or {}
     ns = cfg.get("nextstrain") or {}
     dt = (cfg.get("beast") or {}).get("discrete_trait") or {}
@@ -311,8 +340,11 @@ def main() -> int:
         most_recent = max(d for _, d in dated)
         print(f"most recent tip date {most_recent:.4f} (from tip labels)")
     else:
-        print("ERROR: no tip label carries a date and --most-recent was not "
-              "given, so the time axis cannot be established.", file=sys.stderr)
+        print(
+            "ERROR: no tip label carries a date and --most-recent was not "
+            "given, so the time axis cannot be established.",
+            file=sys.stderr,
+        )
         return 1
 
     bad = 0
@@ -322,11 +354,13 @@ def main() -> int:
             bad += 1
     print(f"time axis check: {len(dated) - bad}/{len(dated)} tip heights consistent")
     if bad:
-        print(f"ERROR: {bad} tips have heights inconsistent with their dates.\n"
-              "The time axis is wrong -- every node would be plotted in the "
-              "wrong place, and the figure would look entirely normal. Refusing "
-              "to write. Check --most-recent against the tree's own tip dates.",
-              file=sys.stderr)
+        print(
+            f"ERROR: {bad} tips have heights inconsistent with their dates.\n"
+            "The time axis is wrong -- every node would be plotted in the "
+            "wrong place, and the figure would look entirely normal. Refusing "
+            "to write. Check --most-recent against the tree's own tip dates.",
+            file=sys.stderr,
+        )
         return 1
 
     convert.counter = 0
@@ -335,9 +369,14 @@ def main() -> int:
     # Colourings: whatever the config asks to colour by, plus what is always
     # available from the tree itself.
     wanted = list(ns.get("colour_by") or ns.get("color_by") or [])
-    titles = {trait_name: "Host group", "country": "Country",
-              "species": "Host species", "host_group": "Host group",
-              "lineage": "Lineage", "region": "Region"}
+    titles = {
+        trait_name: "Host group",
+        "country": "Country",
+        "species": "Host species",
+        "host_group": "Host group",
+        "lineage": "Lineage",
+        "region": "Region",
+    }
     colorings = []
     seen = set()
     for key in [trait_name, *wanted]:
@@ -345,17 +384,20 @@ def main() -> int:
         if k in seen:
             continue
         seen.add(k)
-        colorings.append({"key": k, "title": titles.get(k, k.replace("_", " ").title()),
-                          "type": "categorical"})
+        colorings.append(
+            {"key": k, "title": titles.get(k, k.replace("_", " ").title()), "type": "categorical"}
+        )
     for key, title in (("posterior", "Clade posterior"), ("num_date", "Date")):
         colorings.append({"key": key, "title": title, "type": "continuous"})
 
     gates = gate_summary(args.gates)
-    desc = [ns.get("description") or
-            f"Time-scaled phylogeny with ancestral {trait_name} states "
-            f"reconstructed under a discrete-trait model. Branches are coloured "
-            f"by the reconstructed state; deep nodes carry wide uncertainty and "
-            f"should not be read as confident assignments."]
+    desc = [
+        ns.get("description")
+        or f"Time-scaled phylogeny with ancestral {trait_name} states "
+        f"reconstructed under a discrete-trait model. Branches are coloured "
+        f"by the reconstructed state; deep nodes carry wide uncertainty and "
+        f"should not be read as confident assignments."
+    ]
     if gates:
         desc.append("")
         desc.append("**Gate verdicts for this build**")
@@ -370,7 +412,8 @@ def main() -> int:
             desc.append(
                 f"One or more gates did not pass ({', '.join(failed)}). "
                 "Quantities downstream of a failed gate are not supported by "
-                "this analysis, whatever the figure shows.")
+                "this analysis, whatever the figure shows."
+            )
 
     doc = {
         "version": "v2",
@@ -380,9 +423,11 @@ def main() -> int:
             "panels": ["tree"],
             "colorings": colorings,
             "filters": [c["key"] for c in colorings if c["type"] == "categorical"],
-            "display_defaults": {"color_by": trait_name,
-                                 "branch_label": "none",
-                                 "distance_measure": "num_date"},
+            "display_defaults": {
+                "color_by": trait_name,
+                "branch_label": "none",
+                "distance_measure": "num_date",
+            },
             "description": "\n".join(desc),
         },
         "tree": tree,

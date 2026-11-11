@@ -5,7 +5,6 @@ The rule must give different answers on different data. A recommender that
 always says 'interval' is just the literature default wearing a lab coat.
 """
 
-import math
 import random
 import sys
 from pathlib import Path
@@ -13,7 +12,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from lib.datepolicy import recommend, rayleigh  # noqa: E402
+from lib.datepolicy import rayleigh, recommend
 
 
 def dataset(n_year=100, n_precise=40, season_centre=None, season_conc=0.0, seed=5):
@@ -34,6 +33,7 @@ def dataset(n_year=100, n_precise=40, season_centre=None, season_conc=0.0, seed=
 
 
 # --- the circular test ------------------------------------------------------
+
 
 def test_rayleigh_uniform_is_not_significant():
     rng = random.Random(1)
@@ -60,13 +60,15 @@ def test_rayleigh_bimodal_season_does_not_fire():
     so a null here is correct behaviour rather than a miss.
     """
     rng = random.Random(2)
-    w = [(0.1 + rng.gauss(0, 0.05)) % 1 for _ in range(40)] + \
-        [(0.6 + rng.gauss(0, 0.05)) % 1 for _ in range(40)]
+    w = [(0.1 + rng.gauss(0, 0.05)) % 1 for _ in range(40)] + [
+        (0.6 + rng.gauss(0, 0.05)) % 1 for _ in range(40)
+    ]
     R, _Z, _p = rayleigh(w)
     assert R < 0.3
 
 
 # --- the two failure modes, separately -------------------------------------
+
 
 def test_seasonal_bias_forces_interval():
     years, precs = dataset(season_centre=0.85, season_conc=0.9)
@@ -112,6 +114,7 @@ def test_all_precise_dates_needs_no_policy():
 
 # --- honesty about what was not tested -------------------------------------
 
+
 def test_missing_clock_rate_is_flagged_not_guessed():
     years, precs = dataset()
     r = recommend(years, precs, alignment_length=1800, clock_rate=None)
@@ -135,6 +138,7 @@ def test_missing_at_random_caveat_always_present_when_bias_tested():
 
 def test_recommendation_is_json_serialisable():
     import json
+
     years, precs = dataset()
     r = recommend(years, precs, alignment_length=1800, clock_rate=8.5e-4)
     json.dumps(r.to_dict())
@@ -146,6 +150,7 @@ def test_empty_dataset_does_not_crash():
 
 
 # --- regression against the real CDV numbers -------------------------------
+
 
 def test_cdv_clade3_profile_recommends_interval():
     """

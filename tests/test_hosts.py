@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from lib.hosts import load_host_table, normalize_host, audit_host_table  # noqa: E402
+from lib.hosts import audit_host_table, load_host_table, normalize_host
 
 
 @pytest.fixture
@@ -24,6 +24,7 @@ def table(tmp_path):
 
 
 # --- regression test for the substring bug ---------------------------------
+
 
 def test_substring_match_does_not_leak_across_words(table):
     """
@@ -72,11 +73,12 @@ def test_first_rule_wins(table):
 
 # --- table auditing ---------------------------------------------------------
 
+
 def test_audit_detects_shadowed_rules(tmp_path):
     p = tmp_path / "h.tsv"
     p.write_text(
         "dog\tCanis lupus familiaris\tdomestic_dog\n"
-        "wild dog\tLycaon pictus\twild_canid\n"     # unreachable: 'dog' fires first
+        "wild dog\tLycaon pictus\twild_canid\n"  # unreachable: 'dog' fires first
     )
     warnings = audit_host_table(load_host_table(p))
     assert any("shadowed" in w for w in warnings)
@@ -84,10 +86,7 @@ def test_audit_detects_shadowed_rules(tmp_path):
 
 def test_audit_detects_duplicate_patterns(tmp_path):
     p = tmp_path / "h.tsv"
-    p.write_text(
-        "raccoon\tProcyon lotor\tprocyonid\n"
-        "raccoon\tNasua nasua\tprocyonid\n"
-    )
+    p.write_text("raccoon\tProcyon lotor\tprocyonid\nraccoon\tNasua nasua\tprocyonid\n")
     warnings = audit_host_table(load_host_table(p))
     assert any("duplicate" in w for w in warnings)
 
@@ -95,8 +94,7 @@ def test_audit_detects_duplicate_patterns(tmp_path):
 def test_clean_table_produces_no_shadow_warnings(tmp_path):
     p = tmp_path / "h.tsv"
     p.write_text(
-        "wild dog\tLycaon pictus\twild_canid\n"
-        "dog\tCanis lupus familiaris\tdomestic_dog\n"
+        "wild dog\tLycaon pictus\twild_canid\ndog\tCanis lupus familiaris\tdomestic_dog\n"
     )
     warnings = audit_host_table(load_host_table(p))
     assert not any("shadowed" in w for w in warnings)
@@ -118,6 +116,7 @@ def test_malformed_table_raises_with_line_number(tmp_path):
 
 
 # --- regressions found on 3,271 real GenBank records ------------------------
+
 
 def test_plural_host_names_match(table):
     """
@@ -162,8 +161,7 @@ def test_specimen_types_are_not_treated_as_hosts(table):
     sample descriptions leak in. They describe the specimen, not the animal,
     and must not be sent to review as though a host pattern were missing.
     """
-    for s in ["urine", "blood", "conjunctival swab isolate", "lung tissue",
-              "nasal swab"]:
+    for s in ["urine", "blood", "conjunctival swab isolate", "lung tissue", "nasal swab"]:
         m = normalize_host(s, table)
         assert m.ambiguous
         assert m.reason == "sample_type_not_a_host", s

@@ -7,18 +7,21 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from lib.dates import parse_collection_date, to_decimal_year, PRECISION_RANK  # noqa: E402
-
+from lib.dates import PRECISION_RANK, parse_collection_date, to_decimal_year
 
 # --- regression tests for bugs found in the original parser -----------------
 
-@pytest.mark.parametrize("bad", [
-    "2013-13-45",   # month 13, day 45
-    "2013-02-30",   # 30 February
-    "2013-00-00",   # month zero
-    "0000-01-01",   # year zero
-    "2013-02-29",   # not a leap year
-])
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "2013-13-45",  # month 13, day 45
+        "2013-02-30",  # 30 February
+        "2013-00-00",  # month zero
+        "0000-01-01",  # year zero
+        "2013-02-29",  # not a leap year
+    ],
+)
 def test_malformed_dates_do_not_raise(bad):
     """The original parser raised ValueError here and killed the whole run."""
     result = parse_collection_date(bad)
@@ -46,6 +49,7 @@ def test_future_years_rejected_but_current_year_allowed():
 
 
 # --- correctness ------------------------------------------------------------
+
 
 def test_iso_day_precision():
     r = parse_collection_date("2013-08-14")

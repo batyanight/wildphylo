@@ -9,7 +9,7 @@ import os
 import pytest
 import yaml
 
-from lib.config import validate, ConfigError, load
+from lib.config import ConfigError, load, validate
 
 
 def test_at_least_one_config_is_shipped(configs):
@@ -61,7 +61,7 @@ def test_nextstrain_block_is_complete(configs, required):
 def test_build_names_are_url_safe(configs):
     """build_name becomes a nextstrain.org path segment."""
     import re
+
     for p in configs:
         bn = yaml.safe_load(p.read_text())["nextstrain"]["build_name"]
-        assert re.fullmatch(r"[A-Za-z0-9_-]+", bn), \
-            f"{p.name}: build_name {bn!r} is not URL-safe"
+        assert re.fullmatch(r"[A-Za-z0-9_-]+", bn), f"{p.name}: build_name {bn!r} is not URL-safe"

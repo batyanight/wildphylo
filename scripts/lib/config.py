@@ -1,5 +1,4 @@
-"""
-config.py — load and validate a pathogen config.
+"""config.py — load and validate a pathogen config.
 
 Validation exists to catch the errors that are expensive later: a clock rate
 copied from a different virus, a coordinate reference that is not in the
@@ -40,15 +39,13 @@ def load(path: str | Path) -> dict:
     cfg["_path"] = str(path)
     errors, warnings = validate(cfg)
     if errors:
-        raise ConfigError(
-            f"{path} is not usable:\n" + "\n".join(f"  - {e}" for e in errors))
+        raise ConfigError(f"{path} is not usable:\n" + "\n".join(f"  - {e}" for e in errors))
     cfg["_warnings"] = warnings
     return cfg
 
 
 def resolve_path(cfg: dict, value) -> Path:
-    """
-    Turn a path in a config into one that resolves from ANY working directory.
+    """Turn a path in a config into one that resolves from ANY working directory.
 
     Paths in the shipped configs are written relative to the repository root
     ("config/host_groups.tsv"), which only resolves when the command is run
@@ -93,11 +90,11 @@ def validate(cfg: dict) -> tuple[list[str], list[str]]:
             errors.append(f"missing required section: {key}")
     has = [k for k in REQUIRED_LOCUS if k in cfg]
     if not has:
-        errors.append("missing required section: 'locus' (unsegmented) or "
-                      "'loci' (segmented)")
+        errors.append("missing required section: 'locus' (unsegmented) or 'loci' (segmented)")
     elif len(has) == 2:
-        errors.append("config defines both 'locus' and 'loci'; use 'loci' "
-                      "alone for a segmented pathogen")
+        errors.append(
+            "config defines both 'locus' and 'loci'; use 'loci' alone for a segmented pathogen"
+        )
     if errors:
         return errors, warnings
 
@@ -115,13 +112,15 @@ def validate(cfg: dict) -> tuple[list[str], list[str]]:
     elif min_year < 1800:
         warnings.append(
             f"dates.min_year = {min_year} is very permissive; it will admit "
-            "typo'd years that can distort a calibration")
+            "typo'd years that can distort a calibration"
+        )
     if isinstance(min_year, int) and min_year >= max_year:
         errors.append(f"dates.min_year ({min_year}) >= max_year ({max_year})")
     policy = d.get("imprecise_date_policy", "midpoint")
     if policy not in {"midpoint", "interval", "exclude"}:
-        errors.append(f"dates.imprecise_date_policy must be midpoint|interval|"
-                      f"exclude, got {policy!r}")
+        errors.append(
+            f"dates.imprecise_date_policy must be midpoint|interval|exclude, got {policy!r}"
+        )
 
     # --- segmented pathogens ---
     segmented = (cfg.get("virus") or {}).get("segmented", False)
@@ -141,7 +140,8 @@ def validate(cfg: dict) -> tuple[list[str], list[str]]:
             warnings.append(
                 "config defines multiple loci but virus.segmented is false. If "
                 "these really are segments, set it -- the congruence gate and "
-                "the reassortment screen both key off that flag")
+                "the reassortment screen both key off that flag"
+            )
 
         seg_cfg = cfg.get("segments") or {}
         if segmented:
@@ -149,27 +149,32 @@ def validate(cfg: dict) -> tuple[list[str], list[str]]:
                 warnings.append(
                     f"only {len(analysed)} locus marked analyse: true on a "
                     "segmented pathogen. Congruence cannot be assessed from "
-                    "one tree, so reassortment would go undetected")
+                    "one tree, so reassortment would go undetected"
+                )
             elif len(analysed) == 2:
                 warnings.append(
                     "two analysed segments give a single pairwise RF value. "
                     "Three or more makes it possible to tell which segment is "
-                    "the odd one out")
+                    "the odd one out"
+                )
             if seg_cfg.get("concatenate") == "always":
                 if (cfg.get("virus") or {}).get("reassortment_expected"):
                     errors.append(
                         "segments.concatenate is 'always' while "
                         "virus.reassortment_expected is true. Concatenating "
                         "reassorting segments averages over conflicting "
-                        "histories and yields a tree matching no segment")
+                        "histories and yields a tree matching no segment"
+                    )
                 else:
                     warnings.append(
                         "segments.concatenate is 'always'; congruence will not "
-                        "be checked before joining segments")
+                        "be checked before joining segments"
+                    )
             if not seg_cfg.get("congruence_gate", True):
                 warnings.append(
                     "segments.congruence_gate is off; segment topologies will "
-                    "not be compared and reassortants will not be flagged")
+                    "not be compared and reassortants will not be flagged"
+                )
 
         # Per-locus clock priors get the same scrutiny as a global one.
         for l in analysed:
@@ -178,57 +183,62 @@ def validate(cfg: dict) -> tuple[list[str], list[str]]:
                 try:
                     lr = float(lr)
                 except (TypeError, ValueError):
-                    errors.append(f"loci[{l.get('name')}].clock_rate_prior is "
-                                  f"not a number: {lr!r}")
+                    errors.append(
+                        f"loci[{l.get('name')}].clock_rate_prior is not a number: {lr!r}"
+                    )
                     continue
                 if not (RATE_FLOOR <= lr <= RATE_CEILING):
                     errors.append(
                         f"loci[{l.get('name')}].clock_rate_prior {lr:g} is "
-                        f"outside [{RATE_FLOOR:g}, {RATE_CEILING:g}]")
+                        f"outside [{RATE_FLOOR:g}, {RATE_CEILING:g}]"
+                    )
                 elif not l.get("clock_rate_source"):
                     warnings.append(
-                        f"loci[{l.get('name')}] sets a clock prior with no "
-                        "clock_rate_source")
+                        f"loci[{l.get('name')}] sets a clock prior with no clock_rate_source"
+                    )
             pol = l.get("imprecise_date_policy")
             if pol and pol not in {"midpoint", "interval", "exclude"}:
                 errors.append(
                     f"loci[{l.get('name')}].imprecise_date_policy must be "
-                    f"midpoint|interval|exclude, got {pol!r}")
+                    f"midpoint|interval|exclude, got {pol!r}"
+                )
 
         ref = cfg.get("references") or {}
         af = ref.get("assign_from")
         if af and af not in names:
             errors.append(
-                f"references.assign_from is {af!r}, which is not a defined "
-                f"locus: {names}")
+                f"references.assign_from is {af!r}, which is not a defined locus: {names}"
+            )
 
         vp = cfg.get("hosts", {}).get("vector_policy")
         if vp and vp not in {"exclude", "state", "annotate"}:
-            errors.append(f"hosts.vector_policy must be exclude|state|annotate, "
-                          f"got {vp!r}")
+            errors.append(f"hosts.vector_policy must be exclude|state|annotate, got {vp!r}")
         if vp == "state":
             warnings.append(
                 "hosts.vector_policy is 'state': every transition rate to or "
                 "from the vector will reflect where sequences were sampled "
-                "rather than where the virus is maintained")
+                "rather than where the virus is maintained"
+            )
 
         for l in loci:
             if not l.get("aliases"):
-                errors.append(f"loci[{l.get('name')}].aliases must list at "
-                              "least one name")
+                errors.append(f"loci[{l.get('name')}].aliases must list at least one name")
         return _finish(cfg, errors, warnings)
 
     if segmented:
         warnings.append(
             "virus.segmented is true but the config defines a single `locus`. "
             "Only that one segment will be analysed, and reassortment will be "
-            "invisible")
+            "invisible"
+        )
 
     # --- locus (unsegmented) ---
     loc = cfg["locus"]
     if not loc.get("aliases"):
-        errors.append("locus.aliases must list at least one name; GenBank "
-                      "annotates the same gene inconsistently")
+        errors.append(
+            "locus.aliases must list at least one name; GenBank "
+            "annotates the same gene inconsistently"
+        )
     ref = loc.get("coordinate_reference") or {}
     cds = ref.get("cds")
     if cds and len(cds) == 2:
@@ -237,22 +247,24 @@ def validate(cfg: dict) -> tuple[list[str], list[str]]:
             if span % 3:
                 errors.append(
                     f"locus.coordinate_reference.cds {cds} spans {span} nt = "
-                    f"{span/3:.2f} codons. A CDS must be a multiple of 3; this "
+                    f"{span / 3:.2f} codons. A CDS must be a multiple of 3; this "
                     "one cannot be translated and would silently break any "
-                    "codon-aware annotation downstream")
+                    "codon-aware annotation downstream"
+                )
             exp = loc.get("expected_length")
             if exp and span != exp:
                 warnings.append(
                     f"locus.coordinate_reference.cds spans {span} nt but "
-                    f"locus.expected_length is {exp}; one of them is wrong")
+                    f"locus.expected_length is {exp}; one of them is wrong"
+                )
         except (TypeError, ValueError):
-            errors.append(f"locus.coordinate_reference.cds is not a pair of "
-                          f"integers: {cds!r}")
+            errors.append(f"locus.coordinate_reference.cds is not a pair of integers: {cds!r}")
     if not ref.get("accession"):
         warnings.append(
             "locus.coordinate_reference.accession is unset. Annotation "
             "positions will fall back to alignment columns, which shift every "
-            "time the dataset changes and silently invalidate saved coordinates")
+            "time the dataset changes and silently invalidate saved coordinates"
+        )
 
     return _finish(cfg, errors, warnings)
 
@@ -265,11 +277,12 @@ def _finish(cfg: dict, errors: list, warnings: list) -> tuple[list, list]:
     declared_groups: set[str] = set()
     if table_path.is_file():
         try:
-            from lib.hosts import load_host_table, audit_host_table
+            from lib.hosts import audit_host_table, load_host_table
+
             rules = load_host_table(table_path)
             declared_groups = {r.group for r in rules}
             warnings.extend(f"host table: {w}" for w in audit_host_table(rules))
-        except Exception as e:                       # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             errors.append(f"hosts.table could not be parsed: {e}")
     else:
         errors.append(f"hosts.table not found: {table_path}")
@@ -279,12 +292,13 @@ def _finish(cfg: dict, errors: list, warnings: list) -> tuple[list, list]:
             if g not in declared_groups:
                 warnings.append(
                     f"hosts.wild_groups lists {g!r}, which no rule in the host "
-                    "table produces; it will never match anything")
+                    "table produces; it will never match anything"
+                )
         for g in h.get("reservoir_candidates", []):
             if g not in declared_groups:
                 warnings.append(
-                    f"hosts.reservoir_candidates lists {g!r}, not produced by "
-                    "any host rule")
+                    f"hosts.reservoir_candidates lists {g!r}, not produced by any host rule"
+                )
 
     # --- beast ---
     b = cfg["beast"]
@@ -299,27 +313,32 @@ def _finish(cfg: dict, errors: list, warnings: list) -> tuple[list, list]:
         if not (RATE_FLOOR <= rate <= RATE_CEILING):
             errors.append(
                 f"beast.clock_rate_prior = {rate:g} subs/site/yr is outside "
-                f"[{RATE_FLOOR:g}, {RATE_CEILING:g}]; check the units")
+                f"[{RATE_FLOOR:g}, {RATE_CEILING:g}]; check the units"
+            )
         if not b.get("clock_rate_source"):
             warnings.append(
                 "beast.clock_rate_prior is set but clock_rate_source is empty. "
                 "A clock prior with no citation is the single easiest way to "
-                "carry an assumption from one pathogen into another")
+                "carry an assumption from one pathogen into another"
+            )
     else:
         warnings.append(
             "beast.clock_rate_prior is null; the prior will be centred on the "
             "root-to-tip slope from your own data. This is the right default "
-            "for a new pathogen but check the resulting prior before the run")
+            "for a new pathogen but check the resulting prior before the run"
+        )
 
     if b.get("n_chains", 1) < 2:
         warnings.append(
             "beast.n_chains < 2: convergence cannot be assessed from a single "
-            "chain, only non-convergence")
+            "chain, only non-convergence"
+        )
     seeds = b.get("seeds") or []
     if len(seeds) < b.get("n_chains", 1):
         errors.append(
             f"beast.seeds has {len(seeds)} entries but n_chains is "
-            f"{b.get('n_chains')}; runs would not be reproducible")
+            f"{b.get('n_chains')}; runs would not be reproducible"
+        )
     if len(set(seeds)) != len(seeds):
         errors.append("beast.seeds contains duplicates; chains would be identical")
 
@@ -329,7 +348,8 @@ def _finish(cfg: dict, errors: list, warnings: list) -> tuple[list, list]:
         if trait != "host_group":
             warnings.append(
                 f"beast.discrete_trait.trait is {trait!r}; only 'host_group' is "
-                "populated by the curation step")
+                "populated by the curation step"
+            )
         # Count states AFTER the declared collapse, not raw host-table groups.
         # Counting before the map reports a rate count the analysis will never
         # use, and contradicts preflight.check_trait_states.
@@ -343,14 +363,16 @@ def _finish(cfg: dict, errors: list, warnings: list) -> tuple[list, list]:
             if unmapped and not other:
                 warnings.append(
                     "host groups absent from hosts.dta_states and excluded "
-                    f"from the trait analysis: {', '.join(unmapped)}")
+                    f"from the trait analysis: {', '.join(unmapped)}"
+                )
             n_states = len(states)
         else:
             n_states = len(declared_groups)
             warnings.append(
                 "hosts.dta_states is unset, so every host group becomes a "
                 "trait state and the state count depends on which sequences "
-                "happen to be subsampled")
+                "happen to be subsampled"
+            )
         if dt_cfg.get("symmetric", True):
             n_rates = n_states * (n_states - 1) // 2
         else:
@@ -358,7 +380,8 @@ def _finish(cfg: dict, errors: list, warnings: list) -> tuple[list, list]:
         warnings.append(
             f"discrete trait has {n_states} states -> {n_rates} transition "
             "rates to estimate. Rates far outnumbering informative transitions "
-            "is the usual cause of an unresolved root")
+            "is the usual cause of an unresolved root"
+        )
 
     # --- trait-signal gate (tip-label randomisation) ---
     # Validated whenever the trait block exists, not only when dta_states is
@@ -371,26 +394,29 @@ def _finish(cfg: dict, errors: list, warnings: list) -> tuple[list, list]:
         if perms is not None:
             if not isinstance(perms, int) or perms < 1:
                 errors.append(
-                    "beast.discrete_trait.signal_permutations must be a "
-                    "positive integer")
+                    "beast.discrete_trait.signal_permutations must be a positive integer"
+                )
             elif perms < 99:
                 warnings.append(
                     f"beast.discrete_trait.signal_permutations = {perms}: the "
                     f"smallest p obtainable is 1/{perms + 1} = "
                     f"{1 / (perms + 1):.3f}, so the gate cannot return a "
-                    "conventionally significant result")
+                    "conventionally significant result"
+                )
         if dt_cfg.get("signal_gate") is False:
             warnings.append(
                 "beast.discrete_trait.signal_gate = false: the tip-label "
                 "randomisation test is disabled. The analysis will still "
                 "produce a transition table; nothing will check whether the "
-                "host labels are associated with the tree at all")
+                "host labels are associated with the tree at all"
+            )
         elif dt_cfg.get("on_no_signal") == "warn":
             warnings.append(
                 "beast.discrete_trait.on_no_signal = warn: a trait with no "
                 "demonstrated association with the phylogeny will still be "
                 "published, and its transition table will look no different "
-                "from a supported one")
+                "from a supported one"
+            )
 
     # --- date-randomisation test ---
     dr = b.get("date_randomisation") or {}
@@ -402,7 +428,8 @@ def _finish(cfg: dict, errors: list, warnings: list) -> tuple[list, list]:
             warnings.append(
                 f"beast.date_randomisation.replicates = {n_rep}: with fewer "
                 "than about ten, the envelope of randomised rates is too "
-                "poorly estimated for a non-overlap result to mean much")
+                "poorly estimated for a non-overlap result to mean much"
+            )
         # Replicate chains are routinely set far shorter than the real one, and
         # a replicate that has not mixed has a wide posterior that overlaps
         # everything -- which makes the test fail for reasons unrelated to the
@@ -415,7 +442,8 @@ def _finish(cfg: dict, errors: list, warnings: list) -> tuple[list, list]:
                 f"than a tenth of the real chain ({real_len:,}). Replicates "
                 "that have not mixed have wide posteriors that overlap "
                 "everything, so the date-randomisation test can fail on poor "
-                "sampling rather than on absent temporal signal")
+                "sampling rather than on absent temporal signal"
+            )
 
     # --- temporal gate ---
     ts = cfg.get("temporal_signal", {})
@@ -425,14 +453,14 @@ def _finish(cfg: dict, errors: list, warnings: list) -> tuple[list, list]:
         warnings.append(
             "temporal_signal.on_fail = warn: a dataset with no clock signal "
             "will still be handed to BEAST, which will return a confident "
-            "posterior for a rate that is not identifiable")
+            "posterior for a rate that is not identifiable"
+        )
 
     return errors, warnings
 
 
 def main(argv: list[str] | None = None) -> int:
-    """
-    Validate configs from the command line.
+    """Validate configs from the command line.
 
         python -m lib.config config/pathogen/*.yaml
 
@@ -445,8 +473,7 @@ def main(argv: list[str] | None = None) -> int:
 
     ap = argparse.ArgumentParser(description="Validate pathogen configs.")
     ap.add_argument("configs", nargs="+")
-    ap.add_argument("--strict", action="store_true",
-                    help="Treat warnings as failures.")
+    ap.add_argument("--strict", action="store_true", help="Treat warnings as failures.")
     a = ap.parse_args(argv)
 
     gha = bool(os.environ.get("GITHUB_ACTIONS"))
@@ -473,4 +500,5 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     import sys as _sys
+
     _sys.exit(main())

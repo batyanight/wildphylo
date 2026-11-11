@@ -1,5 +1,4 @@
-"""
-traitsignal.py -- does the discrete trait carry phylogenetic signal at all?
+"""traitsignal.py -- does the discrete trait carry phylogenetic signal at all?
 
 Why this exists
 ---------------
@@ -75,7 +74,7 @@ from __future__ import annotations
 
 import gzip
 import re
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 
 import numpy as np
 
@@ -87,6 +86,7 @@ import numpy as np
 # and the statistics below need to walk every node of every tree R+1 times.
 # What is needed is a flat integer representation, so that is what is built.
 # ---------------------------------------------------------------------------
+
 
 # BEAST writes node annotations as [&rate=1.0,host_group="felid",...]. Nested
 # brackets do not occur in BEAST output, but quoted strings containing ']' do,
@@ -124,8 +124,7 @@ _LABEL = re.compile(r"^[^:,()]+")
 
 @dataclass
 class Topology:
-    """
-    A rooted tree as flat arrays.
+    """A rooted tree as flat arrays.
 
     postorder  node indices, children always before their parent
     left,right  child indices; -1 for a tip. Multifurcations are resolved into
@@ -137,6 +136,7 @@ class Topology:
                 recorded and reported rather than silently absorbed.
     tip_index   label -> row in the state vector
     """
+
     postorder: np.ndarray
     left: np.ndarray
     right: np.ndarray
@@ -150,16 +150,14 @@ class Topology:
 
 
 def parse_newick(nk: str) -> Topology:
-    """
-    Newick -> Topology. Comments must already be stripped.
+    """Newick -> Topology. Comments must already be stripped.
 
     Tips are numbered 0..n_tips-1 in order of first appearance; internal nodes
     follow. The postorder array is built directly by the parser, since a
     recursive descent over newick emits children before parents by construction.
     """
     nk = nk.strip()
-    if nk.endswith(";"):
-        nk = nk[:-1]
+    nk = nk.removesuffix(";")
 
     left: list[int] = []
     right: list[int] = []
@@ -245,19 +243,21 @@ def parse_newick(nk: str) -> Topology:
 
     return Topology(
         postorder=remap[np.array(postorder, dtype=np.int64)],
-        left=L, right=R, tip_index=tip_index, n_tips=n_tips,
+        left=L,
+        right=R,
+        tip_index=tip_index,
+        n_tips=n_tips,
         n_polytomies=n_poly,
     )
 
 
 def _open(path):
     p = str(path)
-    return gzip.open(p, "rt") if p.endswith(".gz") else open(p, "r")
+    return gzip.open(p, "rt") if p.endswith(".gz") else open(p)
 
 
 def iter_trees(path, burnin: float = 0.10, thin: int = 1, max_trees: int | None = None):
-    """
-    Yield Topology objects from a NEXUS .trees file (BEAST) or a plain newick
+    """Yield Topology objects from a NEXUS .trees file (BEAST) or a plain newick
     file, resolving the Translate block if present.
 
     burnin is a FRACTION of the trees in the file, applied per file. Callers
@@ -289,13 +289,13 @@ def iter_trees(path, burnin: float = 0.10, thin: int = 1, max_trees: int | None 
             if low.startswith("tree "):
                 j = s.find("=")
                 if j > 0:
-                    newicks.append(s[j + 1:])
+                    newicks.append(s[j + 1 :])
             elif s.startswith("(") and s.endswith(";"):
                 newicks.append(s)
 
     n = len(newicks)
     start = int(round(burnin * n))
-    kept = newicks[start::max(1, thin)]
+    kept = newicks[start :: max(1, thin)]
     if max_trees and len(kept) > max_trees:
         step = int(np.ceil(len(kept) / max_trees))
         kept = kept[::step][:max_trees]
@@ -310,8 +310,9 @@ def iter_trees(path, burnin: float = 0.10, thin: int = 1, max_trees: int | None 
         yield top
 
 
-def read_posterior(paths, burnin: float = 0.10, thin: int = 1,
-                   max_trees: int | None = None) -> list[Topology]:
+def read_posterior(
+    paths, burnin: float = 0.10, thin: int = 1, max_trees: int | None = None
+) -> list[Topology]:
     """Read several chains, applying burnin and thinning within each."""
     per_file = None if max_trees is None else max(1, max_trees // max(1, len(paths)))
     trees: list[Topology] = []
@@ -331,9 +332,9 @@ def read_posterior(paths, burnin: float = 0.10, thin: int = 1,
 # permutations across a thousand trees finish in seconds rather than an hour.
 # ---------------------------------------------------------------------------
 
+
 def parsimony_score(top: Topology, states: np.ndarray, n_states: int) -> np.ndarray:
-    """
-    Fitch small-parsimony, as bitmasks. Returns shape (R,).
+    """Fitch small-parsimony, as bitmasks. Returns shape (R,).
 
     Fitch: at each internal node take the intersection of its children's state
     sets; if empty, take the union and charge one change. The total charged is
@@ -341,7 +342,7 @@ def parsimony_score(top: Topology, states: np.ndarray, n_states: int) -> np.ndar
     """
     R = states.shape[0]
     sets = np.zeros((top.n_nodes, R), dtype=np.int64)
-    sets[:top.n_tips] = (np.int64(1) << states.T.astype(np.int64))
+    sets[: top.n_tips] = np.int64(1) << states.T.astype(np.int64)
     changes = np.zeros(R, dtype=np.int64)
     for node in top.postorder:
         l, r = top.left[node], top.right[node]
@@ -369,10 +370,10 @@ def _descendant_counts(top: Topology, states: np.ndarray, n_states: int) -> np.n
     return counts
 
 
-def association_index(top: Topology, states: np.ndarray, n_states: int,
-                      counts: np.ndarray | None = None) -> np.ndarray:
-    """
-    AI = sum over internal nodes of (1 - f) / 2^(n-1), where f is the frequency
+def association_index(
+    top: Topology, states: np.ndarray, n_states: int, counts: np.ndarray | None = None
+) -> np.ndarray:
+    """AI = sum over internal nodes of (1 - f) / 2^(n-1), where f is the frequency
     of the most common tip state below the node and n the number of tips below.
 
     The 2^(n-1) denominator is the point of the statistic: a node with many
@@ -390,7 +391,7 @@ def association_index(top: Topology, states: np.ndarray, n_states: int,
     for node in top.postorder:
         if top.left[node] < 0:
             continue
-        c = counts[node]                      # (R, S)
+        c = counts[node]  # (R, S)
         n = c.sum(axis=1).astype(np.float64)  # (R,)
         f = c.max(axis=1) / np.maximum(n, 1)
         with np.errstate(over="ignore"):
@@ -399,10 +400,10 @@ def association_index(top: Topology, states: np.ndarray, n_states: int,
     return ai
 
 
-def monophyletic_clades(top: Topology, states: np.ndarray, n_states: int,
-                        counts: np.ndarray | None = None) -> np.ndarray:
-    """
-    MC per state: the largest clade whose tips are all that state. Shape (R, S).
+def monophyletic_clades(
+    top: Topology, states: np.ndarray, n_states: int, counts: np.ndarray | None = None
+) -> np.ndarray:
+    """MC per state: the largest clade whose tips are all that state. Shape (R, S).
 
     A single tip is a monophyletic clade of size 1, so a state present at all
     scores at least 1. A state absent from a labelling scores 0.
@@ -412,9 +413,9 @@ def monophyletic_clades(top: Topology, states: np.ndarray, n_states: int,
     R = states.shape[0]
     mc = np.zeros((R, n_states), dtype=np.int32)
     for node in top.postorder:
-        c = counts[node]                       # (R, S)
+        c = counts[node]  # (R, S)
         n = c.sum(axis=1, keepdims=True)
-        pure = (c == n) & (n > 0)              # only one state present
+        pure = (c == n) & (n > 0)  # only one state present
         mc = np.where(pure & (c > mc), c, mc)
     return mc
 
@@ -422,6 +423,7 @@ def monophyletic_clades(top: Topology, states: np.ndarray, n_states: int,
 # ---------------------------------------------------------------------------
 # The gate
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class StatResult:
@@ -431,7 +433,7 @@ class StatResult:
     null_lo: float
     null_hi: float
     p: float
-    direction: str          # "lower" = structure gives a smaller value
+    direction: str  # "lower" = structure gives a smaller value
 
     @property
     def significant(self) -> bool:
@@ -449,7 +451,7 @@ class TraitSignalResult:
     ai: StatResult | None = None
     ps: StatResult | None = None
     mc: dict[str, StatResult] = field(default_factory=dict)
-    verdict: str = "unknown"          # pass | weak | fail
+    verdict: str = "unknown"  # pass | weak | fail
     reasons: list[str] = field(default_factory=list)
     polytomies: int = 0
 
@@ -462,8 +464,7 @@ class TraitSignalResult:
 
 
 def _pvalue(observed: float, null: np.ndarray, direction: str) -> float:
-    """
-    Davison-Hinkley corrected permutation p. The smallest value obtainable
+    """Davison-Hinkley corrected permutation p. The smallest value obtainable
     from R permutations is 1/(R+1); reporting 0 would overstate the resolution
     the test actually has.
     """
@@ -474,14 +475,15 @@ def _pvalue(observed: float, null: np.ndarray, direction: str) -> float:
     return (1.0 + extreme) / (1.0 + len(null))
 
 
-def trait_signal(trees: list[Topology],
-                 tip_states: dict[str, str],
-                 n_permutations: int = 1000,
-                 seed: int = 12345,
-                 ai_threshold: float = 0.05,
-                 ps_threshold: float = 0.05) -> TraitSignalResult:
-    """
-    Run the tip-label randomisation test over a posterior sample.
+def trait_signal(
+    trees: list[Topology],
+    tip_states: dict[str, str],
+    n_permutations: int = 1000,
+    seed: int = 12345,
+    ai_threshold: float = 0.05,
+    ps_threshold: float = 0.05,
+) -> TraitSignalResult:
+    """Run the tip-label randomisation test over a posterior sample.
 
     tip_states maps tip label -> state. Labels mapped to '?' or absent from the
     mapping are pruned, in the sense that they are excluded from the state
@@ -495,7 +497,8 @@ def trait_signal(trees: list[Topology],
     if S < 2:
         raise ValueError(
             f"a trait with {S} state(s) has nothing to test; "
-            f"check the traits file and hosts.dta_states")
+            f"check the traits file and hosts.dta_states"
+        )
     code = {s: i for i, s in enumerate(states_sorted)}
 
     # Restrict to tips present in EVERY tree with a usable state. Posterior
@@ -510,7 +513,8 @@ def trait_signal(trees: list[Topology],
         raise ValueError(
             "no tip label in the trees matches the trait mapping; "
             f"trees look like {sorted(common)[:2]}, "
-            f"traits look like {sorted(usable)[:2]}")
+            f"traits look like {sorted(usable)[:2]}"
+        )
     n_pruned = len(common) - len(labelled)
 
     keep = sorted(labelled)
@@ -526,8 +530,7 @@ def trait_signal(trees: list[Topology],
     # is exactly the pruned tree's answer for AI and MC. Fitch parsimony is the
     # exception -- a '?' tip must be an all-states set, not an empty one --
     # handled by giving pruned tips a full bitmask below.
-    counts_index = [np.array([t.tip_index[k] for k in keep], dtype=np.int64)
-                    for t in trees]
+    counts_index = [np.array([t.tip_index[k] for k in keep], dtype=np.int64) for t in trees]
 
     R = n_permutations
     # perms[0] is the observed labelling; 1..R are permutations of it. Each
@@ -566,7 +569,7 @@ def trait_signal(trees: list[Topology],
         # Fitch: a pruned tip is ambiguous across all states, so it never
         # forces a change and never blocks an intersection.
         sets = np.full((top.n_nodes, R + 1), (1 << S) - 1, dtype=np.int64)
-        sets[idx] = (np.int64(1) << perms.T.astype(np.int64))
+        sets[idx] = np.int64(1) << perms.T.astype(np.int64)
         changes = np.zeros(R + 1, dtype=np.int64)
         for node in top.postorder:
             l, r = top.left[node], top.right[node]
@@ -594,22 +597,35 @@ def trait_signal(trees: list[Topology],
     )
 
     res.ai = StatResult(
-        "AI", float(ai_mean[0]), float(ai_mean[1:].mean()),
+        "AI",
+        float(ai_mean[0]),
+        float(ai_mean[1:].mean()),
         float(np.percentile(ai_mean[1:], 2.5)),
         float(np.percentile(ai_mean[1:], 97.5)),
-        _pvalue(ai_mean[0], ai_mean[1:], "lower"), "lower")
+        _pvalue(ai_mean[0], ai_mean[1:], "lower"),
+        "lower",
+    )
     res.ps = StatResult(
-        "PS", float(ps_mean[0]), float(ps_mean[1:].mean()),
+        "PS",
+        float(ps_mean[0]),
+        float(ps_mean[1:].mean()),
         float(np.percentile(ps_mean[1:], 2.5)),
         float(np.percentile(ps_mean[1:], 97.5)),
-        _pvalue(ps_mean[0], ps_mean[1:], "lower"), "lower")
+        _pvalue(ps_mean[0], ps_mean[1:], "lower"),
+        "lower",
+    )
     for s in states_sorted:
         j = code[s]
         col = mc_mean[1:, j]
         res.mc[s] = StatResult(
-            f"MC[{s}]", float(mc_mean[0, j]), float(col.mean()),
-            float(np.percentile(col, 2.5)), float(np.percentile(col, 97.5)),
-            _pvalue(mc_mean[0, j], col, "higher"), "higher")
+            f"MC[{s}]",
+            float(mc_mean[0, j]),
+            float(col.mean()),
+            float(np.percentile(col, 2.5)),
+            float(np.percentile(col, 97.5)),
+            _pvalue(mc_mean[0, j], col, "higher"),
+            "higher",
+        )
 
     # --- verdict ------------------------------------------------------------
     # AI and PS are whole-tree statistics: they answer "is there structure".
@@ -623,20 +639,23 @@ def trait_signal(trees: list[Topology],
         res.verdict = "pass"
         reasons.append(
             f"AI p={res.ai.p:.4f} and PS p={res.ps.p:.4f}: tip states are more "
-            f"clustered than random relabelling of the same states.")
+            f"clustered than random relabelling of the same states."
+        )
     elif ai_ok or ps_ok:
         res.verdict = "weak"
         reasons.append(
             f"AI p={res.ai.p:.4f}, PS p={res.ps.p:.4f}: the two whole-tree "
             f"statistics disagree. Structure is present somewhere but is not "
-            f"a property of the tree as a whole.")
+            f"a property of the tree as a whole."
+        )
     else:
         res.verdict = "fail"
         reasons.append(
             f"AI p={res.ai.p:.4f}, PS p={res.ps.p:.4f}: the tip states are "
             f"indistinguishable from a random assignment. Reconstructed "
             f"ancestral states and transition counts describe the label "
-            f"distribution, not transmission.")
+            f"distribution, not transmission."
+        )
 
     sig = [s for s in states_sorted if res.mc[s].p < 0.05]
     if res.verdict in ("pass", "weak"):
@@ -644,12 +663,14 @@ def trait_signal(trees: list[Topology],
             reasons.append(
                 f"MC significant for: {', '.join(sig)}. Only these states "
                 f"cluster more than chance; a transition involving a state "
-                f"not in this list has no demonstrated structure behind it.")
+                f"not in this list has no demonstrated structure behind it."
+            )
         else:
             reasons.append(
                 "No state has a significant MC. Whatever AI or PS is "
                 "detecting is not any one state forming clades, so "
-                "state-specific claims are not supported.")
+                "state-specific claims are not supported."
+            )
             if res.verdict == "pass":
                 res.verdict = "weak"
 
@@ -659,60 +680,73 @@ def trait_signal(trees: list[Topology],
     if thin:
         reasons.append(
             f"LOW POWER: states with fewer than 5 tips: {thin}. A "
-            f"non-significant MC for these is uninformative.")
+            f"non-significant MC for these is uninformative."
+        )
     if n < 20:
         reasons.append(
             f"LOW POWER: {n} labelled tips in total. Permutation tests on "
-            f"trees this small rarely reject even when structure is real.")
+            f"trees this small rarely reject even when structure is real."
+        )
     if polytomies:
         reasons.append(
             f"{polytomies} polytomies across the posterior were resolved "
             f"arbitrarily with zero-length edges, which can shift PS slightly. "
             f"BEAST posteriors are normally fully resolved; a large count here "
-            f"suggests the trees came from a consensus method instead.")
+            f"suggests the trees came from a consensus method instead."
+        )
     res.reasons = reasons
     return res
 
 
 def format_report(res: TraitSignalResult, width: int = 78) -> str:
     """Human-readable report. The verdict line is the one that matters."""
-    L = ["=" * width,
-         "TIP-LABEL RANDOMISATION  (Parker, Rambaut & Pybus 2008)",
-         "=" * width,
-         f"posterior trees     : {res.n_trees}",
-         f"labelled tips       : {res.n_tips}"
-         + (f"   ({res.n_pruned} pruned as unassigned)" if res.n_pruned else ""),
-         f"permutations        : {res.n_permutations}",
-         f"states              : " + ", ".join(
-             f"{s} {res.state_counts[s]}" for s in res.states),
-         "",
-         f"  {'statistic':<16}{'observed':>10}{'null mean':>11}"
-         f"{'null 95%':>20}{'p':>9}",
-         "  " + "-" * (width - 4)]
+    L = [
+        "=" * width,
+        "TIP-LABEL RANDOMISATION  (Parker, Rambaut & Pybus 2008)",
+        "=" * width,
+        f"posterior trees     : {res.n_trees}",
+        f"labelled tips       : {res.n_tips}"
+        + (f"   ({res.n_pruned} pruned as unassigned)" if res.n_pruned else ""),
+        f"permutations        : {res.n_permutations}",
+        "states              : " + ", ".join(f"{s} {res.state_counts[s]}" for s in res.states),
+        "",
+        f"  {'statistic':<16}{'observed':>10}{'null mean':>11}{'null 95%':>20}{'p':>9}",
+        "  " + "-" * (width - 4),
+    ]
 
     for st in (res.ai, res.ps):
-        L.append(f"  {st.name:<16}{st.observed:>10.4f}{st.null_mean:>11.4f}"
-                 f"{st.null_lo:>10.4f}{st.null_hi:>10.4f}{st.p:>9.4f}"
-                 + ("  *" if st.significant else ""))
+        L.append(
+            f"  {st.name:<16}{st.observed:>10.4f}{st.null_mean:>11.4f}"
+            f"{st.null_lo:>10.4f}{st.null_hi:>10.4f}{st.p:>9.4f}"
+            + ("  *" if st.significant else "")
+        )
     L.append("")
     L.append("  maximum monophyletic clade size, per state")
     for s in res.states:
         st = res.mc[s]
-        L.append(f"  {s:<16}{st.observed:>10.2f}{st.null_mean:>11.2f}"
-                 f"{st.null_lo:>10.2f}{st.null_hi:>10.2f}{st.p:>9.4f}"
-                 + ("  *" if st.significant else ""))
-    L += ["",
-          "  AI and PS: LOWER than null means structure.",
-          "  MC:        HIGHER than null means structure.",
-          "",
-          f"VERDICT: {res.verdict.upper()}", ""]
+        L.append(
+            f"  {s:<16}{st.observed:>10.2f}{st.null_mean:>11.2f}"
+            f"{st.null_lo:>10.2f}{st.null_hi:>10.2f}{st.p:>9.4f}"
+            + ("  *" if st.significant else "")
+        )
+    L += [
+        "",
+        "  AI and PS: LOWER than null means structure.",
+        "  MC:        HIGHER than null means structure.",
+        "",
+        f"VERDICT: {res.verdict.upper()}",
+        "",
+    ]
     for r in res.reasons:
         L.append("  - " + r)
-    L += ["", "=" * width,
-          "This tests whether tip states are associated with the tree at all.",
-          "It does NOT validate transition directions: a state whose tips are",
-          "old and deeply placed clusters significantly and still produces",
-          "outbound transition counts that are an artefact of sampling depth.",
-          "Read 08g_state_through_time.py alongside this.",
-          "=" * width]
+    L += [
+        "",
+        "=" * width,
+        "This tests whether tip states are associated with the tree at all.",
+        "It does NOT validate transition directions: a state whose tips are",
+        "old and deeply placed clusters significantly and still produces",
+        "outbound transition counts that are an artefact of sampling depth.",
+        "Read 08g_state_through_time.py alongside this.",
+        "=" * width,
+    ]
     return "\n".join(L)

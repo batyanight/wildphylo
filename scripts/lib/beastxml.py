@@ -1,5 +1,4 @@
-"""
-beastxml.py — model blocks for the BEAST XML, driven by config.
+"""beastxml.py — model blocks for the BEAST XML, driven by config.
 
 The original 07_make_beast_xml.py baked one model into a single f-string:
 HKY+G4, uncorrelated relaxed lognormal clock, constant-size coalescent. Every
@@ -21,13 +20,13 @@ population size and the dates that depend on it.
 
 from __future__ import annotations
 
-
 # --- clock rate prior -------------------------------------------------------
 
-def resolve_clock_rate(cfg: dict, measured_slope: float | None,
-                       locus: dict | None = None) -> tuple[float, str]:
-    """
-    (rate, provenance) for the clock prior.
+
+def resolve_clock_rate(
+    cfg: dict, measured_slope: float | None, locus: dict | None = None
+) -> tuple[float, str]:
+    """(rate, provenance) for the clock prior.
 
     Config value wins when set, because it is a deliberate declaration with a
     citation attached. When it is null the prior is centred on the root-to-tip
@@ -46,35 +45,36 @@ def resolve_clock_rate(cfg: dict, measured_slope: float | None,
 
     if measured_slope and measured_slope > 0:
         return float(measured_slope), (
-            "measured root-to-tip slope from this dataset "
-            "(no clock_rate_prior in config)")
+            "measured root-to-tip slope from this dataset (no clock_rate_prior in config)"
+        )
 
     raise ValueError(
         "no clock rate available: beast.clock_rate_prior is null and no usable "
         "root-to-tip slope was supplied. Run the temporal gate first and pass "
-        "its report with --temporal-report, or set a rate in the config.")
+        "its report with --temporal-report, or set a rate in the config."
+    )
 
 
 # --- tree priors ------------------------------------------------------------
 
+
 def tree_prior_blocks(kind: str, prefix: str, n_tips: int) -> dict[str, str]:
-    """
-    XML for one tree prior: state parameters, the prior distribution, its
+    """XML for one tree prior: state parameters, the prior distribution, its
     operators, and what to log.
     """
     if kind == "coalescent_constant":
         return {
-            "state": f'''            <parameter id="popSize.t:{prefix}" spec="parameter.RealParameter" name="stateNode">0.3</parameter>''',
-            "prior": f'''                <distribution id="CoalescentConstant.t:{prefix}" spec="Coalescent">
+            "state": f"""            <parameter id="popSize.t:{prefix}" spec="parameter.RealParameter" name="stateNode">0.3</parameter>""",
+            "prior": f"""                <distribution id="CoalescentConstant.t:{prefix}" spec="Coalescent">
                     <populationModel id="ConstantPopulation.t:{prefix}" spec="ConstantPopulation" popSize="@popSize.t:{prefix}"/>
                     <treeIntervals id="TreeIntervals.t:{prefix}" spec="beast.base.evolution.tree.TreeIntervals" tree="@Tree.t:{prefix}"/>
                 </distribution>
                 <prior id="PopSizePrior.t:{prefix}" name="distribution" x="@popSize.t:{prefix}">
                     <OneOnX id="OneOnX.0" name="distr"/>
-                </prior>''',
-            "operators": f'''        <operator id="PopSizeScaler.t:{prefix}" spec="ScaleOperator" parameter="@popSize.t:{prefix}" scaleFactor="0.75" weight="3.0"/>''',
-            "log": f'''            <log idref="popSize.t:{prefix}"/>
-            <log idref="CoalescentConstant.t:{prefix}"/>''',
+                </prior>""",
+            "operators": f"""        <operator id="PopSizeScaler.t:{prefix}" spec="ScaleOperator" parameter="@popSize.t:{prefix}" scaleFactor="0.75" weight="3.0"/>""",
+            "log": f"""            <log idref="popSize.t:{prefix}"/>
+            <log idref="CoalescentConstant.t:{prefix}"/>""",
         }
 
     if kind == "coalescent_skyline":
@@ -82,88 +82,94 @@ def tree_prior_blocks(kind: str, prefix: str, n_tips: int) -> dict[str, str]:
         # very few tips even that over-parameterises, so scale it down.
         groups = max(2, min(5, n_tips // 15))
         return {
-            "state": f'''            <parameter id="bPopSizes.t:{prefix}" spec="parameter.RealParameter" dimension="{groups}" lower="0.0" name="stateNode">380.0</parameter>
-            <stateNode id="bGroupSizes.t:{prefix}" spec="parameter.IntegerParameter" dimension="{groups}">1</stateNode>''',
-            "prior": f'''                <distribution id="BayesianSkyline.t:{prefix}" spec="BayesianSkyline" groupSizes="@bGroupSizes.t:{prefix}" popSizes="@bPopSizes.t:{prefix}">
+            "state": f"""            <parameter id="bPopSizes.t:{prefix}" spec="parameter.RealParameter" dimension="{groups}" lower="0.0" name="stateNode">380.0</parameter>
+            <stateNode id="bGroupSizes.t:{prefix}" spec="parameter.IntegerParameter" dimension="{groups}">1</stateNode>""",
+            "prior": f"""                <distribution id="BayesianSkyline.t:{prefix}" spec="BayesianSkyline" groupSizes="@bGroupSizes.t:{prefix}" popSizes="@bPopSizes.t:{prefix}">
                     <treeIntervals id="TreeIntervals.t:{prefix}" spec="beast.base.evolution.tree.TreeIntervals" tree="@Tree.t:{prefix}"/>
                 </distribution>
-                <distribution id="MarkovChainedPopSizes.t:{prefix}" spec="beast.base.inference.distribution.MarkovChainDistribution" jeffreys="true" parameter="@bPopSizes.t:{prefix}"/>''',
-            "operators": f'''        <operator id="popSizesScaler.t:{prefix}" spec="ScaleOperator" parameter="@bPopSizes.t:{prefix}" scaleFactor="0.75" weight="15.0"/>
-        <operator id="groupSizesDelta.t:{prefix}" spec="DeltaExchangeOperator" integer="true" weight="6.0" intparameter="@bGroupSizes.t:{prefix}"/>''',
-            "log": f'''            <log idref="bPopSizes.t:{prefix}"/>
+                <distribution id="MarkovChainedPopSizes.t:{prefix}" spec="beast.base.inference.distribution.MarkovChainDistribution" jeffreys="true" parameter="@bPopSizes.t:{prefix}"/>""",
+            "operators": f"""        <operator id="popSizesScaler.t:{prefix}" spec="ScaleOperator" parameter="@bPopSizes.t:{prefix}" scaleFactor="0.75" weight="15.0"/>
+        <operator id="groupSizesDelta.t:{prefix}" spec="DeltaExchangeOperator" integer="true" weight="6.0" intparameter="@bGroupSizes.t:{prefix}"/>""",
+            "log": f"""            <log idref="bPopSizes.t:{prefix}"/>
             <log idref="bGroupSizes.t:{prefix}"/>
-            <log idref="BayesianSkyline.t:{prefix}"/>''',
+            <log idref="BayesianSkyline.t:{prefix}"/>""",
         }
 
     if kind == "birth_death":
         return {
-            "state": f'''            <parameter id="BDBirthRate.t:{prefix}" spec="parameter.RealParameter" lower="0.0" name="stateNode" upper="10000.0">1.0</parameter>
-            <parameter id="BDDeathRate.t:{prefix}" spec="parameter.RealParameter" lower="0.0" name="stateNode" upper="1.0">0.5</parameter>''',
-            "prior": f'''                <distribution id="BirthDeath.t:{prefix}" spec="beast.base.evolution.speciation.BirthDeathGernhard08Model" birthDiffRate="@BDBirthRate.t:{prefix}" relativeDeathRate="@BDDeathRate.t:{prefix}" tree="@Tree.t:{prefix}"/>
+            "state": f"""            <parameter id="BDBirthRate.t:{prefix}" spec="parameter.RealParameter" lower="0.0" name="stateNode" upper="10000.0">1.0</parameter>
+            <parameter id="BDDeathRate.t:{prefix}" spec="parameter.RealParameter" lower="0.0" name="stateNode" upper="1.0">0.5</parameter>""",
+            "prior": f"""                <distribution id="BirthDeath.t:{prefix}" spec="beast.base.evolution.speciation.BirthDeathGernhard08Model" birthDiffRate="@BDBirthRate.t:{prefix}" relativeDeathRate="@BDDeathRate.t:{prefix}" tree="@Tree.t:{prefix}"/>
                 <prior id="BirthRatePrior.t:{prefix}" name="distribution" x="@BDBirthRate.t:{prefix}">
                     <Uniform id="Uniform.bd" name="distr" upper="1000.0"/>
                 </prior>
                 <prior id="DeathRatePrior.t:{prefix}" name="distribution" x="@BDDeathRate.t:{prefix}">
                     <Uniform id="Uniform.dr" name="distr"/>
-                </prior>''',
-            "operators": f'''        <operator id="BirthRateScaler.t:{prefix}" spec="ScaleOperator" parameter="@BDBirthRate.t:{prefix}" scaleFactor="0.75" weight="3.0"/>
-        <operator id="DeathRateScaler.t:{prefix}" spec="ScaleOperator" parameter="@BDDeathRate.t:{prefix}" scaleFactor="0.75" weight="3.0"/>''',
-            "log": f'''            <log idref="BDBirthRate.t:{prefix}"/>
+                </prior>""",
+            "operators": f"""        <operator id="BirthRateScaler.t:{prefix}" spec="ScaleOperator" parameter="@BDBirthRate.t:{prefix}" scaleFactor="0.75" weight="3.0"/>
+        <operator id="DeathRateScaler.t:{prefix}" spec="ScaleOperator" parameter="@BDDeathRate.t:{prefix}" scaleFactor="0.75" weight="3.0"/>""",
+            "log": f"""            <log idref="BDBirthRate.t:{prefix}"/>
             <log idref="BDDeathRate.t:{prefix}"/>
-            <log idref="BirthDeath.t:{prefix}"/>''',
+            <log idref="BirthDeath.t:{prefix}"/>""",
         }
 
     raise ValueError(
         f"unknown tree prior {kind!r}; expected coalescent_constant, "
-        "coalescent_skyline or birth_death")
+        "coalescent_skyline or birth_death"
+    )
 
 
 # --- clock models -----------------------------------------------------------
 
+
 def clock_blocks(kind: str, prefix: str, rate: float, n_tips: int) -> dict[str, str]:
     if kind == "strict":
         return {
-            "state": f'''            <parameter id="clockRate.c:{prefix}" spec="parameter.RealParameter" name="stateNode">{rate:g}</parameter>''',
-            "prior": f'''                <prior id="ClockPrior.c:{prefix}" name="distribution" x="@clockRate.c:{prefix}">
+            "state": f"""            <parameter id="clockRate.c:{prefix}" spec="parameter.RealParameter" name="stateNode">{rate:g}</parameter>""",
+            "prior": f"""                <prior id="ClockPrior.c:{prefix}" name="distribution" x="@clockRate.c:{prefix}">
                     <LogNormal id="LogNormalDistributionModel.rate" name="distr" M="{rate:g}" S="1.0" meanInRealSpace="true"/>
-                </prior>''',
-            "branchrate": f'''                    <branchRateModel id="StrictClock.c:{prefix}" spec="beast.base.evolution.branchratemodel.StrictClockModel" clock.rate="@clockRate.c:{prefix}"/>''',
-            "operators": f'''        <operator id="StrictClockScaler.c:{prefix}" spec="ScaleOperator" parameter="@clockRate.c:{prefix}" scaleFactor="0.75" weight="3.0"/>''',
-            "log": f'''            <log idref="clockRate.c:{prefix}"/>''',
+                </prior>""",
+            "branchrate": f"""                    <branchRateModel id="StrictClock.c:{prefix}" spec="beast.base.evolution.branchratemodel.StrictClockModel" clock.rate="@clockRate.c:{prefix}"/>""",
+            "operators": f"""        <operator id="StrictClockScaler.c:{prefix}" spec="ScaleOperator" parameter="@clockRate.c:{prefix}" scaleFactor="0.75" weight="3.0"/>""",
+            "log": f"""            <log idref="clockRate.c:{prefix}"/>""",
             "ref": f"StrictClock.c:{prefix}",
         }
 
     # relaxed lognormal (default)
     return {
-        "state": f'''            <parameter id="ucldMean.c:{prefix}" spec="parameter.RealParameter" name="stateNode">{rate:g}</parameter>
+        "state": f"""            <parameter id="ucldMean.c:{prefix}" spec="parameter.RealParameter" name="stateNode">{rate:g}</parameter>
             <parameter id="ucldStdev.c:{prefix}" spec="parameter.RealParameter" lower="0.0" name="stateNode">0.1</parameter>
-            <stateNode id="rateCategories.c:{prefix}" spec="parameter.IntegerParameter" dimension="{2 * n_tips - 2}">1</stateNode>''',
-        "prior": f'''                <prior id="ucldMeanPrior.c:{prefix}" name="distribution" x="@ucldMean.c:{prefix}">
+            <stateNode id="rateCategories.c:{prefix}" spec="parameter.IntegerParameter" dimension="{2 * n_tips - 2}">1</stateNode>""",
+        "prior": f"""                <prior id="ucldMeanPrior.c:{prefix}" name="distribution" x="@ucldMean.c:{prefix}">
                     <LogNormal id="LogNormalDistributionModel.rate" name="distr" M="{rate:g}" S="1.0" meanInRealSpace="true"/>
                 </prior>
                 <prior id="ucldStdevPrior.c:{prefix}" name="distribution" x="@ucldStdev.c:{prefix}">
                     <Exponential id="Exponential.stdev" name="distr" mean="0.3337"/>
-                </prior>''',
-        "branchrate": f'''                    <branchRateModel id="RelaxedClock.c:{prefix}" spec="beast.base.evolution.branchratemodel.UCRelaxedClockModel" clock.rate="@ucldMean.c:{prefix}" rateCategories="@rateCategories.c:{prefix}" tree="@Tree.t:{prefix}">
+                </prior>""",
+        "branchrate": f"""                    <branchRateModel id="RelaxedClock.c:{prefix}" spec="beast.base.evolution.branchratemodel.UCRelaxedClockModel" clock.rate="@ucldMean.c:{prefix}" rateCategories="@rateCategories.c:{prefix}" tree="@Tree.t:{prefix}">
                         <LogNormal id="LogNormalDistributionModel.c:{prefix}" S="@ucldStdev.c:{prefix}" meanInRealSpace="true" name="distr" M="1.0"/>
-                    </branchRateModel>''',
-        "operators": f'''        <operator id="ucldMeanScaler.c:{prefix}" spec="ScaleOperator" parameter="@ucldMean.c:{prefix}" scaleFactor="0.5" weight="1.0"/>
+                    </branchRateModel>""",
+        "operators": f"""        <operator id="ucldMeanScaler.c:{prefix}" spec="ScaleOperator" parameter="@ucldMean.c:{prefix}" scaleFactor="0.5" weight="1.0"/>
         <operator id="ucldStdevScaler.c:{prefix}" spec="ScaleOperator" parameter="@ucldStdev.c:{prefix}" scaleFactor="0.5" weight="3.0"/>
         <operator id="CategoriesRandomWalk.c:{prefix}" spec="IntRandomWalkOperator" parameter="@rateCategories.c:{prefix}" weight="10.0" windowSize="1"/>
         <operator id="CategoriesSwapOperator.c:{prefix}" spec="SwapOperator" intparameter="@rateCategories.c:{prefix}" weight="10.0"/>
-        <operator id="CategoriesUniform.c:{prefix}" spec="UniformOperator" parameter="@rateCategories.c:{prefix}" weight="10.0"/>''',
-        "log": f'''            <log idref="ucldMean.c:{prefix}"/>
-            <log idref="ucldStdev.c:{prefix}"/>''',
+        <operator id="CategoriesUniform.c:{prefix}" spec="UniformOperator" parameter="@rateCategories.c:{prefix}" weight="10.0"/>""",
+        "log": f"""            <log idref="ucldMean.c:{prefix}"/>
+            <log idref="ucldStdev.c:{prefix}"/>""",
         "ref": f"RelaxedClock.c:{prefix}",
     }
 
 
 # --- sampled tip dates ------------------------------------------------------
 
-def tip_date_blocks(policy: str, prefix: str, uncertainties: dict[str, float],
-                    dates: dict[str, float] | None = None) -> dict[str, str]:
-    """
-    Sample imprecise tip dates WITHIN their uncertainty window.
+
+def tip_date_blocks(
+    policy: str,
+    prefix: str,
+    uncertainties: dict[str, float],
+    dates: dict[str, float] | None = None,
+) -> dict[str, str]:
+    """Sample imprecise tip dates WITHIN their uncertainty window.
 
     Fixing a year-only date at the midpoint asserts precision the record does
     not have and reports a rate HPD narrower than the data support (DR-001).
@@ -188,8 +194,7 @@ def tip_date_blocks(policy: str, prefix: str, uncertainties: dict[str, float],
     ESS appears in the log.
     """
     if policy != "interval" or not uncertainties or not dates:
-        return {"state": "", "operators": "", "priors": "", "log": "",
-                "n_sampled": 0}
+        return {"state": "", "operators": "", "priors": "", "log": "", "n_sampled": 0}
 
     mrsd = max(dates.values())
     taxonsets, priors, logs = [], [], []
@@ -202,19 +207,19 @@ def tip_date_blocks(policy: str, prefix: str, uncertainties: dict[str, float],
         upper = max(lower + 1e-6, mrsd - (d - u))
         ident = "".join(ch if ch.isalnum() else "_" for ch in lbl)
         priors.append(
-            f'''                <distribution id="tipdate.{ident}" spec="beast.base.evolution.tree.MRCAPrior"
+            f"""                <distribution id="tipdate.{ident}" spec="beast.base.evolution.tree.MRCAPrior"
                               tipsonly="true" tree="@Tree.t:{prefix}">
                     <taxonset id="tipset.{ident}" spec="TaxonSet">
                         <taxon id="{lbl}" spec="Taxon"/>
                     </taxonset>
                     <Uniform id="tipunif.{ident}" name="distr" lower="{lower:.6f}" upper="{upper:.6f}"/>
-                </distribution>''')
+                </distribution>"""
+        )
         taxonsets.append(f'                    <taxon idref="{lbl}"/>')  # defined above
         logs.append(f'            <log idref="tipdate.{ident}"/>')
 
     if not priors:
-        return {"state": "", "operators": "", "priors": "", "log": "",
-                "n_sampled": 0}
+        return {"state": "", "operators": "", "priors": "", "log": "", "n_sampled": 0}
 
     # Window sized to the typical uncertainty, not left to BEAST's tuner: the
     # bound is enforced by the priors above, and a wildly over-sized proposal
@@ -224,11 +229,11 @@ def tip_date_blocks(policy: str, prefix: str, uncertainties: dict[str, float],
     return {
         "state": "",
         "priors": "\n".join(priors),
-        "operators": f'''        <operator id="TipDatesRandomWalker.t:{prefix}" spec="TipDatesRandomWalker" windowSize="{window:.4f}" tree="@Tree.t:{prefix}" weight="3.0">
+        "operators": f"""        <operator id="TipDatesRandomWalker.t:{prefix}" spec="TipDatesRandomWalker" windowSize="{window:.4f}" tree="@Tree.t:{prefix}" weight="3.0">
             <taxonset id="SampledTips.{prefix}" spec="TaxonSet">
 {rows}
             </taxonset>
-        </operator>''',
+        </operator>""",
         "log": "\n".join(logs),
         "n_sampled": len(priors),
     }
@@ -271,12 +276,17 @@ def n_trait_rates(n_states: int, symmetric: bool) -> int:
     return pairs if symmetric else 2 * pairs
 
 
-def trait_blocks(prefix: str, trait: str, states: list[str],
-                 tip_states: dict[str, str], *,
-                 symmetric: bool = True, bssvs: bool = True,
-                 poisson_lambda: float | None = None) -> dict[str, str]:
-    """
-    XML for a discrete trait analysis (BEAST_CLASSIC), with optional BSSVS.
+def trait_blocks(
+    prefix: str,
+    trait: str,
+    states: list[str],
+    tip_states: dict[str, str],
+    *,
+    symmetric: bool = True,
+    bssvs: bool = True,
+    poisson_lambda: float | None = None,
+) -> dict[str, str]:
+    """XML for a discrete trait analysis (BEAST_CLASSIC), with optional BSSVS.
 
     WHY ASYMMETRIC IS NOT FREE. A symmetric model asserts that the rate from
     state A to state B equals the rate from B to A. For a dead-end host — a
@@ -314,7 +324,8 @@ def trait_blocks(prefix: str, trait: str, states: list[str],
         raise ValueError(
             f"tips carry trait values absent from the declared states: "
             f"{missing}. Add them to the config's trait state map or exclude "
-            "those tips; BEAST will not infer a state it was never given.")
+            "those tips; BEAST will not infer a state it was never given."
+        )
 
     # '?' must map to every state, so a tip with an unknown value is treated as
     # ambiguous rather than silently assigned state 0.
@@ -325,40 +336,53 @@ def trait_blocks(prefix: str, trait: str, states: list[str],
     freq = f"{1.0 / n:.10f}"
 
     indicator_state = (
-        f'''            <stateNode id="rateIndicator.s:{trait}" spec="parameter.BooleanParameter" dimension="{n_rates}">true</stateNode>'''
-        if bssvs else "")
+        f"""            <stateNode id="rateIndicator.s:{trait}" spec="parameter.BooleanParameter" dimension="{n_rates}">true</stateNode>"""
+        if bssvs
+        else ""
+    )
     indicator_attr = f' rateIndicator="@rateIndicator.s:{trait}"' if bssvs else ""
 
-    bssvs_prior = (f'''                <prior id="nonZeroRatePrior.s:{trait}" name="distribution">
+    bssvs_prior = (
+        f"""                <prior id="nonZeroRatePrior.s:{trait}" name="distribution">
                     <x id="nonZeroRates.s:{trait}" spec="{SUM_SPEC}" arg="@rateIndicator.s:{trait}"/>
                     <distr id="Poisson.bssvs.{trait}" spec="Poisson" lambda="{lam:g}" offset="{n - 1}"/>
-                </prior>''' if bssvs else "")
+                </prior>"""
+        if bssvs
+        else ""
+    )
 
-    bssvs_operators = (f'''        <operator id="indicatorFlip.s:{trait}" spec="BitFlipOperator" parameter="@rateIndicator.s:{trait}" weight="30.0"/>'''
-        if bssvs else "")
+    bssvs_operators = (
+        f"""        <operator id="indicatorFlip.s:{trait}" spec="BitFlipOperator" parameter="@rateIndicator.s:{trait}" weight="30.0"/>"""
+        if bssvs
+        else ""
+    )
 
-    bssvs_log = (f'''            <log idref="rateIndicator.s:{trait}"/>
-            <log idref="nonZeroRates.s:{trait}"/>''' if bssvs else "")
+    bssvs_log = (
+        f"""            <log idref="rateIndicator.s:{trait}"/>
+            <log idref="nonZeroRates.s:{trait}"/>"""
+        if bssvs
+        else ""
+    )
 
     return {
         "tag": trait,
         "n_states": n,
         "n_rates": n_rates,
-        "data": f'''    <data id="{trait}" spec="{ALIGNMENT_FROM_TRAIT}">
+        "data": f"""    <data id="{trait}" spec="{ALIGNMENT_FROM_TRAIT}">
         <userDataType id="traitDataType.{trait}" spec="beast.base.evolution.datatype.UserDataType" codeMap="{codemap}" codelength="-1" states="{n}"/>
         <traitSet id="traitSet.{trait}" spec="beast.base.evolution.tree.TraitSet" taxa="@TaxonSet.{prefix}" traitname="discrete" value="{values}"/>
-    </data>''',
-        "state": f'''            <parameter id="traitClockRate.c:{trait}" spec="parameter.RealParameter" lower="0.0" name="stateNode">1.0</parameter>
+    </data>""",
+        "state": f"""            <parameter id="traitClockRate.c:{trait}" spec="parameter.RealParameter" lower="0.0" name="stateNode">1.0</parameter>
             <parameter id="relativeGeoRates.s:{trait}" spec="parameter.RealParameter" dimension="{n_rates}" lower="0.0" name="stateNode">1.0</parameter>
-{indicator_state}'''.rstrip(),
-        "prior": f'''                <prior id="traitClockPrior.c:{trait}" name="distribution" x="@traitClockRate.c:{trait}">
+{indicator_state}""".rstrip(),
+        "prior": f"""                <prior id="traitClockPrior.c:{trait}" name="distribution" x="@traitClockRate.c:{trait}">
                     <Gamma id="Gamma.traitclock.{trait}" name="distr" alpha="0.001" beta="1000.0"/>
                 </prior>
                 <prior id="relativeGeoRatesPrior.s:{trait}" name="distribution" x="@relativeGeoRates.s:{trait}">
                     <Gamma id="Gamma.georates.{trait}" name="distr" alpha="1.0" beta="1.0"/>
                 </prior>
-{bssvs_prior}'''.rstrip(),
-        "likelihood": f'''                <distribution id="traitedtreeLikelihood.{trait}" spec="{ANCESTRAL_LIKELIHOOD}" data="@{trait}" tree="@Tree.t:{prefix}" tag="{trait}">
+{bssvs_prior}""".rstrip(),
+        "likelihood": f"""                <distribution id="traitedtreeLikelihood.{trait}" spec="{ANCESTRAL_LIKELIHOOD}" data="@{trait}" tree="@Tree.t:{prefix}" tag="{trait}">
                     <siteModel id="geoSiteModel.s:{trait}" spec="SiteModel" gammaCategoryCount="1">
                         <parameter id="traitMutationRate.s:{trait}" spec="parameter.RealParameter" estimate="false" name="mutationRate">1.0</parameter>
                         <parameter id="traitProportionInvariant.s:{trait}" spec="parameter.RealParameter" estimate="false" lower="0.0" name="proportionInvariant" upper="1.0">0.0</parameter>
@@ -369,17 +393,17 @@ def trait_blocks(prefix: str, trait: str, states: list[str],
                         </substModel>
                     </siteModel>
                     <branchRateModel id="StrictClockTrait.c:{trait}" spec="beast.base.evolution.branchratemodel.StrictClockModel" clock.rate="@traitClockRate.c:{trait}"/>
-                </distribution>''',
-        "operators": f'''        <operator id="traitClockScaler.c:{trait}" spec="ScaleOperator" parameter="@traitClockRate.c:{trait}" scaleFactor="0.75" weight="3.0"/>
+                </distribution>""",
+        "operators": f"""        <operator id="traitClockScaler.c:{trait}" spec="ScaleOperator" parameter="@traitClockRate.c:{trait}" scaleFactor="0.75" weight="3.0"/>
         <operator id="geoRatesScaler.s:{trait}" spec="ScaleOperator" parameter="@relativeGeoRates.s:{trait}" scaleFactor="0.75" weight="15.0"/>
-{bssvs_operators}'''.rstrip(),
-        "log": f'''            <log idref="traitClockRate.c:{trait}"/>
+{bssvs_operators}""".rstrip(),
+        "log": f"""            <log idref="traitClockRate.c:{trait}"/>
             <log idref="relativeGeoRates.s:{trait}"/>
             <log idref="traitedtreeLikelihood.{trait}"/>
-{bssvs_log}'''.rstrip(),
-        "treelog": f'''        <logger id="traitTreeLog.{trait}" spec="Logger" fileName="{prefix}_{trait}.trees" logEvery="__LOGEVERY__" mode="tree">
+{bssvs_log}""".rstrip(),
+        "treelog": f"""        <logger id="traitTreeLog.{trait}" spec="Logger" fileName="{prefix}_{trait}.trees" logEvery="__LOGEVERY__" mode="tree">
             <log id="TreeWithTraitLogger.{trait}" spec="{TREE_WITH_TRAIT_LOGGER}" tree="@Tree.t:{prefix}">
                 <metadata idref="traitedtreeLikelihood.{trait}"/>
             </log>
-        </logger>''',
+        </logger>""",
     }
