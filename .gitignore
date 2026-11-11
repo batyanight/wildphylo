@@ -102,3 +102,4 @@ builds/*/*/clades/*/jumps.tsv
 # The tip-to-state mapping the trait model was fitted with. Part of the model
 # specification in the same way the XML is.
 !builds/*/*/clades/*/*_traits.txt
+.claude/worktrees/
