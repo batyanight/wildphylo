@@ -5,17 +5,41 @@
 ```bash
 git clone https://github.com/batyanight/wildphylo.git
 cd wildphylo
-conda env create -f environment.yml
+conda env create -f environment.yml      # loose floors; or, for the exact pins:
+                                         #   conda-lock install -n wildphylo conda-lock.yml
 conda activate wildphylo
-pip install -e ".[dev]"
-pytest
+pip install -e ".[dev]"                  # installs the `wildphylo` command from src/
+wildphylo --help                         # every stage and step
+pytest -m 'not slow and not needs_tools' # the fast suite; plain `pytest` runs everything
 ```
+
+`conda-lock.yml` carries the exact versions; `environment.yml` is the human
+spec. After changing `environment.yml`, regenerate the lock and commit both:
+
+```bash
+conda-lock -f environment.yml -p osx-arm64 -p linux-64 --lockfile conda-lock.yml
+```
+
+## Layout
+
+Code lives in `src/wildphylo/`. `cli.py` is the `wildphylo` command and
+`stages/<stage>.py` holds that stage's steps; the other modules are shared
+library code (`newick.py`, `temporal.py`, `beastlog.py`, ...). The full map is in
+the README's repository layout. Use the terms in `GLOSSARY.md` for names, config
+keys and commit messages; if a concept is missing, add it there first.
+
+To add a step, write `run(args) -> int` in the stage module, decorate it with
+`@step("<stage>", "<name>", "one-line help")` and give the module an
+`add_arguments_<name>` hook. The run function's docstring is the step's
+`wildphylo <stage> <name> --help` text, so put the rationale there: why the step
+exists, what it checks, how to read its output. The exit code is the verdict.
 
 ## Adding a pathogen
 
 ```bash
 cp config/pathogen/_template.yaml config/pathogen/myvirus.yaml
 $EDITOR config/pathogen/myvirus.yaml
+wildphylo config validate config/pathogen/myvirus.yaml
 snakemake -s workflow/Snakefile --configfile config/pathogen/myvirus.yaml -n
 ```
 
@@ -25,9 +49,24 @@ the placeholder taxid.
 
 Open a New Pathogen issue and work the checklist.
 
-## Testing
+## Testing and linting
 
-Every behavioural change needs a test. Two rules specific to this project:
+Every behavioural change needs a test. Steps are tested in-process through
+`cli.main([...])` on the small fixtures in `tests/fixtures/`, so the suite
+finishes in seconds. Run lint and types after each change, not at the end; CI
+runs the same three commands and a failure blocks the merge:
+
+```bash
+ruff check src/ tests/
+ruff format --check src/ tests/
+mypy
+```
+
+`ruff` is not in `environment.yml`; install it with `pip install ruff`. The rule
+set is pinned in `pyproject.toml` (`select = ["ALL"]` with a justified ignore
+list), and mypy runs strict on `src/`.
+
+Two rules specific to this project:
 
 **A check that never fires provides no assurance.** If you add a validation
 check, add a test that makes it fire, not only one that passes.

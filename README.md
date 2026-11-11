@@ -144,8 +144,11 @@ src/wildphylo/
   hosts.py                   word-boundary matching + shadowing audit
   temporal.py                root-to-tip, permutation test, verdict
   beastlog.py                BEAST .log reader, ESS, HPD, overlap
-  traitsignal.py             AI, parsimony score, MC; tip-label randomisation
-  traittrees.py              annotated-Newick parser for ancestral-state trees
+  newick.py                  the one annotated-Newick / NEXUS parser: node lists
+                             with annotations, and topology arrays
+  traitsignal.py             statistics only (AI, parsimony score, MC; tip-label
+                             randomisation) on newick's topology arrays
+  logfile.py                 mirror a step's log output to a file
   datepolicy.py              midpoint vs interval, decided per dataset
   segments.py                congruence screening and reassortment localisation
   preflight.py               per-step verification

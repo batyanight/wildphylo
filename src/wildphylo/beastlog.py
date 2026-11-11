@@ -1,15 +1,14 @@
 """beastlog.py — reading BEAST .log files, and the statistics computed from them.
 
-Shared by 08b_convergence (did the chains converge and agree?) and
-08d_drt_summary (does the real clock rate sit outside the date-randomised
-ones?). Both need the same parser, the same HPD and the same ESS, and a
-convergence verdict computed one way against a DRT verdict computed another
-would be two statements about one chain that cannot both be checked.
+Shared by ``wildphylo gates convergence`` (did the chains converge and agree?)
+and ``wildphylo gates drt`` (does the real clock rate sit outside the
+date-randomised ones?). Both need the same parser, the same HPD and the same
+ESS, and a convergence verdict computed one way against a DRT verdict computed
+another would be two statements about one chain that cannot both be checked.
 
-It lives here rather than inside 08b for the same reason traittrees.py does:
-a module whose name starts with a digit cannot be imported normally, so shared
-code in a numbered script has to be reached by importlib and breaks whenever
-the pipeline numbering changes. The numbers are a reading order for humans.
+It lives here rather than inside either step for the same reason newick.py
+does: shared code belongs in a module of its own, not in a stage module that
+the other step would have to import from.
 """
 
 from __future__ import annotations

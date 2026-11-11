@@ -1,8 +1,9 @@
 # Plan: stage-level CLI and quality pass
 
-Status: **steps 0 to 5 done on branch `stage-cli` (2026-11-10).** Open items are
-listed at the end. Branch: `stage-cli`. Decided 2026-11-10 by interview; the answers are recorded
-here so the plan does not need re-litigating.
+Status: **steps 0 to 5 done on branch `stage-cli` (2026-11-10); the Newick
+merge (step 4) done 2026-11-11.** Open items are listed at the end. Branch:
+`stage-cli`. Decided 2026-11-10 by interview; the answers are recorded here so
+the plan does not need re-litigating.
 
 ## Decisions
 
@@ -146,7 +147,13 @@ the currently served JSON before it replaces it.
 
 Done: glossary; ruff `ALL` pinned; mypy strict on `src/`; conda-lock;
 blocking CI lint job; `src/wildphylo` package with the `wildphylo` command;
-every numbered script ported into a stage module and deleted; the Snakefile
+every numbered script ported into a stage module and deleted; one Newick
+parser (`newick.py`) that `traitsignal` and the jump/state steps consume, and
+the only module that knows the NEXUS tree-line grammar (tree counting
+included); each step's `--help` shows its run docstring; `align qc` resolves
+its thresholds (flag, else config, else default) before computing the flags, so
+QC flags for configs that differ from the old CLI defaults differ from earlier
+builds; the Snakefile
 and both GitHub workflows call only `wildphylo <stage> <step>`; the review
 gate is a step instead of inline Snakefile Python; `publish dataset` added;
 `docs/PORTING.md` retired. `11_annotate_H.py` and `cdv_h_coords.py` were
@@ -163,12 +170,7 @@ Not done, in rough priority:
   steps keep their explicit path flags, so the Snakefile diff stayed mechanical.
 - **`publish dataset` is not wired into the Snakefile.** It needs a config key
   for the pathogen repo path, which phase 2 decides.
-- **Newick parser merge** (step 4): `traittrees` and `traitsignal` still each
-  have a parser. `beast.py` is ~2000 lines and is the next consolidation target.
-- **`align qc` reads config thresholds after computing the flags**, so the
-  config only moves the plot lines. Pre-existing; needs a decision.
-- **Step `--help` lost the long script docstrings.** The rationale moved into
-  module docstrings; consider surfacing it via `description`.
+- **`beast.py`** is ~2000 lines and is the next consolidation target.
 - **Report output channels changed** in several steps from print to logging
   (stderr). The Snakefile's `2>&1 | tee` keeps the log files the same.
 - Tag `v0.2.0` after the smoke build passes; phase 2 pins to that tag.
