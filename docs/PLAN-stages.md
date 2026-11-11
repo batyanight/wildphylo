@@ -203,6 +203,10 @@ Settled (2026-11-11), both found while rewriting the pathogen repo's METHODS:
   the configs now carry the genome-relative pair, which is what the key says
   it holds.
 
+The CDV side of this work continues in the pathogen repo, whose running
+order is `~/cdv-phylodynamics/docs/NEXT-STEPS.md`; the items below are this
+repo's own.
+
 Not done, in rough priority:
 
 - **Smoke build passed against NCBI** (2026-11-11, `builds/cdv-smoke/20261111`,
