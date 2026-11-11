@@ -8,15 +8,19 @@ asymmetric, and nothing could tell you which had been clicked. These tests fix
 the generated XML to the config.
 """
 
+import contextlib
+import io
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from wildphylo import cli  # noqa: E402
 from wildphylo.beastxml import (  # noqa: E402
     ROBUST_EIGEN,
     SUM_SPEC,
@@ -178,11 +182,10 @@ def test_references_resolve_to_declared_ids():
                     assert v[1:] in declared, f"{key}: dangling ref {v}"
 
 
-# --- end to end through 07 --------------------------------------------------
+# --- end to end through `wildphylo beast xml` --------------------------------------------------
 
 import random  # noqa: E402
 import re  # noqa: E402
-import subprocess  # noqa: E402
 
 import yaml  # noqa: E402
 
@@ -210,25 +213,33 @@ def mock_aln(tmp_path_factory):
     return p
 
 
+def run_cli(*argv):
+    """Run ``wildphylo <argv>`` in-process; return exit code, stdout and stderr."""
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            code = cli.main([str(a) for a in argv])
+        except SystemExit as exc:
+            code = exc.code if isinstance(exc.code, int) else 1
+            if isinstance(exc.code, str):
+                err.write(exc.code)
+    return SimpleNamespace(returncode=code, stdout=out.getvalue(), stderr=err.getvalue())
+
+
 def run07(tmp_path, cfg_path, aln, *extra):
     out = tmp_path / "out.xml"
-    r = subprocess.run(
-        [
-            sys.executable,
-            str(ROOT / "scripts/07_make_beast_xml.py"),
-            "--config",
-            str(cfg_path),
-            "--aln",
-            str(aln),
-            "--out-xml",
-            str(out),
-            "--out-traits",
-            str(tmp_path / "t.txt"),
-            *extra,
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
+    r = run_cli(
+        "beast",
+        "xml",
+        "--config",
+        cfg_path,
+        "--aln",
+        aln,
+        "--out-xml",
+        out,
+        "--out-traits",
+        tmp_path / "t.txt",
+        *extra,
     )
     assert r.returncode == 0, r.stderr
     return out.read_text(), r.stdout

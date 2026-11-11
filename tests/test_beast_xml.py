@@ -1,5 +1,5 @@
 """
-Tests for 07_make_beast_xml.py and lib/beastxml.py.
+Tests for `wildphylo beast xml` and wildphylo.beastxml.
 
 The original baked one model into a single f-string — HKY+G4, relaxed lognormal
 clock, constant-size coalescent — and defaulted the clock rate to 7.46e-4, a CDV
@@ -7,12 +7,14 @@ H-gene value, whatever pathogen was running. Every config declaration was
 ignored. These tests exist to keep that from coming back.
 """
 
+import contextlib
+import io
 import json
 import random
-import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -20,6 +22,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from wildphylo import cli  # noqa: E402
 from wildphylo.beastxml import (  # noqa: E402
     clock_blocks,
     resolve_clock_rate,
@@ -62,25 +65,32 @@ def cfg_variant(tmp_path, **beast):
     return p
 
 
+def run_cli(*argv):
+    """Run ``wildphylo <argv>`` in-process; return exit code, stdout and stderr."""
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            code = cli.main([str(a) for a in argv])
+        except SystemExit as exc:
+            code = exc.code if isinstance(exc.code, int) else 1
+            if isinstance(exc.code, str):
+                err.write(exc.code)
+    return SimpleNamespace(returncode=code, stdout=out.getvalue(), stderr=err.getvalue())
+
+
 def run(aln, out, *extra):
-    return subprocess.run(
-        [
-            sys.executable,
-            "scripts/07_make_beast_xml.py",
-            "--aln",
-            str(aln),
-            "--out-xml",
-            str(out),
-            "--out-traits",
-            str(out.with_suffix(".traits.txt")),
-            "--chain",
-            "100000",
-            *map(str, extra),
-        ],
-        capture_output=True,
-        text=True,
-        cwd=ROOT,
-        check=False,
+    return run_cli(
+        "beast",
+        "xml",
+        "--aln",
+        aln,
+        "--out-xml",
+        out,
+        "--out-traits",
+        out.with_suffix(".traits.txt"),
+        "--chain",
+        "100000",
+        *extra,
     )
 
 

@@ -1,7 +1,7 @@
 """
-Tests for `wildphylo align qc` and 06_subsample.py.
+Tests for `wildphylo align qc` and `wildphylo beast subsample`.
 
-Both scripts previously wrote to a hardcoded data/processed/. A rule that
+Both previously wrote to a hardcoded data/processed/. A rule that
 writes outside its declared outputs cannot be tracked, re-run or cleaned by
 Snakemake, and the stray file silently goes stale — so "the file landed where
 it was asked to, and nowhere else" is the property worth testing.

@@ -2,29 +2,34 @@
 Tests for the shared BEAST ancestral-state tree parser, and for the two
 analyses that read it.
 
-The parser is the piece both 08f and 08g depend on, so an error here does not
+The parser is the piece both jumps and state-through-time depend on, so an error here does not
 produce a crash — it produces a transition count and a lineage share that are
 quietly wrong and agree with each other. The cases below are the ones where a
 plausible-looking parser silently returns the wrong thing: a bracket inside a
 quoted value, a `.prob` key shadowing the state key, and annotations appearing
 on either side of the branch length depending on which logger wrote the file.
 
-The end-to-end checks run both scripts on a posterior whose transitions were
+The end-to-end checks run both steps (`wildphylo beast jumps` and
+`wildphylo beast state-through-time`) on a posterior whose transitions were
 constructed by hand, so the expected counts are known independently rather than
 being whatever the code currently emits.
 """
 
 from __future__ import annotations
 
-import subprocess
+import contextlib
+import io
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
+from wildphylo import cli  # noqa: E402
 from wildphylo import traittrees as tt  # noqa: E402
+from wildphylo.stages import beast  # noqa: E402
 
 # --- annotation extraction --------------------------------------------------
 
@@ -203,24 +208,30 @@ def known_posterior(tmp_path):
     return p
 
 
+def run_cli(*argv):
+    """Run ``wildphylo <argv>`` in-process; return exit code, stdout and stderr."""
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            code = cli.main([str(a) for a in argv])
+        except SystemExit as exc:
+            code = exc.code if isinstance(exc.code, int) else 1
+            if isinstance(exc.code, str):
+                err.write(exc.code)
+    return SimpleNamespace(returncode=code, stdout=out.getvalue(), stderr=err.getvalue())
+
+
 def test_jump_history_recovers_the_constructed_transitions(known_posterior, tmp_path):
     out = tmp_path / "jumps.tsv"
-    r = subprocess.run(
-        [
-            sys.executable,
-            "scripts/08f_jump_history.py",
-            "--trees",
-            str(known_posterior),
-            "--burnin",
-            "0.0",
-            "--out",
-            str(out),
-        ],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
+    r = run_cli(
+        "beast",
+        "jumps",
+        "--trees",
+        str(known_posterior),
+        "--burnin",
+        "0.0",
+        "--out",
+        str(out),
     )
     assert r.returncode == 0, r.stderr[-2000:]
     assert "mean 2.00" in r.stdout, "two transitions per tree"
@@ -236,22 +247,15 @@ def test_a_jump_on_a_terminal_branch_is_flagged_as_terminal(known_posterior, tmp
     nothing about onward transmission. Reporting it alongside internal
     transitions without that distinction is how a tip census becomes a corridor.
     """
-    r = subprocess.run(
-        [
-            sys.executable,
-            "scripts/08f_jump_history.py",
-            "--trees",
-            str(known_posterior),
-            "--burnin",
-            "0.0",
-            "--out",
-            str(tmp_path / "j.tsv"),
-        ],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
+    r = run_cli(
+        "beast",
+        "jumps",
+        "--trees",
+        str(known_posterior),
+        "--burnin",
+        "0.0",
+        "--out",
+        str(tmp_path / "j.tsv"),
     )
     line = next(line for line in r.stdout.splitlines() if "procyonid -> domestic_dog" in line)
     assert "100%" in line.split()[-1], "the dog jump sits on a terminal branch"
@@ -261,24 +265,17 @@ def test_a_jump_on_a_terminal_branch_is_flagged_as_terminal(known_posterior, tmp
 
 def test_state_through_time_runs_on_the_same_file(known_posterior, tmp_path):
     out = tmp_path / "stt.tsv"
-    r = subprocess.run(
-        [
-            sys.executable,
-            "scripts/08g_state_through_time.py",
-            "--trees",
-            str(known_posterior),
-            "--burnin",
-            "0.0",
-            "--thin",
-            "1",
-            "--out",
-            str(out),
-        ],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
+    r = run_cli(
+        "beast",
+        "state-through-time",
+        "--trees",
+        str(known_posterior),
+        "--burnin",
+        "0.0",
+        "--thin",
+        "1",
+        "--out",
+        str(out),
     )
     assert r.returncode == 0, r.stderr[-2000:]
     assert out.is_file()
@@ -289,28 +286,16 @@ def test_state_through_time_runs_on_the_same_file(known_posterior, tmp_path):
 # --- the regression that prompted the split ---------------------------------
 
 
-def test_neither_script_imports_the_other_by_filename():
+def test_both_steps_use_the_one_shared_parser():
     """
-    08g used to load the parser out of 08f with importlib, because a module
-    whose name starts with a digit cannot be imported normally. That broke the
-    moment the scripts were renamed out of the 12/13 slots. Shared code does
-    not belong in a file whose name encodes its pipeline position.
+    The 08g script used to load the parser out of 08f with importlib, because a
+    module whose name starts with a digit cannot be imported normally. That
+    broke the moment the scripts were renamed out of the 12/13 slots. Shared
+    code does not belong in a file whose name encodes its pipeline position, and
+    one parser means a transition count and a lineage share describe one tree.
     """
-    for name in ("08f_jump_history.py", "08g_state_through_time.py"):
-        text = (ROOT / "scripts" / name).read_text()
-        assert "import_module" not in text, name
-        assert "spec_from_file_location" not in text, name
-        assert "from wildphylo.traittrees import" in text, name
-
-
-def test_both_scripts_and_the_library_agree_on_the_parser():
-    """One parser, so a transition count and a lineage share describe one tree."""
-    import importlib.util
-
-    for name in ("08f_jump_history.py", "08g_state_through_time.py"):
-        spec = importlib.util.spec_from_file_location(name[:3], ROOT / "scripts" / name)
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = mod
-        spec.loader.exec_module(mod)
-        assert mod.iter_trees is tt.iter_trees, name
-        assert mod.node_depths is tt.node_depths, name
+    text = Path(beast.__file__).read_text()
+    assert "import_module" not in text
+    assert "spec_from_file_location" not in text
+    assert beast.iter_trees is tt.iter_trees
+    assert beast.node_depths is tt.node_depths
