@@ -462,7 +462,11 @@ def test_dataset_build_dir_defaults_every_path(laid_out, tmp_path, caplog):
 
 def test_dataset_build_dir_suffixes_the_name_only_for_several_loci(tmp_path):
     cfg = yaml.safe_load(CONFIG.read_text())
-    cfg["loci"] = [{"name": "H", "analyse": True}, {"name": "N", "analyse": True}]
+    # What config.validate requires of a loci list: analysed entries, each with aliases.
+    cfg["loci"] = [
+        {"name": "H", "aliases": ["H", "hemagglutinin"], "analyse": True},
+        {"name": "N", "aliases": ["N", "nucleocapsid protein"], "analyse": True},
+    ]
     del cfg["locus"]
     config = _stage(tmp_path / "multi.yaml", yaml.safe_dump(cfg))
     layout = _layout(tmp_path, config)
@@ -542,3 +546,18 @@ def test_entropy_explicit_flag_overrides_the_build_dir_default(tmp_path):
     assert code == 0
     assert "entropy" in json.loads(out.read_text())["meta"]["panels"]
     assert json.loads(dataset.read_text())["meta"]["panels"] == ["tree"]
+
+
+def test_dataset_validates_its_config(tmp_path, caplog):
+    bad = _stage(tmp_path / "bad.yaml", "id: bare\n")  # not a complete pathogen config
+    mcc = _stage(tmp_path / "mcc.tree", MCC)
+    argv = ["auspice", "dataset", "--mcc", str(mcc), "--output", str(tmp_path / "o.json")]
+    assert cli.main([*argv, "--config", str(bad)]) == 2
+    assert "not usable" in caplog.text
+
+
+def test_entropy_validates_its_config_under_build_dir(tmp_path, caplog):
+    bad = _stage(tmp_path / "bad.yaml", "id: bare\n")
+    argv = ["auspice", "entropy", "--config", str(bad), "--locus", "H"]
+    assert cli.main([*argv, "--build-dir", str(tmp_path / "build")]) == 2
+    assert "not usable" in caplog.text

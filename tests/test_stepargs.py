@@ -176,15 +176,12 @@ def test_a_preloaded_config_replaces_the_config_flag():
     assert build.layout.pathogen == "toy"
 
 
-def test_validate_config_false_reads_the_yaml_as_written(tmp_path):
+def test_the_config_is_validated_not_taken_as_written(tmp_path):
     config = tmp_path / "bare.yaml"
     config.write_text("id: bare\n")  # not a complete pathogen config
     args = parse("--build-dir", "b", "--config", str(config), "--locus", "H")
     with pytest.raises(UsageError, match="not usable"):
         resolve(args, derived={"tree": lambda b: b.layout.ml_tree("H")})
-    args = parse("--build-dir", "b", "--config", str(config), "--locus", "H")
-    resolve(args, derived={"tree": lambda b: b.layout.ml_tree("H")}, validate_config=False)
-    assert args.tree == Path("b/tree/H_ml.treefile")
 
 
 def test_a_missing_wildcard_flag_is_named_with_everything_that_needed_it():

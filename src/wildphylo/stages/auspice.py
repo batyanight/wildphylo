@@ -18,9 +18,9 @@ from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import yaml
-
 from wildphylo.cli import step
+from wildphylo.config import ConfigError
+from wildphylo.config import load as load_config
 from wildphylo.layout import dataset_path
 from wildphylo.newick import Node, iter_trees, label_date
 from wildphylo.stepargs import Build, UsageError, add_build_dir_arguments, fail, resolve
@@ -328,12 +328,16 @@ def dataset(args: argparse.Namespace) -> int:
     Exit code is non-zero if the MCC tree or its time axis is unusable.
     """
     try:
+        cfg: dict[str, Any] = load_config(args.config) if args.config else {}
+    except ConfigError as e:
+        return fail(UsageError(str(e)))
+    try:
         resolve(
             args,
+            cfg=cfg or None,
             derived=_dataset_derived(),
             required=("mcc", "output"),
             outputs=("output",),
-            validate_config=False,
         )
     except UsageError as e:
         return fail(e)
@@ -343,9 +347,6 @@ def dataset(args: argparse.Namespace) -> int:
         log.error("MCC tree not found: %s", args.mcc)
         return 1
 
-    cfg: dict[str, Any] = {}
-    if args.config:
-        cfg = yaml.safe_load(args.config.read_text()) or {}
     ns = cfg.get("nextstrain") or {}
     dt = (cfg.get("beast") or {}).get("discrete_trait") or {}
 
@@ -890,7 +891,6 @@ def entropy(args: argparse.Namespace) -> int:
             args,
             derived=_entropy_derived(),
             required=("json", "alignment", "output"),
-            validate_config=False,
         )
     except UsageError as e:
         return fail(e)

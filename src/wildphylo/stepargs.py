@@ -41,8 +41,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import yaml
-
 from wildphylo.config import ConfigError
 from wildphylo.config import load as load_config
 from wildphylo.layout import BuildLayout
@@ -153,19 +151,6 @@ def _flag(name: str) -> str:
     return "--" + name.replace("_", "-")
 
 
-def _read_config(path: Path, *, validate: bool) -> dict[str, Any]:
-    if validate:
-        return load_config(path)
-    if not path.is_file():
-        msg = f"config not found: {path}"
-        raise ConfigError(msg)
-    cfg = yaml.safe_load(path.read_text())
-    if not isinstance(cfg, dict):
-        msg = f"{path}: top level must be a mapping"
-        raise ConfigError(msg)
-    return cfg
-
-
 def resolve(
     args: argparse.Namespace,
     *,
@@ -175,7 +160,6 @@ def resolve(
     outputs: Iterable[str] = (),
     build_dir_only: Iterable[str] = (),
     cfg: dict[str, Any] | None = None,
-    validate_config: bool = True,
 ) -> Build | None:
     """Fill the flags the command line left out, in place; raise :class:`UsageError`.
 
@@ -195,9 +179,8 @@ def resolve(
     created, after all validation has passed. ``build_dir_only`` names wildcard
     flags that are meaningless without ``--build-dir``. ``cfg`` is the config
     when the step has loaded it already; otherwise ``--config`` is loaded when
-    ``--build-dir`` needs it, validated unless ``validate_config`` is False (the
-    YAML is then taken as written: for steps that read only a few keys and
-    never needed a complete config).
+    ``--build-dir`` needs it, through :func:`wildphylo.config.load`, which
+    validates it.
 
     Returns the :class:`Build` (layout, config, args) used, or None without
     ``--build-dir``.
@@ -214,7 +197,7 @@ def resolve(
                 msg = "--build-dir needs --config (the layout depends on the pathogen id)"
                 raise UsageError(msg)
             try:
-                cfg = _read_config(args.config, validate=validate_config)
+                cfg = load_config(args.config)
             except ConfigError as exc:
                 raise UsageError(str(exc)) from exc
         build = Build(BuildLayout.at(args.build_dir, cfg), cfg, args)

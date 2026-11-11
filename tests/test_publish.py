@@ -186,3 +186,12 @@ def test_build_dir_without_a_locus_is_refused(tmp_path, caplog):
         == 2
     )
     assert "--locus" in caplog.text
+
+
+def test_publish_validates_its_config(tmp_path, caplog):
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("id: bare\n")  # not a complete pathogen config
+    argv = ["publish", "dataset", "--config", str(bad), "--build-dir", str(tmp_path / "build")]
+    argv += ["--locus", "H", "--pathogen-repo", str(tmp_path), "--name", "x"]
+    assert cli.main(argv) == 2
+    assert "not usable" in caplog.text

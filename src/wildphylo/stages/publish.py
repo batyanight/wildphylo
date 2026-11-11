@@ -423,7 +423,6 @@ def dataset(args: argparse.Namespace) -> int:
             args,
             derived=_DATASET_DERIVED,
             required=tuple(_DATASET_DERIVED),
-            validate_config=False,
         )
     except UsageError as e:
         return fail(e)
