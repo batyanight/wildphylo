@@ -45,7 +45,7 @@ jobs:
           NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
           FORCE: ${{ inputs.force }}
           ONLY: ${{ inputs.pathogen }}
-        run: python scripts/13_check_updates.py --github-output
+        run: wildphylo publish check-updates --github-output
 
   rebuild:
     name: rebuild ${{ matrix.pathogen }}

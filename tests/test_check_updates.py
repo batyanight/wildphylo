@@ -1,5 +1,5 @@
 """
-Tests for the scheduled-rebuild decision.
+Tests for the scheduled-rebuild decision (``wildphylo publish check-updates``).
 
 Entrez is never contacted: the counting function is stubbed. A test suite that
 needed the network would be skipped in CI and would then be verifying nothing
@@ -8,9 +8,7 @@ on exactly the code path CI runs.
 
 from __future__ import annotations
 
-import importlib.util
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -18,22 +16,15 @@ from pathlib import Path
 import pytest
 import yaml
 
+from wildphylo import cli
+from wildphylo.stages import fetch, publish
+
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def mod():
-    spec = importlib.util.spec_from_file_location(
-        "chk13", ROOT / "scripts" / "13_check_updates.py"
-    )
-    m = importlib.util.module_from_spec(spec)
-    # Register before exec: @dataclass resolves cls.__module__ through
-    # sys.modules while building __init__, and a path-loaded module is not
-    # there unless it is put there.
-    sys.modules[spec.name] = m
-    spec.loader.exec_module(m)
-    return m
+    return publish
 
 
 @pytest.fixture
@@ -162,57 +153,51 @@ def test_an_invalid_config_stops_the_check_rather_than_being_skipped(mod, tmp_pa
         mod.load_configs(d, None)
 
 
-def test_the_query_comes_from_01_not_a_copy(mod, repo_root):
+def test_the_query_comes_from_fetch_not_a_copy(mod, repo_root):
     """
     If the count used a reimplemented query, a drift between the two would show
     up as a delta that looks like a real change in GenBank.
     """
-    fetch = mod._fetch_module()  # noqa: SLF001 -- the test targets the private loader on purpose
-    assert hasattr(fetch, "build_query")
+    assert mod.build_query is fetch.build_query
     cfg = yaml.safe_load((repo_root / "config" / "pathogen" / "cdv-1200.yaml").read_text())
-    q = fetch.build_query(cfg)
+    q = mod.build_query(cfg)
     assert f"txid{cfg['fetch']['taxid']}" in q
 
 
 # --- CLI, with Entrez stubbed ----------------------------------------------
 
 
-def _run_cli(repo_root, tmp_path, count, extra_env=None):
+def _run_cli(repo_root, tmp_path, monkeypatch, count, extra_env=None):
     """
-    Run the CLI with count_records monkeypatched at the source level, via a
-    tiny driver script. Done in a subprocess so the $GITHUB_OUTPUT handling and
-    the exit code are exercised as CI exercises them.
+    Run ``wildphylo publish check-updates`` in process with count_records
+    stubbed. $GITHUB_OUTPUT handling and the exit code are exercised as CI
+    exercises them.
     """
-    driver = tmp_path / "driver.py"
-    driver.write_text(f"""
-import importlib.util, sys
-from pathlib import Path
-ROOT = Path({str(repo_root)!r})
-spec = importlib.util.spec_from_file_location("chk13", ROOT / "scripts" / "13_check_updates.py")
-m = importlib.util.module_from_spec(spec)
-sys.modules["chk13"] = m
-spec.loader.exec_module(m)
-m.count_records = lambda q: {count}
-sys.argv = ["13_check_updates.py", "--config-dir", str(ROOT / "config" / "pathogen"),
-            "--builds-dir", {str(tmp_path / "builds")!r},
-            "--only", "cdv-1200", "--github-output",
-            "--out-json", {str(tmp_path / "out.json")!r}]
-sys.exit(m.main())
-""")
-    env = dict(os.environ)
-    env["GITHUB_OUTPUT"] = str(tmp_path / "gh_output")
-    env.update(extra_env or {})
-    (tmp_path / "gh_output").write_text("")
-    r = subprocess.run(
-        [sys.executable, str(driver)],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        env=env,
-        check=False,
+    monkeypatch.setattr(publish, "count_records", lambda _query: count)
+    gh_output = tmp_path / "gh_output"
+    gh_output.write_text("")
+    monkeypatch.setenv("GITHUB_OUTPUT", str(gh_output))
+    for k in ("FORCE", "ONLY"):
+        monkeypatch.delenv(k, raising=False)
+    for k, v in (extra_env or {}).items():
+        monkeypatch.setenv(k, v)
+    out_json = tmp_path / "out.json"
+    code = cli.main(
+        [
+            "publish",
+            "check-updates",
+            "--config-dir",
+            str(repo_root / "config" / "pathogen"),
+            "--builds-dir",
+            str(tmp_path / "builds"),
+            "--only",
+            "cdv-1200",
+            "--github-output",
+            "--out-json",
+            str(out_json),
+        ]
     )
-    return r, (tmp_path / "gh_output").read_text(), tmp_path / "out.json"
+    return code, gh_output.read_text(), out_json
 
 
 def _stage_previous(tmp_path, n, pathogen="cdv-1200", date="20260101"):
@@ -221,32 +206,34 @@ def _stage_previous(tmp_path, n, pathogen="cdv-1200", date="20260101"):
     acc.write_text("\n".join(f"ACC{i}" for i in range(n)) + "\n")
 
 
-def test_cli_writes_github_outputs_when_there_is_work(repo_root, tmp_path):
+def test_cli_writes_github_outputs_when_there_is_work(repo_root, tmp_path, monkeypatch):
     _stage_previous(tmp_path, 100)
-    r, gh, out = _run_cli(repo_root, tmp_path, count=200)
-    assert r.returncode == 0, r.stderr[-1500:]
+    code, gh, out = _run_cli(repo_root, tmp_path, monkeypatch, count=200)
+    assert code == 0
     assert "proceed=true" in gh
     assert json.loads(gh.split("pathogens=")[1].strip()) == ["cdv-1200"]
     assert json.loads(out.read_text())["decisions"][0]["delta"] == 100
 
 
-def test_cli_reports_false_when_nothing_changed(repo_root, tmp_path):
+def test_cli_reports_false_when_nothing_changed(repo_root, tmp_path, monkeypatch):
     _stage_previous(tmp_path, 200)
-    r, gh, _out = _run_cli(repo_root, tmp_path, count=200)
-    assert r.returncode == 0
+    code, gh, _out = _run_cli(repo_root, tmp_path, monkeypatch, count=200)
+    assert code == 0
     assert "proceed=false" in gh
     assert json.loads(gh.split("pathogens=")[1].strip()) == []
 
 
-def test_cli_force_env_overrides_no_change(repo_root, tmp_path):
+def test_cli_force_env_overrides_no_change(repo_root, tmp_path, monkeypatch):
     _stage_previous(tmp_path, 200)
-    _r, gh, _ = _run_cli(repo_root, tmp_path, count=200, extra_env={"FORCE": "true"})
+    _code, gh, _ = _run_cli(
+        repo_root, tmp_path, monkeypatch, count=200, extra_env={"FORCE": "true"}
+    )
     assert "proceed=true" in gh
 
 
 def test_cli_help_works():
     r = subprocess.run(
-        [sys.executable, "scripts/13_check_updates.py", "--help"],
+        [sys.executable, "-m", "wildphylo.cli", "publish", "check-updates", "--help"],
         cwd=ROOT,
         capture_output=True,
         text=True,
