@@ -59,6 +59,11 @@ BUILD = str(config.get("build_date") or dt.date.today().strftime("%Y%m%d"))
 # L is the only place that knows where a file lives inside the build: rules ask
 # it for paths and never assemble them (src/wildphylo/layout.py).
 L = BuildLayout.from_config(config, BUILD)
+# Every step takes the config and the build directory and derives its own
+# input and output paths from BuildLayout; rules still declare them so the DAG
+# is explicit. Only wildcards (locus, seed, rep) and per-rule policy travel on
+# the command line.
+STEP = "--config " + config["_path"] + " --build-dir " + str(L.root)
 
 # Warn if a build for a DIFFERENT date already exists and this one is unpinned:
 # almost always someone resuming across midnight.
@@ -222,15 +227,12 @@ rule fetch:
     output:
         gb  = L.raw_records(),
         acc = L.accession_snapshot(),
-    params:
-        cfg = lambda w: config["_path"],
     log: L.log("01_fetch")
     shell:
         # Email and API key come from the environment (NCBI_EMAIL,
         # NCBI_API_KEY), never from the config: they are personal credentials,
         # not analysis parameters, and a config file gets committed.
-        "wildphylo fetch records --config {params.cfg}"
-        " --out {output.gb} --acc {output.acc} --log {log} 2>&1 | tee {log}"
+        "wildphylo fetch records " + STEP + " 2>&1 | tee {log}"
 
 
 rule curate:
@@ -248,13 +250,9 @@ rule curate:
         review  = L.needs_review(),
         flagged = L.flagged(),
         excl    = L.exclusions(),
-    params:
-        cfg = lambda w: config["_path"],
     log: L.log("02_curate")
     shell:
-        "wildphylo curate metadata --config {params.cfg}"
-        " --gb {input.gb} --out-dir " + str(L.interim_dir()) + " --log {log}"
-        " 2>&1 | tee {log}"
+        "wildphylo curate metadata " + STEP + " 2>&1 | tee {log}"
 
 
 rule review_gate:
@@ -268,8 +266,7 @@ rule review_gate:
     params:
         accept = ("--accept-unreviewed" if config.get("accept_unreviewed", False) else ""),
     shell:
-        "wildphylo curate review --needs-review {input.review}"
-        " --marker {output.marker} {params.accept}"
+        "wildphylo curate review " + STEP + " {params.accept}"
 
 
 # --- 2. alignment and ML tree ----------------------------------------------
@@ -303,13 +300,9 @@ rule alignment_qc:
     output:
         tsv = L.alignment_qc("{locus}"),
         png = L.alignment_qc_plot("{locus}"),
-    params:
-        cfg = lambda w: config["_path"],
     log: L.log("04_qc_{locus}")
     shell:
-        "wildphylo align qc --config {params.cfg} --aln {input.aln}"
-        " --metadata {input.meta} --out-tsv {output.tsv} --out-png {output.png}"
-        " 2>&1 | tee {log}"
+        "wildphylo align qc " + STEP + " --locus {wildcards.locus} 2>&1 | tee {log}"
 
 
 rule ml_tree:
@@ -357,17 +350,9 @@ checkpoint temporal_gate:
         report = L.temporal_report("{locus}"),
         plot   = L.temporal_plot("{locus}"),
         md     = L.temporal_report_md("{locus}"),
-    params:
-        perm = config["temporal_signal"]["permutations"],
-        min_r2 = config["temporal_signal"]["min_r_squared"],
-        min_span = config["temporal_signal"]["min_span_years"],
     log: L.log("04b_temporal_{locus}")
     shell:
-        "wildphylo gates temporal --tree {input.tree}"
-        " --metadata {input.meta} --permutations {params.perm}"
-        " --min-r2 {params.min_r2} --min-span {params.min_span}"
-        " --out-json {output.report} --out-plot {output.plot}"
-        " --out-md {output.md} 2>&1 | tee {log}"
+        "wildphylo gates temporal " + STEP + " --locus {wildcards.locus} 2>&1 | tee {log}"
         # No --exit-nonzero-on-fail: a FAIL verdict must still leave its report
         # on disk. final_targets reads the verdict and declines to schedule the
         # Bayesian branch.
@@ -397,17 +382,9 @@ if CONGRUENCE:
             json = L.congruence_report(),
             md   = L.congruence_md(),
             tsv  = L.reassortant_candidates(),
-        params:
-            names = " ".join(LOCI),
-            support = (config.get("segments") or {}).get("collapse_support", 70),
-            thresh = (config.get("segments") or {}).get("reassortant_threshold", 0.6),
         log: L.log("05b_congruence")
         shell:
-            "wildphylo gates congruence --trees {input.trees}"
-            " --names {params.names} --collapse-support {params.support}"
-            " --reassortant-threshold {params.thresh}"
-            " --out-json {output.json} --out-md {output.md}"
-            " --out-tsv {output.tsv} 2>&1 | tee {log}"
+            "wildphylo gates congruence " + STEP + " 2>&1 | tee {log}"
 
 
 # --- 4. subsample and Bayesian inference -----------------------------------
@@ -424,13 +401,11 @@ rule subsample:
         target = config["subsample"]["target_tips"],
         seed = config["subsample"]["seed"],
         bin = config["subsample"]["year_bin"],
-        cfg = lambda w: config["_path"],
     log: L.log("06_subsample_{locus}")
     shell:
-        "wildphylo beast subsample --config {params.cfg} --mode global"
-        " --aln {input.aln} --metadata {input.meta} --target {params.target}"
-        " --year-bin {params.bin} --seed {params.seed}"
-        " --out-aln {output.aln} --out-meta {output.meta} 2>&1 | tee {log}"
+        "wildphylo beast subsample " + STEP + " --locus {wildcards.locus} --mode global"
+        " --target {params.target} --year-bin {params.bin} --seed {params.seed}"
+        " 2>&1 | tee {log}"
 
 
 rule beast_xml:
@@ -446,14 +421,10 @@ rule beast_xml:
     output:
         xml = L.beast_xml("{locus}", "{seed}"),
         traits = L.beast_traits("{locus}", "{seed}"),
-    params:
-        cfg = lambda w: config["_path"],
     log: L.log("07_xml_{locus}_seed{seed}")
     shell:
-        "wildphylo beast xml --config {params.cfg}"
-        " --aln {input.aln} --metadata {input.meta}"
-        " --temporal-report {input.gate} --seed {wildcards.seed}"
-        " --out-xml {output.xml} --out-traits {output.traits} 2>&1 | tee {log}"
+        "wildphylo beast xml " + STEP + " --locus {wildcards.locus} --seed {wildcards.seed}"
+        " 2>&1 | tee {log}"
 
 
 # The ancestral-state tree file is a real output and is declared as one. A file
@@ -501,14 +472,9 @@ rule convergence:
     output:
         json = L.convergence_report("{locus}"),
         combined = L.combined_log("{locus}"),
-    params:
-        burnin = config["beast"]["burnin_fraction"],
-        min_ess = config["beast"]["min_ess"],
     log: L.log("08b_convergence_{locus}")
     shell:
-        "wildphylo gates convergence --logs {input.logs}"
-        " --burnin {params.burnin} --min-ess {params.min_ess}"
-        " --out-json {output.json} --out-combined {output.combined} 2>&1 | tee {log}"
+        "wildphylo gates convergence " + STEP + " --locus {wildcards.locus} 2>&1 | tee {log}"
 
 
 if TRAIT_SIGNAL:
@@ -537,20 +503,10 @@ if TRAIT_SIGNAL:
         output:
             json = L.trait_signal_report("{locus}"),
             md   = L.trait_signal_md("{locus}"),
-        params:
-            cfg = lambda w: config["_path"],
-            burnin = config["beast"]["burnin_fraction"],
-            perms = (config.get("beast", {}).get("discrete_trait", {})
-                     .get("signal_permutations", 1000)),
-            on_fail = ("--exit-nonzero-on-fail"
-                       if (config.get("beast", {}).get("discrete_trait", {})
-                           .get("on_no_signal", "stop") == "stop") else ""),
         log: L.log("08e_trait_signal_{locus}")
         shell:
-            "wildphylo gates trait-signal --trees {input.trees}"
-            " --config {params.cfg} --burnin {params.burnin}"
-            " --permutations {params.perms} {params.on_fail}"
-            " --out-json {output.json} --out-md {output.md} 2>&1 | tee {log}"
+            "wildphylo gates trait-signal " + STEP + " --locus {wildcards.locus}"
+            " 2>&1 | tee {log}"
 
 
 rule mcc_tree:
@@ -575,11 +531,8 @@ rule mcc_tree:
 rule drt_xml:
     input: aln = rules.subsample.output.aln, meta = rules.subsample.output.meta
     output: xml = L.drt_xml("{locus}", "{rep}")
-    params: cfg = lambda w: config["_path"]
     shell:
-        "wildphylo beast xml --config {params.cfg}"
-        " --aln {input.aln} --metadata {input.meta} --randomize-dates"
-        " --replicate {wildcards.rep} --out-xml {output.xml}"
+        "wildphylo beast xml " + STEP + " --locus {wildcards.locus} --rep {wildcards.rep}"
 
 
 rule drt_run:
@@ -602,16 +555,9 @@ rule drt_summary:
     output:
         json = L.drt_summary("{locus}"),
         png  = L.drt_plot("{locus}")
-    params:
-        burnin = config["beast"]["burnin_fraction"],
-        on_fail = ("--exit-nonzero-on-fail"
-                   if (config.get("beast", {}).get("date_randomisation", {})
-                       .get("on_fail", "stop") == "stop") else ""),
     log: L.log("08d_drt_{locus}")
     shell:
-        "wildphylo gates drt --real {input.real} --reps {input.reps}"
-        " --burnin {params.burnin} {params.on_fail}"
-        " --out-json {output.json} --out-plot {output.png} 2>&1 | tee {log}"
+        "wildphylo gates drt " + STEP + " --locus {wildcards.locus} 2>&1 | tee {log}"
 
 
 # --- 6. Nextstrain build ----------------------------------------------------
@@ -629,18 +575,13 @@ rule auspice:
         **({"trait_signal": L.trait_signal_report(_L)}
            if TRAIT_SIGNAL else {}),
     output: json = AUSPICE_JSON
-    params: cfg = lambda w: config["_path"]
     log: AUSPICE_LOG
     shell:
-        "wildphylo auspice dataset --config {params.cfg}"
-        " --mcc {input.mcc} --metadata {input.meta}"
-        " --full-metadata {input.full_meta} --alignment {input.aln}"
-        # The gate verdicts travel with the published build. A trait colouring
+        # The gate verdicts travel with the published build: with --build-dir
+        # the step picks up every gate report that exists. A trait colouring
         # that failed its signal test renders identically to one that passed,
         # and the people reading a published tree did not run the pipeline.
-        " --gates {input.conv}"
-        + (" {input.trait_signal}" if TRAIT_SIGNAL else "") +
-        " --output {output.json} 2>&1 | tee {log}"
+        "wildphylo auspice dataset " + STEP + " --locus " + _L + " 2>&1 | tee {log}"
 
 
 rule publish:
@@ -651,19 +592,9 @@ rule publish:
     """
     input: json = rules.auspice.output.json
     output: report = L.build_comparison()
-    params:
-        prev = str(L.pathogen_dir()),
-        shift = config["nextstrain"]["update"]["alert_on_tmrca_shift_years"],
-        loss = ("" if config["nextstrain"]["update"].get(
-                    "alert_on_sequence_loss", True)
-                else "--no-alert-on-sequence-loss"),
     log: L.log("12_compare_builds")
     shell:
-        "wildphylo gates compare --current {input.json}"
-        " --builds-dir {params.prev} --max-tmrca-shift {params.shift}"
-        " {params.loss} --pathogen " + PATHOGEN +
-        " --out {output.report}"
-        " --out-json " + str(L.build_comparison_json()) + " 2>&1 | tee {log}"
+        "wildphylo gates compare " + STEP + " 2>&1 | tee {log}"
 
 
 # --- provenance -------------------------------------------------------------
