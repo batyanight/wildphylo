@@ -198,6 +198,55 @@ def test_a_short_download_is_an_error(stub_entrez, tmp_path):
     assert cli.main(_fetch_argv(tmp_path)) == 1
 
 
+def _honour_batch_window(monkeypatch, text):
+    """Make the fetch_batch stub return only records start..start+size, like efetch."""
+    records = [r + "//\n" for r in text.split("//\n") if r.strip()]
+    requested = []
+
+    def batch(_webenv, _key, start, size):
+        requested.append((start, size))
+        return "".join(records[start : start + size])
+
+    monkeypatch.setattr(fetch_mod, "fetch_batch", batch)
+    return records, requested
+
+
+def test_max_records_caps_the_fetch_and_the_accession_snapshot(
+    stub_entrez, fixtures, monkeypatch, tmp_path, caplog
+):
+    caplog.set_level(logging.INFO)
+    records, requested = _honour_batch_window(monkeypatch, fixtures["cdv"].read_text())
+    cap = 3
+    assert cap < len(records)
+    cfg = load(Path("tests/fixtures/configs/cdv.yaml"))
+    cfg["fetch"]["max_records"] = cap
+    monkeypatch.setattr(fetch_mod, "load", lambda _p: cfg)
+
+    assert cli.main(_fetch_argv(tmp_path)) == 0
+
+    accs = (tmp_path / "raw" / "cdv.acc").read_text().split()
+    first_n = [
+        line.split()[1]
+        for r in records[:cap]
+        for line in r.splitlines()
+        if line.startswith("VERSION")
+    ]
+    assert accs == first_n
+    assert sum(size for _start, size in requested) == cap
+    log_text = (tmp_path / "fetch.log").read_text()
+    assert f"capped at fetch.max_records = {cap}" in log_text
+    assert f"{stub_entrez['total']} available" in log_text
+
+
+def test_max_records_above_the_match_count_changes_nothing(stub_entrez, monkeypatch, tmp_path):
+    cfg = load(Path("tests/fixtures/configs/cdv.yaml"))
+    cfg["fetch"]["max_records"] = stub_entrez["total"] + 100
+    monkeypatch.setattr(fetch_mod, "load", lambda _p: cfg)
+    assert cli.main(_fetch_argv(tmp_path)) == 0
+    accs = (tmp_path / "raw" / "cdv.acc").read_text().split()
+    assert len(accs) == stub_entrez["total"]
+
+
 # =============================================================================
 # curate metadata — single locus (CDV)
 # =============================================================================

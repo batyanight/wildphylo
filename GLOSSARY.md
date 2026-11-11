@@ -17,6 +17,7 @@ it anywhere else.
 - **provenance** — the `provenance.json` record of what a build asked for and got: query, counts, versions, config hash.
 - **audit trail** — the subset of build outputs tracked in git: provenance, accession snapshots, QC and temporal reports, clade summaries, build comparison.
 - **smoke build** — a tiny config (`cdv-smoke`) used to run the whole workflow quickly as a test.
+- **capped fetch** — a fetch limited by `fetch.max_records` to the first N records NCBI returns; a smoke dataset, never an analysis.
 
 ## Data
 

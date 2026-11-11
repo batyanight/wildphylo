@@ -379,3 +379,21 @@ def test_congruence_gate_off_warns():
     c = seg_cfg(segments={"concatenate": "never", "congruence_gate": False})
     _e, w = validate(c)
     assert any("reassortants will not be flagged" in x for x in w)
+
+
+@pytest.mark.parametrize("cap", [150, 1])
+def test_max_records_accepts_a_positive_integer_and_warns_it_is_not_an_analysis(cap):
+    e, w = validate(seg_cfg(fetch={"taxid": 40051, "max_records": cap}))
+    assert e == []
+    assert any("fetch.max_records" in x and "not an analysis" in x for x in w)
+
+
+def test_no_max_records_means_no_cap_warning():
+    _e, w = validate(seg_cfg())
+    assert not any("max_records" in x for x in w)
+
+
+@pytest.mark.parametrize("cap", [0, -5, 1.5, "150", True, None])
+def test_max_records_must_be_an_integer_of_at_least_one(cap):
+    e, _w = validate(seg_cfg(fetch={"taxid": 40051, "max_records": cap}))
+    assert any("fetch.max_records must be an integer >= 1" in x for x in e)

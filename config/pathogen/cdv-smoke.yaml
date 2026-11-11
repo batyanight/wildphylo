@@ -15,6 +15,7 @@ fetch:
   min_length: 400
   max_length: 20000
   batch_size: 200
+  max_records: 150   # smoke build: first 150 records only; not an analysis, never publish
 locus:
   name: H
   product: hemagglutinin

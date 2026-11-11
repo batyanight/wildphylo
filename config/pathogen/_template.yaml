@@ -23,6 +23,11 @@ fetch:
   min_length: 300
   max_length: 50000
   batch_size: 200
+  # max_records: 150              # OPTIONAL. Fetch only the first N records NCBI
+  #                               # returns (fixed order for a fixed query). For
+  #                               # smoke builds only. A capped fetch is not an
+  #                               # analysis: never publish from it. Leave
+  #                               # commented out for a real build.
 
 locus:
   name: GENE

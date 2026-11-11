@@ -231,7 +231,21 @@ def _download(args: argparse.Namespace, cfg: dict[str, Any], gb_path: Path, acc_
     webenv, query_key, total = esearch_history(query)
     log.info("matched %d records", total)
 
-    checks = check_fetch(cfg, total, previous_accession_count(gb_path, pathogen))
+    # A cap keeps the first N of the esearch history, which NCBI returns in a
+    # fixed order for a fixed query, so a capped fetch is reproducible.
+    cap = cfg["fetch"].get("max_records")
+    n_fetch = total if cap is None else min(total, cap)
+    if n_fetch < total:
+        log.warning(
+            "capped at fetch.max_records = %d (%d available); this is a smoke "
+            "dataset, not an analysis",
+            cap,
+            total,
+        )
+
+    # Against the previous build only an uncapped fetch is comparable.
+    previous = None if cap is not None else previous_accession_count(gb_path, pathogen)
+    checks = check_fetch(cfg, total, previous)
     log.info("%s", checks.render())
     if not checks.ok:
         log.error("fetch checks failed; nothing downloaded")
@@ -245,9 +259,10 @@ def _download(args: argparse.Namespace, cfg: dict[str, Any], gb_path: Path, acc_
     gb_path.parent.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
     with gb_path.open("w") as out:
-        for start in range(0, total, batch):
-            out.write(fetch_batch(webenv, query_key, start, batch))
-            log.info("  %d / %d records", min(start + batch, total), total)
+        for start in range(0, n_fetch, batch):
+            size = min(batch, n_fetch - start)
+            out.write(fetch_batch(webenv, query_key, start, size))
+            log.info("  %d / %d records", start + size, n_fetch)
             time.sleep(0.12 if api_key else 0.40)
 
     with gb_path.open() as fh:
@@ -259,14 +274,14 @@ def _download(args: argparse.Namespace, cfg: dict[str, Any], gb_path: Path, acc_
     log.info("wrote %s (%d accessions)", acc_path, len(accs))
     log.info("done in %.1f s", time.time() - t0)
 
-    if len(accs) != total:
+    if len(accs) != n_fetch:
         # A short download is an error, not a warning. Every downstream count,
         # and the build-to-build comparison, would otherwise be computed on a
         # truncated dataset without anyone noticing.
         log.error(
             "expected %d records but parsed %d accessions. The download is "
             "incomplete -- rerun with --force rather than proceeding.",
-            total,
+            n_fetch,
             len(accs),
         )
         return 1

@@ -107,6 +107,17 @@ def validate(cfg: dict[str, Any]) -> tuple[list[str], list[str]]:
     taxid = cfg["fetch"].get("taxid")
     if not isinstance(taxid, int) or taxid <= 0:
         errors.append(f"fetch.taxid must be a positive integer, got {taxid!r}")
+    if "max_records" in cfg["fetch"]:
+        cap = cfg["fetch"]["max_records"]
+        # bool is a subclass of int, so True would otherwise pass as a cap of 1.
+        if isinstance(cap, bool) or not isinstance(cap, int) or cap < 1:
+            errors.append(f"fetch.max_records must be an integer >= 1, got {cap!r}")
+        else:
+            warnings.append(
+                f"fetch.max_records = {cap} caps the download at the first {cap} records "
+                "NCBI returns: a capped fetch is a smoke test, not an analysis. Do not "
+                "publish from it"
+            )
 
     # --- dates ---
     d = cfg["dates"]
