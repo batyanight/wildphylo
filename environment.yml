@@ -26,9 +26,12 @@ dependencies:
   # Nextstrain
   - augur>=24
   - auspice
-  # testing
+  # testing and tooling
+  - pip
   - pytest
   - pytest-cov
+  - mypy
+  - conda-lock
   # optional
   - jupyterlab
   - nbformat
@@ -36,6 +39,8 @@ dependencies:
   # separately:
   #   BEAST2  https://www.beast2.org/
   #   Tracer  https://beast.community/tracer
-  # Version pins are intentionally loose. The suite runs on biopython 1.88 and
+  # Exact versions live in conda-lock.yml (regenerate with
+  #   conda-lock lock -f environment.yml -p osx-arm64 -p linux-64).
+  # Floors here are intentionally loose. The suite runs on biopython 1.88 and
   # pandas 3.0; tightening these without testing them is how an environment
   # file becomes a lie.
