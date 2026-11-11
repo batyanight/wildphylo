@@ -1,5 +1,5 @@
 """
-Tests for 05c_cut_clades.py.
+Tests for `wildphylo tree clades`.
 
 Built on synthetic trees with known structure and a known substitution rate, so
 the expected answer exists independently of the implementation. The motivating
@@ -8,15 +8,15 @@ root of 1656, because the tree is saturated across lineages. Signal lives within
 clades, and this script has to find them.
 """
 
+import contextlib
+import io
 import random
-import subprocess
-import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+from wildphylo import cli
 
 pytest.importorskip("Bio")
 RATE = 8.5e-4
@@ -69,23 +69,22 @@ def structured_tree(path, stems=(2.5, 2.7, 2.6), seed=7):
 
 
 def run(tree, out, *extra):
-    return subprocess.run(
-        [
-            sys.executable,
-            "scripts/05c_cut_clades.py",
-            "--tree",
-            str(tree),
-            "--out-tsv",
-            str(out),
-            "--permutations",
-            "200",
-            *map(str, extra),
-        ],
-        capture_output=True,
-        text=True,
-        cwd=ROOT,
-        check=False,
-    )
+    """Run `wildphylo tree clades` in-process; return returncode, stdout and stderr."""
+    argv = [
+        "tree",
+        "clades",
+        "--tree",
+        str(tree),
+        "--out-tsv",
+        str(out),
+        "--permutations",
+        "200",
+        *map(str, extra),
+    ]
+    stdout, stderr = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        code = cli.main(argv)
+    return SimpleNamespace(returncode=code, stdout=stdout.getvalue(), stderr=stderr.getvalue())
 
 
 def rows(path):

@@ -1,5 +1,5 @@
 """
-Tests for the ported 04_alignment_qc.py and 06_subsample.py.
+Tests for `wildphylo align qc` and 06_subsample.py.
 
 Both scripts previously wrote to a hardcoded data/processed/. A rule that
 writes outside its declared outputs cannot be tracked, re-run or cleaned by
@@ -7,11 +7,16 @@ Snakemake, and the stray file silently goes stale — so "the file landed where
 it was asked to, and nowhere else" is the property worth testing.
 """
 
+import contextlib
+import io
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+
+from wildphylo import cli
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -33,7 +38,10 @@ def curated(tmp_path_factory):
     r = subprocess.run(
         [
             sys.executable,
-            "scripts/02_curate_metadata.py",
+            "-c",
+            "import sys; from wildphylo.cli import main; sys.exit(main(sys.argv[1:]))",
+            "curate",
+            "metadata",
             "--config",
             "config/pathogen/cdv.yaml",
             "--gb",
@@ -67,13 +75,20 @@ def run(script, *args, cwd=None):
     )
 
 
-# --- 04 ---------------------------------------------------------------------
+# --- align qc ---------------------------------------------------------------
+
+
+def run_qc(*args):
+    """Run `wildphylo align qc` in-process; return returncode, stdout and stderr."""
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = cli.main(["align", "qc", *map(str, args)])
+    return SimpleNamespace(returncode=code, stdout=out.getvalue(), stderr=err.getvalue())
 
 
 def test_qc_writes_to_the_requested_paths(curated, tmp_path):
     tsv, png = tmp_path / "deep" / "qc.tsv", tmp_path / "deep" / "cov.png"
-    r = run(
-        "04_alignment_qc.py",
+    r = run_qc(
         "--config",
         "config/pathogen/cdv.yaml",
         "--aln",
@@ -92,8 +107,7 @@ def test_qc_writes_to_the_requested_paths(curated, tmp_path):
 def test_qc_creates_missing_parent_directories(curated, tmp_path):
     """Snakemake does not always create a rule's output directory first."""
     tsv = tmp_path / "a" / "b" / "c" / "qc.tsv"
-    r = run(
-        "04_alignment_qc.py",
+    r = run_qc(
         "--aln",
         curated["aln"],
         "--out-tsv",
@@ -106,8 +120,7 @@ def test_qc_creates_missing_parent_directories(curated, tmp_path):
 
 
 def test_qc_reads_thresholds_from_config(curated, tmp_path):
-    r = run(
-        "04_alignment_qc.py",
+    r = run_qc(
         "--config",
         "config/pathogen/cdv.yaml",
         "--aln",
@@ -127,8 +140,7 @@ def test_qc_cross_checks_labels_against_metadata(curated, tmp_path):
     The label/metadata cross-check is what catches a tip-label bug in 02. On
     correctly curated data it must report zero disagreements.
     """
-    r = run(
-        "04_alignment_qc.py",
+    r = run_qc(
         "--aln",
         curated["aln"],
         "--metadata",
@@ -310,7 +322,10 @@ def curated_with_anchors(tmp_path_factory):
     r = subprocess.run(
         [
             sys.executable,
-            "scripts/02_curate_metadata.py",
+            "-c",
+            "import sys; from wildphylo.cli import main; sys.exit(main(sys.argv[1:]))",
+            "curate",
+            "metadata",
             "--config",
             str(cfgp),
             "--gb",
@@ -343,8 +358,7 @@ def test_qc_survives_empty_metadata_cells(curated_with_anchors, tmp_path):
     first records with an empty decimal_year, and the whole run died at QC
     after the alignment had already been built.
     """
-    r = run(
-        "04_alignment_qc.py",
+    r = run_qc(
         "--aln",
         curated_with_anchors["aln"],
         "--metadata",
@@ -363,8 +377,7 @@ def test_anchors_are_not_reported_as_disagreements(curated_with_anchors, tmp_pat
     design. Flagging that as a mismatch would teach the reader to ignore the
     one section that catches real tip-label bugs.
     """
-    r = run(
-        "04_alignment_qc.py",
+    r = run_qc(
         "--aln",
         curated_with_anchors["aln"],
         "--metadata",
@@ -380,3 +393,9 @@ def test_anchors_are_not_reported_as_disagreements(curated_with_anchors, tmp_pat
     for line in out.splitlines():
         if "disagrees with metadata" in line:
             assert line.rstrip().endswith("0"), line
+
+
+def test_qc_reports_a_missing_alignment_and_fails(tmp_path):
+    r = run_qc("--aln", tmp_path / "nope.fasta", "--out-tsv", tmp_path / "q.tsv")
+    assert r.returncode == 1
+    assert "Alignment not found" in r.stderr
