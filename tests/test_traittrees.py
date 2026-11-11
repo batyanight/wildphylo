@@ -24,7 +24,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-from lib import traittrees as tt  # noqa: E402
+from wildphylo import traittrees as tt  # noqa: E402
 
 # --- annotation extraction --------------------------------------------------
 
@@ -300,7 +300,7 @@ def test_neither_script_imports_the_other_by_filename():
         text = (ROOT / "scripts" / name).read_text()
         assert "import_module" not in text, name
         assert "spec_from_file_location" not in text, name
-        assert "from lib.traittrees import" in text, name
+        assert "from wildphylo.traittrees import" in text, name
 
 
 def test_both_scripts_and_the_library_agree_on_the_parser():

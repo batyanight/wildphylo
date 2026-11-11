@@ -23,7 +23,7 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from lib import traitsignal as ts
+from wildphylo import traitsignal as ts
 
 FOUR = "((A:1,B:1):1,(C:1,D:1):1);"
 
@@ -346,7 +346,7 @@ def _base_cfg(repo_root):
 
 
 def test_signal_gate_keys_validate(repo_root):
-    from lib import config as cfgmod
+    from wildphylo import config as cfgmod
 
     cfg = _base_cfg(repo_root)
     cfg["_path"] = str(repo_root / "config" / "pathogen" / "cdv-1200.yaml")
@@ -355,7 +355,7 @@ def test_signal_gate_keys_validate(repo_root):
 
 
 def test_bad_on_no_signal_is_an_error(repo_root):
-    from lib import config as cfgmod
+    from wildphylo import config as cfgmod
 
     cfg = _base_cfg(repo_root)
     cfg["_path"] = str(repo_root / "config" / "pathogen" / "cdv-1200.yaml")
@@ -365,7 +365,7 @@ def test_bad_on_no_signal_is_an_error(repo_root):
 
 
 def test_too_few_permutations_warns_about_p_resolution(repo_root):
-    from lib import config as cfgmod
+    from wildphylo import config as cfgmod
 
     cfg = _base_cfg(repo_root)
     cfg["_path"] = str(repo_root / "config" / "pathogen" / "cdv-1200.yaml")
@@ -375,7 +375,7 @@ def test_too_few_permutations_warns_about_p_resolution(repo_root):
 
 
 def test_disabling_the_gate_warns(repo_root):
-    from lib import config as cfgmod
+    from wildphylo import config as cfgmod
 
     cfg = _base_cfg(repo_root)
     cfg["_path"] = str(repo_root / "config" / "pathogen" / "cdv-1200.yaml")
@@ -410,7 +410,7 @@ def test_config_paths_resolve_from_any_working_directory(repo_root, tmp_path, mo
     and the failure was a missing file, not a wrong one, so it surfaced as a
     confusing error much later.
     """
-    from lib import config as cfgmod
+    from wildphylo import config as cfgmod
 
     monkeypatch.chdir(tmp_path)
     cfg = _base_cfg(repo_root)
@@ -422,7 +422,7 @@ def test_config_paths_resolve_from_any_working_directory(repo_root, tmp_path, mo
 
 
 def test_resolve_path_leaves_absolute_paths_alone(tmp_path):
-    from lib import config as cfgmod
+    from wildphylo import config as cfgmod
 
     p = tmp_path / "abs.tsv"
     p.write_text("x")
@@ -431,7 +431,7 @@ def test_resolve_path_leaves_absolute_paths_alone(tmp_path):
 
 def test_resolve_path_prefers_the_working_directory(repo_root, tmp_path, monkeypatch):
     """cwd wins, so behaviour that worked before this change is unchanged."""
-    from lib import config as cfgmod
+    from wildphylo import config as cfgmod
 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config").mkdir()

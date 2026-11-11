@@ -66,8 +66,7 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib.beastlog import (
+from wildphylo.beastlog import (
     ess,
     find_clock_parameter,
     hpd,

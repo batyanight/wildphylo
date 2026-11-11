@@ -9,7 +9,7 @@ import os
 import pytest
 import yaml
 
-from lib.config import ConfigError, load, validate
+from wildphylo.config import ConfigError, load, validate
 
 
 def test_at_least_one_config_is_shipped(configs):

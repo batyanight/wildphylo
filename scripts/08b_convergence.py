@@ -48,19 +48,18 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 # The log reader, ESS, HPD and overlap live in lib/beastlog.py, shared with
 # 08d_drt_summary. One parser and one HPD, so a convergence verdict and a
 # date-randomisation verdict describe the same chain.
-from lib.beastlog import (
+from wildphylo.beastlog import (
     NON_PARAMETERS,
     ess,
     hpd,
     overlap,
     read_beast_log,
 )
-from lib.config import ConfigError, load
-from lib.preflight import check_convergence
+from wildphylo.config import ConfigError, load
+from wildphylo.preflight import check_convergence
 
 
 def analyse(paths: list[Path], burnin: float, min_ess: int) -> dict:

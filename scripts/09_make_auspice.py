@@ -44,16 +44,14 @@ that passed unless the build says so.
 """
 
 import argparse
+import contextlib
 import datetime
 import json
 import re
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import contextlib
-
-from lib.traittrees import (
+from wildphylo.traittrees import (
     TRANSLATE_ROW_RE,
     TREE_LINE_RE,
     NewickParser,

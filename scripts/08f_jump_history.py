@@ -104,8 +104,7 @@ def sd(vals):
 # could not both be true of the same posterior, so there is one parser.
 # --------------------------------------------------------------------------- #
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib.traittrees import (  # noqa: E402
+from wildphylo.traittrees import (  # noqa: E402
     TREE_LINE_RE,
     iter_trees,
     label_date,

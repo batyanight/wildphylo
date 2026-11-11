@@ -20,7 +20,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from lib.beastxml import (  # noqa: E402
+from wildphylo.beastxml import (  # noqa: E402
     clock_blocks,
     resolve_clock_rate,
     tip_date_blocks,

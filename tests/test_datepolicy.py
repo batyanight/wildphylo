@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from lib.datepolicy import rayleigh, recommend
+from wildphylo.datepolicy import rayleigh, recommend
 
 
 def dataset(n_year=100, n_precise=40, season_centre=None, season_conc=0.0, seed=5):

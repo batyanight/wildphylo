@@ -286,7 +286,7 @@ def _finish(
     declared_groups: set[str] = set()
     if table_path.is_file():
         try:
-            from lib.hosts import audit_host_table, load_host_table
+            from wildphylo.hosts import audit_host_table, load_host_table
 
             rules = load_host_table(table_path)
             declared_groups = {r.group for r in rules}
@@ -471,7 +471,7 @@ def _finish(
 def main(argv: list[str] | None = None) -> int:
     """Validate configs from the command line.
 
-        python -m lib.config config/pathogen/*.yaml
+        python -m wildphylo.config config/pathogen/*.yaml
 
     Exists so CI does not have to embed Python inside a YAML block scalar --
     which is how ci.yml was silently made invalid, meaning no CI ran at all.

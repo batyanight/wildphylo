@@ -28,9 +28,8 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib.config import ConfigError, load
-from lib.preflight import check_fetch
+from wildphylo.config import ConfigError, load
+from wildphylo.preflight import check_fetch
 
 try:
     from Bio import Entrez

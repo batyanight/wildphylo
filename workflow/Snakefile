@@ -23,8 +23,7 @@ import re
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(workflow.basedir).parent / "scripts"))
-from lib import config as cfgmod
+from wildphylo import config as cfgmod
 
 # --- configuration ----------------------------------------------------------
 
@@ -33,7 +32,7 @@ if not config:
         "No config given. Run with --configfile config/pathogen/<name>.yaml"
     )
 
-# Snakemake's --configfile loads the YAML itself and bypasses lib.config.load(),
+# Snakemake's --configfile loads the YAML itself and bypasses wildphylo.config.load(),
 # so the path it came from has to be recovered here. Scripts are passed this
 # path and re-validate independently, which keeps them runnable standalone.
 config["_path"] = str(Path(workflow.configfiles[0]).resolve())

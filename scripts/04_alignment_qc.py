@@ -409,7 +409,7 @@ def main() -> int:
     # 0.5 still wins over a config value.
     if args.config:
         try:
-            from lib.config import load as _load_cfg
+            from wildphylo.config import load as _load_cfg
 
             _cfg = _load_cfg(args.config)
             _al = _cfg.get("alignment", {})

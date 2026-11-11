@@ -56,17 +56,16 @@ NS = (
 )
 
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib.beastxml import (  # noqa: E402
+from wildphylo.beastxml import (  # noqa: E402
     clock_blocks,
     resolve_clock_rate,
     tip_date_blocks,
     trait_blocks,
     tree_prior_blocks,
 )
-from lib.config import ConfigError  # noqa: E402
-from lib.config import load as load_config  # noqa: E402
-from lib.preflight import check_clock_prior  # noqa: E402
+from wildphylo.config import ConfigError  # noqa: E402
+from wildphylo.config import load as load_config  # noqa: E402
+from wildphylo.preflight import check_clock_prior  # noqa: E402
 
 
 def measured_slope_from(report: Path | None) -> float | None:

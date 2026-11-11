@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from lib.preflight import (
+from wildphylo.preflight import (
     check_clock_prior,
     check_convergence,
     check_curation,
@@ -248,7 +248,7 @@ def test_render_is_readable():
 # --- segmented-pathogen config validation ----------------------------------
 
 
-from lib.config import validate  # noqa: E402
+from wildphylo.config import validate  # noqa: E402
 
 
 def seg_cfg(**over):

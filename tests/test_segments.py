@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from Bio import Phylo
 
-from lib.segments import (
+from wildphylo.segments import (
     assess_congruence,
     find_reassortant_candidates,
     normalised_rf,

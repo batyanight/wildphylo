@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from lib.temporal import (
+from wildphylo.temporal import (
     assess,
     permutation_test,
     root_to_tip,

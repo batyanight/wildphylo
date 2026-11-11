@@ -20,8 +20,7 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib.temporal import assess
+from wildphylo.temporal import assess
 
 
 def root_to_tip_distances(tree):

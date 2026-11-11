@@ -60,8 +60,7 @@ from pathlib import Path
 import yaml
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
-from lib.config import validate  # noqa: E402
+from wildphylo.config import validate  # noqa: E402
 
 
 def _fetch_module():

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from lib.dates import PRECISION_RANK, parse_collection_date, to_decimal_year
+from wildphylo.dates import PRECISION_RANK, parse_collection_date, to_decimal_year
 
 # --- regression tests for bugs found in the original parser -----------------
 

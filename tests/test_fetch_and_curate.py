@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 pd = pytest.importorskip("pandas")
 pytest.importorskip("Bio")
 
-from lib.config import load  # noqa: E402
+from wildphylo.config import load  # noqa: E402
 
 
 def _mod(name: str):
@@ -516,7 +516,7 @@ def test_cds_span_must_be_a_multiple_of_three():
     """
     import yaml
 
-    from lib.config import validate
+    from wildphylo.config import validate
 
     cfg = yaml.safe_load((ROOT / "config/pathogen/cdv.yaml").read_text())
     cfg["_path"] = "x"
@@ -533,7 +533,7 @@ def test_cds_span_must_be_a_multiple_of_three():
 def test_cds_span_disagreeing_with_expected_length_warns():
     import yaml
 
-    from lib.config import validate
+    from wildphylo.config import validate
 
     cfg = yaml.safe_load((ROOT / "config/pathogen/cdv.yaml").read_text())
     cfg["_path"] = "x"

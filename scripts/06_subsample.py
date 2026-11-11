@@ -313,7 +313,7 @@ def main() -> int:
     # silently classify every wild host as domestic.
     if args.config:
         try:
-            from lib.config import load as _load_cfg
+            from wildphylo.config import load as _load_cfg
 
             _cfg = _load_cfg(args.config)
             _wg = (_cfg.get("hosts") or {}).get("wild_groups")

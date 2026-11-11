@@ -71,8 +71,7 @@ from pathlib import Path
 # starts with a digit cannot be imported normally -- which broke the moment the
 # scripts were renamed out of the 12/13 slots. Shared code does not belong in a
 # file whose name encodes its position in a pipeline.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib.traittrees import (
+from wildphylo.traittrees import (
     TREE_LINE_RE,
     iter_trees,
     label_date,

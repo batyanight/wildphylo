@@ -14,9 +14,11 @@ dependencies = ["biopython>=1.83", "pandas>=2.2", "numpy", "matplotlib", "pyyaml
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-cov", "snakemake>=8", "mypy>=1.10"]
 
-[tool.setuptools]
-packages = ["lib"]
-package-dir = {"lib" = "scripts/lib"}
+[project.scripts]
+wildphylo = "wildphylo.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -30,7 +32,7 @@ markers = [
 line-length = 99
 target-version = "py311"
 preview = false
-src = ["scripts", "tests"]
+src = ["src", "scripts", "tests"]
 
 [tool.ruff.lint]
 select = ["ALL"]
@@ -66,11 +68,11 @@ convention = "google"
 "tests/fixtures/*" = ["ALL"]
 # BEAST XML templates are f-strings whose lines must stay verbatim: wrapping
 # them would change the generated XML.
-"scripts/lib/beastxml.py" = ["E501"]
+"src/wildphylo/beastxml.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.11"
-files = ["scripts/lib"]
+files = ["src/wildphylo"]
 strict = true
 warn_unreachable = true
 
@@ -79,6 +81,6 @@ module = ["Bio.*", "pandas.*", "matplotlib.*", "scipy.*", "yaml"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["lib.segments"]
+module = ["wildphylo.segments"]
 # Bio.Phylo's tree methods (get_terminals, distance) ship without annotations.
 disallow_untyped_calls = false

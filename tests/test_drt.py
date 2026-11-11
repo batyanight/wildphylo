@@ -178,7 +178,7 @@ def test_independence_check_does_not_fire_on_well_sampled_replicates(mod, tmp_pa
 
 
 def test_clock_parameter_is_detected_from_the_usual_names():
-    from lib.beastlog import find_clock_parameter
+    from wildphylo.beastlog import find_clock_parameter
 
     assert find_clock_parameter(["Sample", "posterior", "clockRate"]) == "clockRate"
     assert find_clock_parameter(["Sample", "ucldMean", "ucldStdev"]) == "ucldMean"
@@ -190,20 +190,20 @@ def test_ucld_stdev_is_never_mistaken_for_the_rate():
     ucldStdev is the clock's variation, not its rate. Comparing it against
     randomised dates returns a confident verdict about the wrong parameter.
     """
-    from lib.beastlog import find_clock_parameter
+    from wildphylo.beastlog import find_clock_parameter
 
     assert find_clock_parameter(["Sample", "ucldStdev", "ucldMean"]) == "ucldMean"
 
 
 def test_a_log_with_no_clock_column_is_refused():
-    from lib.beastlog import find_clock_parameter
+    from wildphylo.beastlog import find_clock_parameter
 
     with pytest.raises(ValueError, match="no clock-rate column"):
         find_clock_parameter(["Sample", "posterior", "treeLikelihood"])
 
 
 def test_explicit_clock_param_overrides_detection():
-    from lib.beastlog import find_clock_parameter
+    from wildphylo.beastlog import find_clock_parameter
 
     header = ["Sample", "clockRate", "myRate"]
     assert find_clock_parameter(header, preferred="myRate") == "myRate"

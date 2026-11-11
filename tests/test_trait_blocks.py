@@ -1,5 +1,5 @@
 """
-Tests for lib.beastxml.trait_blocks.
+Tests for wildphylo.beastxml.trait_blocks.
 
 The discrete trait was previously added by hand in BEAUti, which meant the
 model actually run was recorded nowhere: not in the config, not in git. The
@@ -17,7 +17,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from lib.beastxml import (  # noqa: E402
+from wildphylo.beastxml import (  # noqa: E402
     ROBUST_EIGEN,
     SUM_SPEC,
     n_trait_rates,

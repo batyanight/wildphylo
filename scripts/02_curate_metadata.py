@@ -35,11 +35,10 @@ import re
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib.config import ConfigError, load, resolve_path
-from lib.dates import parse_collection_date
-from lib.hosts import audit_host_table, load_host_table, normalize_host
-from lib.preflight import check_curation
+from wildphylo.config import ConfigError, load, resolve_path
+from wildphylo.dates import parse_collection_date
+from wildphylo.hosts import audit_host_table, load_host_table, normalize_host
+from wildphylo.preflight import check_curation
 
 try:
     import pandas as pd

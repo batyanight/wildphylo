@@ -58,7 +58,6 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cdv_h_coords import (
     HFrame,
     backup_if_overwriting,

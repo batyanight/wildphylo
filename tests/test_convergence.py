@@ -178,7 +178,7 @@ def test_two_agreeing_well_mixed_chains_pass(mod, tmp_path):
     write_log(a, ["posterior", "clockRate"], seed=1)
     write_log(b, ["posterior", "clockRate"], seed=2)
     res = mod.analyse([a, b], burnin=0.10, min_ess=200)
-    from lib.preflight import check_convergence
+    from wildphylo.preflight import check_convergence
 
     checks = check_convergence({"beast": {"min_ess": 200}}, res["ess"], 2, res["overlap"])
     assert checks.ok
@@ -197,7 +197,7 @@ def test_chains_in_different_places_are_caught_despite_high_ess(mod, tmp_path):
     res = mod.analyse([a, b], burnin=0.10, min_ess=200)
     assert min(res["ess"].values()) > 200, "each chain is well mixed"
     assert res["overlap"]["clockRate"] < 0.5
-    from lib.preflight import check_convergence
+    from wildphylo.preflight import check_convergence
 
     checks = check_convergence({"beast": {"min_ess": 200}}, res["ess"], 2, res["overlap"])
     assert not checks.ok
