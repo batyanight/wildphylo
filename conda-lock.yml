@@ -13,16 +13,16 @@
 version: 1
 metadata:
   content_hash:
-    osx-arm64: f89483cf1a8f74086b3e42926402a5da5b9919395b507ab724cd5727513a501e
-    linux-64: ba40ca4b319123286d4df1a878d7d831e63a1c85e115a7d756326bebfd64eff4
+    osx-arm64: a4d021a74ab6d10df52abf29ea08b9844acf8020f5d50984461d562802f07b69
+    linux-64: 1118b84b7177a1f1180bf9f574447d656b31b12a23d61830f1873ca6b4d447ed
   channels:
   - url: conda-forge
     used_env_vars: []
   - url: bioconda
     used_env_vars: []
   platforms:
-  - osx-arm64
   - linux-64
+  - osx-arm64
   sources:
   - environment.yml
 package:
@@ -9272,6 +9272,31 @@ package:
   hash:
     md5: 955a8af2107aef636b877b1243ba347e
     sha256: 678998e78b3b913d07bf63f95d5b0ca12a021899e1f0f65e4aa98f1dd9ed2b12
+  category: main
+  optional: false
+- name: ruff
+  version: 0.17.4
+  manager: conda
+  platform: linux-64
+  dependencies:
+    __glibc: '>=2.17,<3.0.a0'
+    libgcc: '>=15'
+  url: https://conda.anaconda.org/conda-forge/linux-64/ruff-0.17.4-hf19af3b_0.conda
+  hash:
+    md5: b499d3ca5b2a591c98e4552073965468
+    sha256: f1686f229f6a209bd172001bcac8de3d43a1c3b7507476950eca33641ffe2e00
+  category: main
+  optional: false
+- name: ruff
+  version: 0.17.4
+  manager: conda
+  platform: osx-arm64
+  dependencies:
+    __osx: '>=11.0'
+  url: https://conda.anaconda.org/conda-forge/osx-arm64/ruff-0.17.4-ha19a7bb_0.conda
+  hash:
+    md5: 11e72a4a139fd7c27dff0fb4f56ba3e0
+    sha256: 715bb6e5ea67042d7f086ae68041a5c2036c28eb39b52870107c92c789e2862d
   category: main
   optional: false
 - name: scipy
