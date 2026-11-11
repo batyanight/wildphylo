@@ -127,6 +127,11 @@ def validate(cfg: dict[str, Any]) -> tuple[list[str], list[str]]:
             f"dates.imprecise_date_policy must be midpoint|interval|exclude, got {policy!r}"
         )
 
+    # --- tree ---
+    fast = cfg["tree"].get("fast", False)
+    if not isinstance(fast, bool):
+        errors.append(f"tree.fast must be true or false, got {fast!r}")
+
     # --- segmented pathogens ---
     segmented = (cfg.get("virus") or {}).get("segmented", False)
     loci = cfg.get("loci")

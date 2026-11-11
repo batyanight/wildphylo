@@ -93,6 +93,7 @@ tree:
   ufboot: 0
   alrt: 0
   threads: AUTO
+  fast: true
 temporal_signal:
   min_r_squared: 0.1
   min_span_years: 5.0

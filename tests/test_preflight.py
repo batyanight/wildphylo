@@ -5,6 +5,8 @@ A check that never fires provides no assurance. Each test here confirms the
 check fires on the failure it exists to catch, and stays quiet otherwise.
 """
 
+import pytest
+
 from wildphylo.preflight import (
     check_clock_prior,
     check_convergence,
@@ -281,6 +283,19 @@ def seg_cfg(**over):
 def test_segmented_config_validates():
     e, _w = validate(seg_cfg())
     assert e == []
+
+
+@pytest.mark.parametrize("fast", [True, False])
+def test_tree_fast_accepts_a_boolean(fast):
+    e, _w = validate(seg_cfg(tree={"model": "MFP", "fast": fast}))
+    assert e == []
+
+
+@pytest.mark.parametrize("fast", ["yes", 1, None])
+def test_tree_fast_must_be_a_boolean(fast):
+    """A string like 'false' is truthy in Python and would switch -fast on."""
+    e, _w = validate(seg_cfg(tree={"model": "MFP", "fast": fast}))
+    assert any("tree.fast must be true or false" in x for x in e)
 
 
 def test_locus_and_loci_together_is_fatal():

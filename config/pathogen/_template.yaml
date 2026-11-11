@@ -104,6 +104,10 @@ tree:
   ufboot: 1000
   alrt: 1000
   threads: AUTO
+  # true passes IQ-TREE's -fast (a quick, less thorough tree search). For smoke
+  # builds that only need to prove the chain runs; leave false for any tree that
+  # feeds a result.
+  fast: false
 
 temporal_signal:
   min_r_squared: 0.10
