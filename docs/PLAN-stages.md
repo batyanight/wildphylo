@@ -170,8 +170,9 @@ Not done, in rough priority:
   step itself was exercised only by its tests, because `NCBI_EMAIL` was unset.
   Run a fresh `cdv-smoke` build with the email set once before relying on
   the cap end to end.
-- **`--build-dir` defaults** from the interface table are not implemented;
-  steps keep their explicit path flags, so the Snakefile diff stayed mechanical.
+- **`--build-dir` defaults:** the layout module is done
+  (`src/wildphylo/layout.py`, `BuildLayout`; the Snakefile takes every path
+  from it). Steps' `--build-dir` defaults, built on it, are the next task.
 - **`publish dataset` is not wired into the Snakefile.** It needs a config key
   for the pathogen repo path, which phase 2 decides.
 - **`beast.py`** is ~2000 lines and is the next consolidation target.

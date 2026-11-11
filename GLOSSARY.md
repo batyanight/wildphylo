@@ -9,6 +9,7 @@ it anywhere else.
 - **pathogen config** — the YAML `<id>.yaml` that holds everything pathogen-specific; code holds nothing pathogen-specific. Lives in the pathogen repo, except the template, `cdv-smoke` and pathogens without a repo yet, which live in `config/pathogen/`.
 - **build** — one dated run of the workflow for one pathogen config; lives in `builds/<id>/<YYYYMMDD>/`. The newest date is the current build.
 - **build date** — the `YYYYMMDD` stamp of a build; pinned with `--config build_date=` to resume or reproduce.
+- **build layout** — the one place (`wildphylo.layout.BuildLayout`) that says where each file of a build goes, by stage, under `builds/<id>/<YYYYMMDD>/`. The Snakefile and steps ask it for paths; none assemble their own.
 - **stage** — one of the eight top-level steps: fetch, curate, align, tree, gates, beast, auspice, publish. Each is a CLI subcommand group with defined inputs and outputs.
 - **step** — a subcommand within a stage (e.g. `gates convergence`).
 - **gate** — a step that inspects data and returns a verdict; a failing gate stops the run. Gates: review, temporal, congruence, convergence, trait signal, comparison.

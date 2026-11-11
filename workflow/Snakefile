@@ -24,6 +24,7 @@ import sys
 from pathlib import Path
 
 from wildphylo import config as cfgmod
+from wildphylo.layout import BuildLayout
 
 # --- configuration ----------------------------------------------------------
 
@@ -53,21 +54,23 @@ PATHOGEN = config["id"]
 #     snakemake ... --config build_date=20260919
 BUILD = str(config.get("build_date") or dt.date.today().strftime("%Y%m%d"))
 
+# Every build is namespaced by date. Old builds are never overwritten, which is
+# what makes "the TMRCA moved" a debuggable event rather than a mystery.
+# L is the only place that knows where a file lives inside the build: rules ask
+# it for paths and never assemble them (src/wildphylo/layout.py).
+L = BuildLayout.from_config(config, BUILD)
+
 # Warn if a build for a DIFFERENT date already exists and this one is unpinned:
 # almost always someone resuming across midnight.
 if not config.get("build_date"):
     _existing = sorted(
-        d.name for d in Path(f"builds/{config['id']}").glob("2*")
-        if d.is_dir() and d.name != BUILD) if Path(f"builds/{config['id']}").is_dir() else []
+        d.name for d in L.pathogen_dir().glob("2*")
+        if d.is_dir() and d.name != BUILD) if L.pathogen_dir().is_dir() else []
     if _existing:
         logger.warning(
-            f"builds/{config['id']}/ already contains {', '.join(_existing[-3:])} "
+            f"{L.pathogen_dir()}/ already contains {', '.join(_existing[-3:])} "
             f"but this run will write to {BUILD}. To resume an earlier build "
             f"instead, add:  --config build_date={_existing[-1]}")
-
-# Every build is namespaced by date. Old builds are never overwritten, which is
-# what makes "the TMRCA moved" a debuggable event rather than a mystery.
-OUT = f"builds/{PATHOGEN}/{BUILD}"
 
 # Loci. An unsegmented pathogen declares `locus`; a segmented one declares
 # `loci` and every rule below fans out over the analysed ones. Treating the
@@ -88,9 +91,8 @@ _BUILD_NAME = config["nextstrain"]["build_name"]
 # is what Snakemake rejects ("not all output, log and benchmark files ...
 # contain the same wildcards"), so _L switches them together.
 _L = "{locus}" if len(LOCI) > 1 else LOCI[0]
-AUSPICE_JSON = (f"{OUT}/auspice/{_BUILD_NAME}_{_L}.json" if len(LOCI) > 1
-                else f"{OUT}/auspice/{_BUILD_NAME}.json")
-AUSPICE_LOG = f"{OUT}/logs/09_auspice_{_L}.log"
+AUSPICE_JSON = L.auspice_dataset(_BUILD_NAME, "{locus}" if len(LOCI) > 1 else None)
+AUSPICE_LOG = L.log(f"09_auspice_{_L}")
 
 # IQ-TREE ships under three names depending on version and channel: `iqtree`
 # (v1 and some v2 builds), `iqtree2`, and `iqtree3` since 2025. Hardcoding one
@@ -124,7 +126,6 @@ CONGRUENCE = (SEGMENTED and len(LOCI) > 1
 # to a supported one.
 _DT = (config.get("beast") or {}).get("discrete_trait") or {}
 DTA = bool(_DT.get("enabled"))
-TRAIT = _DT.get("trait", "host_group")
 TRAIT_SIGNAL = DTA and (_DT.get("signal_gate", True))
 
 
@@ -177,14 +178,14 @@ def final_targets(wildcards):
 
     build = config["nextstrain"]["build_name"]
     if len(LOCI) > 1:
-        targets += expand(f"{OUT}/auspice/{build}_{{locus}}.json", locus=passing)
+        targets += expand(str(L.auspice_dataset(build, "{locus}")), locus=passing)
     else:
-        targets.append(f"{OUT}/auspice/{build}.json")
-    targets += expand(f"{OUT}/beast/{{locus}}/convergence.json", locus=passing)
+        targets.append(str(L.auspice_dataset(build)))
+    targets += expand(str(L.convergence_report("{locus}")), locus=passing)
     if TRAIT_SIGNAL:
-        targets += expand(f"{OUT}/beast/{{locus}}/trait_signal.json", locus=passing)
+        targets += expand(str(L.trait_signal_report("{locus}")), locus=passing)
     if config["beast"].get("date_randomisation", {}).get("enabled"):
-        targets += expand(f"{OUT}/drt/{{locus}}/drt_summary.json", locus=passing)
+        targets += expand(str(L.drt_summary("{locus}")), locus=passing)
     return targets
 
 
@@ -196,12 +197,12 @@ def gate_targets(_wildcards=None):
     one's branch would get scheduled and the others would run serially for no
     reason. Listing the gates statically lets all of them run at once.
     """
-    t = [f"{OUT}/provenance.json"]
-    t += expand(f"{OUT}/qc/{{locus}}_alignment_qc.tsv", locus=LOCI)
-    t += expand(f"{OUT}/temporal/{{locus}}_temporal_signal.json", locus=LOCI)
-    t += expand(f"{OUT}/temporal/{{locus}}_root_to_tip.png", locus=LOCI)
+    t = [str(L.provenance())]
+    t += expand(str(L.alignment_qc("{locus}")), locus=LOCI)
+    t += expand(str(L.temporal_report("{locus}")), locus=LOCI)
+    t += expand(str(L.temporal_plot("{locus}")), locus=LOCI)
     if CONGRUENCE:
-        t.append(f"{OUT}/segments/congruence.json")
+        t.append(str(L.congruence_report()))
     return t
 
 
@@ -219,11 +220,11 @@ rule fetch:
     re-download, and an old pull is never silently replaced by a new one.
     """
     output:
-        gb  = f"{OUT}/raw/{PATHOGEN}.gb",
-        acc = f"{OUT}/raw/{PATHOGEN}.acc",
+        gb  = L.raw_records(),
+        acc = L.accession_snapshot(),
     params:
         cfg = lambda w: config["_path"],
-    log: f"{OUT}/logs/01_fetch.log"
+    log: L.log("01_fetch")
     shell:
         # Email and API key come from the environment (NCBI_EMAIL,
         # NCBI_API_KEY), never from the config: they are personal credentials,
@@ -241,18 +242,18 @@ rule curate:
         gb = rules.fetch.output.gb,
         hosts = config["hosts"]["table"],
     output:
-        meta    = f"{OUT}/interim/metadata_clean.tsv",
-        fasta   = expand(f"{OUT}/interim/{{locus}}.fasta", locus=LOCI),
-        anchors = expand(f"{OUT}/interim/{{locus}}_anchors.fasta", locus=LOCI),
-        review  = f"{OUT}/interim/needs_review.tsv",
-        flagged = f"{OUT}/interim/flagged.tsv",
-        excl    = f"{OUT}/interim/exclusions.tsv",
+        meta    = L.metadata(),
+        fasta   = expand(str(L.locus_sequences("{locus}")), locus=LOCI),
+        anchors = expand(str(L.anchors("{locus}")), locus=LOCI),
+        review  = L.needs_review(),
+        flagged = L.flagged(),
+        excl    = L.exclusions(),
     params:
         cfg = lambda w: config["_path"],
-    log: f"{OUT}/logs/02_curate.log"
+    log: L.log("02_curate")
     shell:
         "wildphylo curate metadata --config {params.cfg}"
-        " --gb {input.gb} --out-dir {OUT}/interim --log {log}"
+        " --gb {input.gb} --out-dir " + str(L.interim_dir()) + " --log {log}"
         " 2>&1 | tee {log}"
 
 
@@ -263,7 +264,7 @@ rule review_gate:
     unreviewed is how a result becomes a curation artefact.
     """
     input: review = rules.curate.output.review
-    output: marker = f"{OUT}/interim/.review_ok"
+    output: marker = L.review_marker()
     params:
         accept = ("--accept-unreviewed" if config.get("accept_unreviewed", False) else ""),
     shell:
@@ -284,13 +285,13 @@ rule align:
     empty, so this input is fixed.
     """
     input:
-        fasta   = f"{OUT}/interim/{{locus}}.fasta",
-        anchors = f"{OUT}/interim/{{locus}}_anchors.fasta",
+        fasta   = L.locus_sequences("{locus}"),
+        anchors = L.anchors("{locus}"),
         ok      = rules.review_gate.output,
-    output: aln = f"{OUT}/aligned/{{locus}}_aligned.fasta"
+    output: aln = L.alignment("{locus}")
     params: args = config["alignment"]["mafft_args"]
     threads: 4
-    log: f"{OUT}/logs/03_align_{{locus}}.log"
+    log: L.log("03_align_{locus}")
     shell:
         "cat {input.fasta} {input.anchors} > {output.aln}.tmp && "
         "mafft {params.args} --thread {threads} {output.aln}.tmp > {output.aln}"
@@ -300,11 +301,11 @@ rule align:
 rule alignment_qc:
     input: aln = rules.align.output.aln, meta = rules.curate.output.meta
     output:
-        tsv = f"{OUT}/qc/{{locus}}_alignment_qc.tsv",
-        png = f"{OUT}/qc/{{locus}}_coverage.png",
+        tsv = L.alignment_qc("{locus}"),
+        png = L.alignment_qc_plot("{locus}"),
     params:
         cfg = lambda w: config["_path"],
-    log: f"{OUT}/logs/04_qc_{{locus}}.log"
+    log: L.log("04_qc_{locus}")
     shell:
         "wildphylo align qc --config {params.cfg} --aln {input.aln}"
         " --metadata {input.meta} --out-tsv {output.tsv} --out-png {output.png}"
@@ -313,7 +314,7 @@ rule alignment_qc:
 
 rule ml_tree:
     input: aln = rules.align.output.aln, qc = rules.alignment_qc.output.tsv
-    output: tree = f"{OUT}/tree/{{locus}}_ml.treefile"
+    output: tree = L.ml_tree("{locus}")
     params:
         model = config["tree"]["model"],
         # -B and -alrt are each roughly a doubling of runtime on a large
@@ -327,10 +328,10 @@ rule ml_tree:
         # tree.fast: IQ-TREE's -fast search, for smoke builds only.
         fast = "-fast" if config["tree"].get("fast") else "",
         extra = config["tree"].get("extra_args", ""),
-        pre = f"{OUT}/tree/{{locus}}_ml",
+        pre = str(L.ml_tree_prefix("{locus}")),
         iqtree = IQTREE,
     threads: 8
-    log: f"{OUT}/logs/03_tree_{{locus}}.log"
+    log: L.log("03_tree_{locus}")
     shell:
         "{params.iqtree} -s {input.aln} -m {params.model} {params.ufboot}"
         " {params.alrt} {params.fast} {params.extra} -T {threads} --prefix {params.pre}"
@@ -353,14 +354,14 @@ checkpoint temporal_gate:
         tree = rules.ml_tree.output.tree,
         meta = rules.curate.output.meta,
     output:
-        report = f"{OUT}/temporal/{{locus}}_temporal_signal.json",
-        plot   = f"{OUT}/temporal/{{locus}}_root_to_tip.png",
-        md     = f"{OUT}/temporal/{{locus}}_temporal_signal.md",
+        report = L.temporal_report("{locus}"),
+        plot   = L.temporal_plot("{locus}"),
+        md     = L.temporal_report_md("{locus}"),
     params:
         perm = config["temporal_signal"]["permutations"],
         min_r2 = config["temporal_signal"]["min_r_squared"],
         min_span = config["temporal_signal"]["min_span_years"],
-    log: f"{OUT}/logs/04b_temporal_{{locus}}.log"
+    log: L.log("04b_temporal_{locus}")
     shell:
         "wildphylo gates temporal --tree {input.tree}"
         " --metadata {input.meta} --permutations {params.perm}"
@@ -391,16 +392,16 @@ if CONGRUENCE:
         the primary result. See docs/DECISIONS.md DR-007.
         """
         input:
-            trees = expand(f"{OUT}/tree/{{locus}}_ml.treefile", locus=LOCI),
+            trees = expand(str(L.ml_tree("{locus}")), locus=LOCI),
         output:
-            json = f"{OUT}/segments/congruence.json",
-            md   = f"{OUT}/segments/congruence.md",
-            tsv  = f"{OUT}/segments/reassortant_candidates.tsv",
+            json = L.congruence_report(),
+            md   = L.congruence_md(),
+            tsv  = L.reassortant_candidates(),
         params:
             names = " ".join(LOCI),
             support = (config.get("segments") or {}).get("collapse_support", 70),
             thresh = (config.get("segments") or {}).get("reassortant_threshold", 0.6),
-        log: f"{OUT}/logs/05b_congruence.log"
+        log: L.log("05b_congruence")
         shell:
             "wildphylo gates congruence --trees {input.trees}"
             " --names {params.names} --collapse-support {params.support}"
@@ -415,16 +416,16 @@ rule subsample:
     input:
         aln = rules.align.output.aln,
         meta = rules.curate.output.meta,
-        gate = f"{OUT}/temporal/{{locus}}_temporal_signal.json",
+        gate = L.temporal_report("{locus}"),
     output:
-        aln  = f"{OUT}/subsampled/{{locus}}_sub.fasta",
-        meta = f"{OUT}/subsampled/{{locus}}_sub_metadata.tsv",
+        aln  = L.subsample("{locus}"),
+        meta = L.subsample_metadata("{locus}"),
     params:
         target = config["subsample"]["target_tips"],
         seed = config["subsample"]["seed"],
         bin = config["subsample"]["year_bin"],
         cfg = lambda w: config["_path"],
-    log: f"{OUT}/logs/06_subsample_{{locus}}.log"
+    log: L.log("06_subsample_{locus}")
     shell:
         "wildphylo beast subsample --config {params.cfg} --mode global"
         " --aln {input.aln} --metadata {input.meta} --target {params.target}"
@@ -441,13 +442,13 @@ rule beast_xml:
     input:
         aln = rules.subsample.output.aln,
         meta = rules.subsample.output.meta,
-        gate = f"{OUT}/temporal/{{locus}}_temporal_signal.json",
+        gate = L.temporal_report("{locus}"),
     output:
-        xml = f"{OUT}/beast/{{locus}}/seed{{seed}}/{PATHOGEN}.xml",
-        traits = f"{OUT}/beast/{{locus}}/seed{{seed}}/traits.txt",
+        xml = L.beast_xml("{locus}", "{seed}"),
+        traits = L.beast_traits("{locus}", "{seed}"),
     params:
         cfg = lambda w: config["_path"],
-    log: f"{OUT}/logs/07_xml_{{locus}}_seed{{seed}}.log"
+    log: L.log("07_xml_{locus}_seed{seed}")
     shell:
         "wildphylo beast xml --config {params.cfg}"
         " --aln {input.aln} --metadata {input.meta}"
@@ -463,29 +464,29 @@ rule beast_xml:
 # command is shared so the two cannot drift.
 _BEAST_SHELL = (
     "beast -seed {wildcards.seed} -threads {threads} -overwrite"
-    " -prefix " + OUT + "/beast/{wildcards.locus}/seed{wildcards.seed}/"
+    " -prefix " + str(L.beast_chain_dir("{wildcards.locus}", "{wildcards.seed}")) + "/"
     " {input.xml} 2>&1 | tee {log}")
 
 if DTA:
     rule beast_run:
         input: xml = rules.beast_xml.output.xml
         output:
-            log_ = f"{OUT}/beast/{{locus}}/seed{{seed}}/{PATHOGEN}.log",
-            trees = f"{OUT}/beast/{{locus}}/seed{{seed}}/{PATHOGEN}.trees",
-            trait_trees = f"{OUT}/beast/{{locus}}/seed{{seed}}/{PATHOGEN}_{TRAIT}.trees",
+            log_ = L.beast_log("{locus}", "{seed}"),
+            trees = L.beast_trees("{locus}", "{seed}"),
+            trait_trees = L.beast_trait_trees("{locus}", "{seed}"),
         threads: 4
         resources: runtime = 10080   # minutes; these are multi-day runs
-        log: f"{OUT}/logs/08_beast_{{locus}}_seed{{seed}}.log"
+        log: L.log("08_beast_{locus}_seed{seed}")
         shell: _BEAST_SHELL
 else:
     rule beast_run:
         input: xml = rules.beast_xml.output.xml
         output:
-            log_ = f"{OUT}/beast/{{locus}}/seed{{seed}}/{PATHOGEN}.log",
-            trees = f"{OUT}/beast/{{locus}}/seed{{seed}}/{PATHOGEN}.trees",
+            log_ = L.beast_log("{locus}", "{seed}"),
+            trees = L.beast_trees("{locus}", "{seed}"),
         threads: 4
         resources: runtime = 10080   # minutes; these are multi-day runs
-        log: f"{OUT}/logs/08_beast_{{locus}}_seed{{seed}}.log"
+        log: L.log("08_beast_{locus}_seed{seed}")
         shell: _BEAST_SHELL
 
 
@@ -495,15 +496,15 @@ rule convergence:
     not converged must not silently become a published number.
     """
     input:
-        logs = expand(f"{OUT}/beast/{{{{locus}}}}/seed{{seed}}/{PATHOGEN}.log",
+        logs = expand(str(L.beast_log("{{locus}}", "{seed}")),
                       seed=config["beast"]["seeds"]),
     output:
-        json = f"{OUT}/beast/{{locus}}/convergence.json",
-        combined = f"{OUT}/beast/{{locus}}/combined.log",
+        json = L.convergence_report("{locus}"),
+        combined = L.combined_log("{locus}"),
     params:
         burnin = config["beast"]["burnin_fraction"],
         min_ess = config["beast"]["min_ess"],
-    log: f"{OUT}/logs/08b_convergence_{{locus}}.log"
+    log: L.log("08b_convergence_{locus}")
     shell:
         "wildphylo gates convergence --logs {input.logs}"
         " --burnin {params.burnin} --min-ess {params.min_ess}"
@@ -530,12 +531,12 @@ if TRAIT_SIGNAL:
         """
         input:
             trees = expand(
-                f"{OUT}/beast/{{{{locus}}}}/seed{{seed}}/{PATHOGEN}_{TRAIT}.trees",
+                str(L.beast_trait_trees("{{locus}}", "{seed}")),
                 seed=config["beast"]["seeds"]),
             conv = rules.convergence.output.json,
         output:
-            json = f"{OUT}/beast/{{locus}}/trait_signal.json",
-            md   = f"{OUT}/beast/{{locus}}/trait_signal.md",
+            json = L.trait_signal_report("{locus}"),
+            md   = L.trait_signal_md("{locus}"),
         params:
             cfg = lambda w: config["_path"],
             burnin = config["beast"]["burnin_fraction"],
@@ -544,7 +545,7 @@ if TRAIT_SIGNAL:
             on_fail = ("--exit-nonzero-on-fail"
                        if (config.get("beast", {}).get("discrete_trait", {})
                            .get("on_no_signal", "stop") == "stop") else ""),
-        log: f"{OUT}/logs/08e_trait_signal_{{locus}}.log"
+        log: L.log("08e_trait_signal_{locus}")
         shell:
             "wildphylo gates trait-signal --trees {input.trees}"
             " --config {params.cfg} --burnin {params.burnin}"
@@ -554,26 +555,26 @@ if TRAIT_SIGNAL:
 
 rule mcc_tree:
     input:
-        trees = expand(f"{OUT}/beast/{{{{locus}}}}/seed{{seed}}/{PATHOGEN}.trees",
+        trees = expand(str(L.beast_trees("{{locus}}", "{seed}")),
                        seed=config["beast"]["seeds"]),
         conv = rules.convergence.output.json,
-    output: mcc = f"{OUT}/beast/{{locus}}/mcc.tree"
+    output: mcc = L.mcc_tree("{locus}")
     params: burnin = lambda w: int(config["beast"]["burnin_fraction"] * 100)
-    log: f"{OUT}/logs/08c_mcc_{{locus}}.log"
+    log: L.log("08c_mcc_{locus}")
     shell:
         # BEAST2 syntax: logcombiner detects tree files itself (no -trees flag),
         # and treeannotator takes -height, not BEAST1's -heights.
         "logcombiner -burnin {params.burnin} -log {input.trees}"
-        " -o {OUT}/beast/{wildcards.locus}/combined.trees && "
-        "treeannotator -burnin 0 -height median"
-        " {OUT}/beast/{wildcards.locus}/combined.trees {output.mcc} 2>&1 | tee {log}"
+        " -o " + str(L.combined_trees("{wildcards.locus}")) + " && "
+        "treeannotator -burnin 0 -height median "
+        + str(L.combined_trees("{wildcards.locus}")) + " {output.mcc} 2>&1 | tee {log}"
 
 
 # --- 5. date-randomisation test --------------------------------------------
 
 rule drt_xml:
     input: aln = rules.subsample.output.aln, meta = rules.subsample.output.meta
-    output: xml = f"{OUT}/drt/{{locus}}/rep{{rep}}/{PATHOGEN}_drt.xml"
+    output: xml = L.drt_xml("{locus}", "{rep}")
     params: cfg = lambda w: config["_path"]
     shell:
         "wildphylo beast xml --config {params.cfg}"
@@ -583,7 +584,7 @@ rule drt_xml:
 
 rule drt_run:
     input: xml = rules.drt_xml.output.xml
-    output: log_ = f"{OUT}/drt/{{locus}}/rep{{rep}}/{PATHOGEN}_drt.log"
+    output: log_ = L.drt_log("{locus}", "{rep}")
     threads: 2
     shell: "beast -seed 1{wildcards.rep} -threads {threads} -overwrite {input.xml}"
 
@@ -596,17 +597,17 @@ rule drt_summary:
     """
     input:
         real = rules.convergence.output.combined,
-        reps = expand(f"{OUT}/drt/{{{{locus}}}}/rep{{rep}}/{PATHOGEN}_drt.log",
+        reps = expand(str(L.drt_log("{{locus}}", "{rep}")),
                       rep=range(1, config["beast"]["date_randomisation"]["replicates"] + 1)),
     output:
-        json = f"{OUT}/drt/{{locus}}/drt_summary.json",
-        png  = f"{OUT}/drt/{{locus}}/drt.png"
+        json = L.drt_summary("{locus}"),
+        png  = L.drt_plot("{locus}")
     params:
         burnin = config["beast"]["burnin_fraction"],
         on_fail = ("--exit-nonzero-on-fail"
                    if (config.get("beast", {}).get("date_randomisation", {})
                        .get("on_fail", "stop") == "stop") else ""),
-    log: f"{OUT}/logs/08d_drt_{{locus}}.log"
+    log: L.log("08d_drt_{locus}")
     shell:
         "wildphylo gates drt --real {input.real} --reps {input.reps}"
         " --burnin {params.burnin} {params.on_fail}"
@@ -617,15 +618,15 @@ rule drt_summary:
 
 rule auspice:
     input:
-        mcc  = f"{OUT}/beast/{_L}/mcc.tree",
-        meta = f"{OUT}/subsampled/{_L}_sub_metadata.tsv",
-        aln  = f"{OUT}/subsampled/{_L}_sub.fasta",
-        conv = f"{OUT}/beast/{_L}/convergence.json",
+        mcc  = L.mcc_tree(_L),
+        meta = L.subsample_metadata(_L),
+        aln  = L.subsample(_L),
+        conv = L.convergence_report(_L),
         full_meta = rules.curate.output.meta,
         # Listed as an input so a build cannot be published without the trait
         # having been tested. The gate's own exit code stops the run on a
         # failure; this makes the dependency visible in the DAG as well.
-        **({"trait_signal": f"{OUT}/beast/{_L}/trait_signal.json"}
+        **({"trait_signal": L.trait_signal_report(_L)}
            if TRAIT_SIGNAL else {}),
     output: json = AUSPICE_JSON
     params: cfg = lambda w: config["_path"]
@@ -649,20 +650,20 @@ rule publish:
     regression until proven otherwise -- not a new finding.
     """
     input: json = rules.auspice.output.json
-    output: report = f"{OUT}/build_comparison.md"
+    output: report = L.build_comparison()
     params:
-        prev = f"builds/{PATHOGEN}",
+        prev = str(L.pathogen_dir()),
         shift = config["nextstrain"]["update"]["alert_on_tmrca_shift_years"],
         loss = ("" if config["nextstrain"]["update"].get(
                     "alert_on_sequence_loss", True)
                 else "--no-alert-on-sequence-loss"),
-    log: f"{OUT}/logs/12_compare_builds.log"
+    log: L.log("12_compare_builds")
     shell:
         "wildphylo gates compare --current {input.json}"
         " --builds-dir {params.prev} --max-tmrca-shift {params.shift}"
         " {params.loss} --pathogen " + PATHOGEN +
         " --out {output.report}"
-        " --out-json " + f"{OUT}/build_comparison.json" + " 2>&1 | tee {log}"
+        " --out-json " + str(L.build_comparison_json()) + " 2>&1 | tee {log}"
 
 
 # --- provenance -------------------------------------------------------------
@@ -674,7 +675,7 @@ rule provenance:
     unresolvable.
     """
     input: acc = rules.fetch.output.acc
-    output: json = f"{OUT}/provenance.json"
+    output: json = L.provenance()
     run:
         import hashlib, subprocess, platform
         cfg_bytes = Path(config["_path"]).read_bytes()

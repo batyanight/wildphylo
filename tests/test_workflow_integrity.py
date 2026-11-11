@@ -175,3 +175,16 @@ def test_environment_does_not_pin_a_version_that_renames_the_binary(repo_root):
     """The pin must not imply a binary name the workflow then assumes."""
     env = (repo_root / "environment.yml").read_text()
     assert "iqtree2=" not in env and "iqtree3=" not in env
+
+
+def test_snakefile_takes_every_path_from_the_build_layout(repo_root):
+    """
+    Where a file lives inside a build is decided in ``wildphylo.layout`` only.
+    A rule that assembles ``f"{OUT}/..."`` itself is a second source of truth
+    that drifts from the layout the steps use.
+    """
+    text = (repo_root / SNAKEFILE).read_text()
+    assert not re.findall(r'f"\{OUT\}/', text), "path literal built from OUT"
+    assert not re.findall(r"\{OUT\}", text), "OUT is gone; use the layout"
+    assert not re.findall(r"""["']builds/""", text), "hardcoded builds/ path"
+    assert "BuildLayout.from_config(" in text
