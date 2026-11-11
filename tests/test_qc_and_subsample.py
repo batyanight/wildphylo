@@ -135,6 +135,67 @@ def test_qc_reads_thresholds_from_config(curated, tmp_path):
     assert "0.6" in r.stdout or "0.8" in r.stdout
 
 
+def _threshold_fixture(tmp_path):
+    """A tiny alignment with sequences between the default and a stricter threshold.
+
+    ``g`` is 40% gaps: it passes the default (flag above 50%) but fails a config
+    with ``alignment.max_gap_fraction`` 0.30. ``m`` is 90% identical to the
+    consensus: it passes the default (flag below 80%) but fails a config with
+    ``alignment.min_identity_to_consensus`` 0.95.
+    """
+    import yaml
+
+    core = "ATGGCTGAAGCTGAAGCTGA"
+    gappy = "ATGGCTGAAGCT" + "-" * 8
+    mismatched = "ATGGCTGAAGCTGAAGCCCC"
+    rows = {"a": core, "b": core, "c": core, "g": gappy, "m": mismatched}
+    aln = tmp_path / "tiny.fasta"
+    aln.write_text("".join(f">{k}|dog|2000\n{v}\n" for k, v in rows.items()))
+
+    def config(**alignment):
+        cfg = yaml.safe_load(Path("config/pathogen/cdv.yaml").read_text())
+        cfg["alignment"].update(alignment)
+        path = tmp_path / "strict.yaml"
+        path.write_text(yaml.safe_dump(cfg))
+        return path
+
+    return aln, config
+
+
+def _flags(tmp_path, aln, *extra):
+    """Run QC on ``aln`` and return ``{sequence name: flag string}``."""
+    tsv = tmp_path / "qc.tsv"
+    r = run_qc("--aln", aln, "--out-tsv", tsv, "--out-png", tmp_path / "qc.png", *extra)
+    assert r.returncode == 0, r.stderr[-1500:]
+    table = pd.read_csv(tsv, sep="\t", keep_default_na=False)
+    return dict(zip(table["name"], table["flag"], strict=True))
+
+
+def test_qc_flags_use_the_config_gap_threshold(tmp_path):
+    """The config threshold must decide the flags, not only the lines on the plot."""
+    aln, config = _threshold_fixture(tmp_path)
+    assert "mostly_gaps" not in _flags(tmp_path, aln)["g|dog|2000"]  # default 0.5 passes 40%
+    flags = _flags(tmp_path, aln, "--config", config(max_gap_fraction=0.30))
+    assert "mostly_gaps" in flags["g|dog|2000"]
+    assert flags["a|dog|2000"] == ""
+
+
+def test_qc_flags_use_the_config_identity_threshold(tmp_path):
+    aln, config = _threshold_fixture(tmp_path)
+    assert "low_identity" not in _flags(tmp_path, aln)["m|dog|2000"]
+    flags = _flags(tmp_path, aln, "--config", config(min_identity_to_consensus=0.95))
+    assert "low_identity" in flags["m|dog|2000"]
+
+
+def test_qc_command_line_threshold_beats_the_config(tmp_path):
+    """An explicit flag wins even when it equals the built-in default."""
+    aln, config = _threshold_fixture(tmp_path)
+    strict = config(max_gap_fraction=0.30)
+    for explicit in ("0.5", "0.45"):
+        flags = _flags(tmp_path, aln, "--config", strict, "--gap-threshold", explicit)
+        assert "mostly_gaps" not in flags["g|dog|2000"]
+
+
 def test_qc_cross_checks_labels_against_metadata(curated, tmp_path):
     """
     The label/metadata cross-check is what catches a tip-label bug in 02. On

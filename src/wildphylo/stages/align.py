@@ -22,10 +22,11 @@ AMBIG = set("NnXx?")
 GAP = set("-.")
 STOPS = {"TAA", "TAG", "TGA"}
 
-# Parser defaults double as the "not given on the command line" sentinel for
-# the config-supplied thresholds, so an explicit value always wins.
+# Built-in thresholds, used when neither the command line nor the config sets one.
 DEFAULT_GAP_THRESHOLD = 0.5
 DEFAULT_IDENTITY_THRESHOLD = 0.80
+DEFAULT_COVERAGE_THRESHOLD = 0.5
+_CONFIG_KEYS = {"max_gap_fraction", "min_identity_to_consensus"}
 
 
 def _say(text: str = "", *, err: bool = False) -> None:
@@ -332,19 +333,28 @@ def _report_host_composition(seqs: dict[str, str]) -> None:
     _say()
 
 
-def _apply_config_thresholds(args: argparse.Namespace) -> None:
-    """Fill ``alignment.*`` thresholds from the pathogen config where not given explicitly."""
-    try:
-        alignment_cfg = load_config(args.config).get("alignment", {})
-        if args.gap_threshold == DEFAULT_GAP_THRESHOLD and "max_gap_fraction" in alignment_cfg:
-            args.gap_threshold = float(alignment_cfg["max_gap_fraction"])
-        if (
-            args.identity_threshold == DEFAULT_IDENTITY_THRESHOLD
-            and "min_identity_to_consensus" in alignment_cfg
-        ):
-            args.identity_threshold = float(alignment_cfg["min_identity_to_consensus"])
-    except Exception as exc:  # noqa: BLE001 -- any unreadable config falls back to the defaults
-        _say(f"NOTE: could not read thresholds from {args.config}: {exc}")
+def _resolve_thresholds(args: argparse.Namespace) -> None:
+    """Settle ``args.*_threshold`` before anything uses them.
+
+    Precedence per threshold: the command-line flag if it was given (even when
+    it equals the built-in default), else ``alignment.*`` from ``--config``,
+    else the built-in default. The flags and the plot read the settled values,
+    so they cannot disagree.
+    """
+    from_config: dict[str, float] = {}
+    if args.config:
+        try:
+            alignment_cfg = load_config(args.config).get("alignment", {})
+            from_config = {k: float(v) for k, v in alignment_cfg.items() if k in _CONFIG_KEYS}
+        except Exception as exc:  # noqa: BLE001 -- any unreadable config falls back to the defaults
+            _say(f"NOTE: could not read thresholds from {args.config}: {exc}")
+    for attr, key, default in (
+        ("gap_threshold", "max_gap_fraction", DEFAULT_GAP_THRESHOLD),
+        ("identity_threshold", "min_identity_to_consensus", DEFAULT_IDENTITY_THRESHOLD),
+        ("coverage_threshold", None, DEFAULT_COVERAGE_THRESHOLD),
+    ):
+        if getattr(args, attr) is None:
+            setattr(args, attr, from_config.get(key, default) if key else default)
 
 
 def _write_coverage_plot(cov: list[float], df: Any, args: argparse.Namespace, n_cols: int) -> None:
@@ -433,20 +443,24 @@ def add_arguments_qc(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--gap-threshold",
         type=float,
-        default=DEFAULT_GAP_THRESHOLD,
-        help="Flag sequences more than this fraction gaps (default %(default)s)",
+        default=None,
+        help="Flag sequences more than this fraction gaps "
+        f"(default: alignment.max_gap_fraction from --config, else {DEFAULT_GAP_THRESHOLD})",
     )
     parser.add_argument(
         "--identity-threshold",
         type=float,
-        default=DEFAULT_IDENTITY_THRESHOLD,
-        help="Flag sequences below this identity to consensus (default %(default)s)",
+        default=None,
+        help="Flag sequences below this identity to consensus "
+        f"(default: alignment.min_identity_to_consensus from --config, else "
+        f"{DEFAULT_IDENTITY_THRESHOLD})",
     )
     parser.add_argument(
         "--coverage-threshold",
         type=float,
-        default=0.5,
-        help="Columns with less than this coverage count as ragged (default %(default)s)",
+        default=None,
+        help="Columns with less than this coverage count as ragged "
+        f"(default {DEFAULT_COVERAGE_THRESHOLD})",
     )
     parser.add_argument(
         "--trim-to",
@@ -494,6 +508,10 @@ def qc(args: argparse.Namespace) -> int:
       * tip labels against the metadata table, so a stale host group cannot survive
       * host-group composition of what survives
 
+    Thresholds: a flag given on the command line wins, else ``alignment.*`` from
+    ``--config``, else the built-in default. The same values drive the flags and
+    the lines on the plot.
+
     Nothing here decides anything for you. It tells you which sequences are worth
     looking at by eye and which columns are mostly gaps. Use ``--trim-to START END
     --write-trimmed`` once you have chosen trim points from the coverage plot.
@@ -507,6 +525,7 @@ def qc(args: argparse.Namespace) -> int:
     if not seqs:
         _say(f"No sequences read from {args.aln}", err=True)
         return 1
+    _resolve_thresholds(args)
 
     lengths = {len(s) for s in seqs.values()}
     if len(lengths) != 1:
@@ -530,12 +549,6 @@ def qc(args: argparse.Namespace) -> int:
     if args.metadata and args.metadata.is_file():
         _report_label_check(seqs, args.metadata)
         _report_host_composition(seqs)
-
-    # Config supplies thresholds unless the command line overrode them. As in
-    # the script this was ported from, this runs after the flags above are
-    # computed, so config thresholds only move the plot's threshold lines.
-    if args.config:
-        _apply_config_thresholds(args)
 
     qc_path = args.out_tsv or args.outdir / (args.aln.stem + "_qc.tsv")
     qc_path.parent.mkdir(parents=True, exist_ok=True)
