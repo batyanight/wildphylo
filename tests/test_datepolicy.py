@@ -6,12 +6,9 @@ always says 'interval' is just the literature default wearing a lab coat.
 """
 
 import random
-import sys
-from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from wildphylo.datepolicy import rayleigh, recommend
 
 

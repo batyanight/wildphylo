@@ -5,10 +5,6 @@ A check that never fires provides no assurance. Each test here confirms the
 check fires on the failure it exists to catch, and stays quiet otherwise.
 """
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from wildphylo.preflight import (
     check_clock_prior,
     check_convergence,

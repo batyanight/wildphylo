@@ -19,7 +19,6 @@ import pytest
 from wildphylo import cli
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
 
 pd = pytest.importorskip("pandas")
 pytest.importorskip("Bio")
@@ -63,16 +62,6 @@ def curated(tmp_path_factory):
     aln = out / "H_aligned.fasta"
     aln.write_text("".join(f">{x.id}\n{str(x.seq).ljust(width, '-')}\n" for x in recs))
     return {"dir": out, "aln": aln, "meta": out / "metadata_clean.tsv"}
-
-
-def run(script, *args, cwd=None):
-    return subprocess.run(
-        [sys.executable, f"scripts/{script}", *map(str, args)],
-        capture_output=True,
-        text=True,
-        cwd=cwd or ROOT,
-        check=False,
-    )
 
 
 # --- align qc ---------------------------------------------------------------

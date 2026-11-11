@@ -19,14 +19,12 @@ from __future__ import annotations
 
 import contextlib
 import io
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
 from wildphylo import cli  # noqa: E402
 from wildphylo import newick as tt  # noqa: E402
 from wildphylo.stages import beast  # noqa: E402

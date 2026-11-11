@@ -7,14 +7,10 @@ a guess into a result.
 """
 
 import random
-import sys
-from pathlib import Path
 
 import pytest
 
 from wildphylo import cli
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from wildphylo.temporal import (
     assess,
     permutation_test,

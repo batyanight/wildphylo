@@ -10,7 +10,7 @@ should be revisited per dataset rather than inherited.
 
 **Status:** accepted
 **Applies to:** `dates.imprecise_date_policy`
-**Decided by:** `scripts/lib/datepolicy.py`, run per dataset
+**Decided by:** `wildphylo.datepolicy`, run per dataset
 
 ### Decision
 

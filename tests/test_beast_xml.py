@@ -11,7 +11,6 @@ import contextlib
 import io
 import json
 import random
-import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,7 +19,6 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
 
 from wildphylo import cli  # noqa: E402
 from wildphylo.beastxml import (  # noqa: E402
