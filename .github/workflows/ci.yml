@@ -51,7 +51,7 @@ jobs:
         # embedded a heredoc here at column 0, which broke out of the YAML
         # block scalar and made this file invalid -- so GitHub silently ran
         # no CI at all. tests/test_workflow_integrity.py now parses it.
-        run: wildphylo config validate config/pathogen/*.yaml
+        run: wildphylo config validate config/pathogen/*.yaml tests/fixtures/configs/*.yaml
 
   dag:
     name: workflow DAG builds

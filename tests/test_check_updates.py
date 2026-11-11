@@ -132,13 +132,13 @@ def test_template_config_is_skipped(mod, repo_root):
 
 
 def test_only_restricts_to_one_pathogen(mod, repo_root):
-    got = mod.load_configs(repo_root / "config" / "pathogen", "cdv-1200")
+    got = mod.load_configs(repo_root / "tests" / "fixtures" / "configs", "cdv-1200")
     assert [c["id"] for _, c in got] == ["cdv-1200"]
 
 
 def test_an_unknown_only_is_an_error_not_an_empty_rebuild(mod, repo_root):
     with pytest.raises(SystemExit):
-        mod.load_configs(repo_root / "config" / "pathogen", "does-not-exist")
+        mod.load_configs(repo_root / "tests" / "fixtures" / "configs", "does-not-exist")
 
 
 def test_an_invalid_config_stops_the_check_rather_than_being_skipped(mod, tmp_path):
@@ -159,7 +159,9 @@ def test_the_query_comes_from_fetch_not_a_copy(mod, repo_root):
     up as a delta that looks like a real change in GenBank.
     """
     assert mod.build_query is fetch.build_query
-    cfg = yaml.safe_load((repo_root / "config" / "pathogen" / "cdv-1200.yaml").read_text())
+    cfg = yaml.safe_load(
+        (repo_root / "tests" / "fixtures" / "configs" / "cdv-1200.yaml").read_text()
+    )
     q = mod.build_query(cfg)
     assert f"txid{cfg['fetch']['taxid']}" in q
 
@@ -187,7 +189,7 @@ def _run_cli(repo_root, tmp_path, monkeypatch, count, extra_env=None):
             "publish",
             "check-updates",
             "--config-dir",
-            str(repo_root / "config" / "pathogen"),
+            str(repo_root / "tests" / "fixtures" / "configs"),
             "--builds-dir",
             str(tmp_path / "builds"),
             "--only",

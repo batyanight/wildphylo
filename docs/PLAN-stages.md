@@ -135,7 +135,7 @@ and the smoke build must run after every step, so `main` is never broken.
 ## Phase 2: cdv-phylodynamics (summary; own plan later)
 
 Tag the current code `v1.0.0` for the Zenodo record. Then: scripts removed,
-`config/pathogen/cdv.yaml` and its TSVs move there from wildphylo, environment
+the CDV analysis configs (`cdv`, `cdv-1200`, `cdv-1200-dogwild`, `cdv-clades`) move there from wildphylo (DR-011; frozen copies of two stay as test fixtures in `tests/fixtures/configs/`), environment
 pins `wildphylo @ git+https://github.com/batyanight/wildphylo@v0.2.0`, a thin
 Snakefile wrapper, tracked files follow the wildphylo audit-trail convention,
 `METHODS.md` and `BEAST_MANIFEST.md` stay, notebook and setup notes leave.

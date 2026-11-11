@@ -23,8 +23,10 @@ Read before changing anything:
   `stages/<stage>.py` holds that stage's steps; the other modules are shared library code.
 - `GLOSSARY.md` — the terms to use in names, config keys, commits and conversation.
 - `config/pathogen/<name>.yaml` — everything pathogen-specific; start from
-  `_template.yaml`. Shipped configs: cdv, cdv-1200, cdv-1200-dogwild,
-  cdv-clades, cdv-smoke, btv.
+  `_template.yaml`. Shipped configs: `cdv-smoke` (the pipeline's own smoke
+  fixture) and `btv` (no pathogen repo yet). Analysis configs live in the
+  pathogen repos (DR-011), not here. The CDV configs the tests use are
+  fixtures in `tests/fixtures/configs/`.
 - `builds/<config>/<YYYYMMDD>/` — build outputs; the newest date is current.
   Only the audit trail is tracked (provenance, checks, QC, temporal, clade summaries).
 

@@ -133,7 +133,7 @@ def test_height_hpd_becomes_a_date_confidence_interval(build, tmp_path, run):
 
 def test_the_title_comes_from_the_config(build, tmp_path, run):
     out = tmp_path / "a.json"
-    r = run(build, out, config=ROOT / "config" / "pathogen" / "cdv-1200.yaml")
+    r = run(build, out, config=ROOT / "tests" / "fixtures" / "configs" / "cdv-1200.yaml")
     assert r.returncode == 0, r.log[-1500:]
     meta = json.loads(out.read_text())["meta"]
     assert "CDV" in meta["title"]
@@ -172,7 +172,7 @@ def test_no_pathogen_name_is_hardcoded(build, tmp_path, run):
 
 def test_colourings_come_from_the_config(build, tmp_path, run):
     out = tmp_path / "a.json"
-    run(build, out, config=ROOT / "config" / "pathogen" / "cdv-1200.yaml")
+    run(build, out, config=ROOT / "tests" / "fixtures" / "configs" / "cdv-1200.yaml")
     keys = [c["key"] for c in json.loads(out.read_text())["meta"]["colorings"]]
     assert "country" in keys and "lineage" in keys
     assert keys[0] == "host_group", "the trait is the default colouring"
@@ -189,7 +189,7 @@ def test_tip_and_internal_states_share_a_category(build, tmp_path, run):
     transition at every tip.
     """
     out = tmp_path / "a.json"
-    run(build, out, config=ROOT / "config" / "pathogen" / "cdv-1200.yaml")
+    run(build, out, config=ROOT / "tests" / "fixtures" / "configs" / "cdv-1200.yaml")
     tree = json.loads(out.read_text())["tree"]
     internal = tree["children"][0]["node_attrs"]["host_group"]["value"]
     tip = tree["children"][0]["children"][0]["node_attrs"]["host_group"]["value"]
@@ -204,7 +204,7 @@ def test_the_trait_key_is_auto_detected(build):
 
 def test_state_probability_becomes_a_confidence(build, tmp_path, run):
     out = tmp_path / "a.json"
-    run(build, out, config=ROOT / "config" / "pathogen" / "cdv-1200.yaml")
+    run(build, out, config=ROOT / "tests" / "fixtures" / "configs" / "cdv-1200.yaml")
     tree = json.loads(out.read_text())["tree"]
     tip = tree["children"][0]["children"][0]["node_attrs"]
     assert "species" in tip
@@ -267,7 +267,7 @@ def test_the_snakefile_flags_are_all_accepted(build, tmp_path, run):
         str(aln),
         "--full-metadata",
         str(build / "meta.tsv"),
-        config=ROOT / "config" / "pathogen" / "cdv-1200.yaml",
+        config=ROOT / "tests" / "fixtures" / "configs" / "cdv-1200.yaml",
     )
     assert r.returncode == 0, r.log[-1500:]
     assert "2 sequences" in r.log

@@ -638,3 +638,42 @@ exist because the count alone could not distinguish transmission from
 anchoring. Two implementations of the same count, with two parsers, can
 disagree about one posterior; the predecessor is removed and its reasoning is
 recorded here, which is the part that was worth keeping.
+
+---
+
+## DR-011 — Analysis configs live in the pathogen repos; wildphylo ships the template and a smoke config
+
+**Status:** accepted
+**Applies to:** `config/pathogen/`, `tests/fixtures/configs/`
+
+**Decision.** A pathogen's analysis config (`cdv.yaml`, `cdv-1200.yaml`,
+`cdv-1200-dogwild.yaml`, `cdv-clades.yaml`) lives in that pathogen's repository
+(cdv-phylodynamics for CDV), next to the builds it produced. wildphylo's
+`config/pathogen/` ships `_template.yaml`, `cdv-smoke.yaml` (the pipeline's own
+smoke fixture) and configs for pathogens that have no repository yet (`btv`).
+The tests that need a realistic CDV config read frozen copies in
+`tests/fixtures/configs/`. When BTV gets a repository its config moves there.
+
+**Why.** docs/NEXTSTRAIN.md section 1 already makes wildphylo the
+pathogen-agnostic pipeline and the pathogen repo the unit of citation. A config
+is the record of what an analysis asked for: clock prior, host map, subsampling,
+trait states. If it lives in the pipeline repo, a change to a published
+analysis shows up as a pipeline commit, and a pipeline release cannot be tagged
+without also freezing every pathogen's analysis choices. Keeping the config
+beside the builds lets the DOI on the pathogen repo cite the exact inputs.
+
+**Cost of the alternative.** Keeping all configs in wildphylo is simpler today
+(one checkout, one CI dry run for every pathogen) but ties every analysis
+revision to the pipeline's history, and wildphylo accumulates pathogen-specific
+content in a repository meant to be pathogen-agnostic. The cost
+of the chosen route is that the test fixtures are copies and can drift from the
+maintained configs. That is acceptable because the fixtures only need to
+validate against the current schema, which `wildphylo config validate` in CI
+checks on every change.
+
+**How to revisit.** If the fixture copies drift in ways that hide a real
+incompatibility, run `wildphylo config validate` on the pathogen repos' configs
+from wildphylo's CI against the development branch. If a second pathogen repo
+needs the same host or lineage tables, move the shared tables into a small
+package rather than copying them. Re-open this record if the pathogen repos
+stop pinning a wildphylo release.

@@ -56,7 +56,7 @@ def report(tmp_path_factory):
 
 
 def cfg_variant(tmp_path, **beast):
-    c = yaml.safe_load((ROOT / "config/pathogen/cdv.yaml").read_text())
+    c = yaml.safe_load((ROOT / "tests/fixtures/configs/cdv.yaml").read_text())
     c["beast"].update(beast)
     p = tmp_path / "cfg.yaml"
     p.write_text(yaml.safe_dump(c, sort_keys=False))

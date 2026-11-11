@@ -49,6 +49,12 @@ the placeholder taxid.
 
 Open a New Pathogen issue and work the checklist.
 
+Once the pathogen has an analysis, its config belongs in that pathogen's own
+repository, not here (DR-011). `config/pathogen/` keeps only `_template.yaml`,
+`cdv-smoke.yaml` (the pipeline's own smoke fixture) and configs for pathogens
+that have no repository yet. Configs the tests need as realistic fixtures go in
+`tests/fixtures/configs/`.
+
 ## Testing and linting
 
 Every behavioural change needs a test. Steps are tested in-process through

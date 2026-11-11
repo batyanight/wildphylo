@@ -42,7 +42,7 @@ def curated(tmp_path_factory):
             "curate",
             "metadata",
             "--config",
-            "config/pathogen/cdv.yaml",
+            "tests/fixtures/configs/cdv.yaml",
             "--gb",
             "tests/fixtures/cdv_test.gb",
             "--out-dir",
@@ -79,7 +79,7 @@ def test_qc_writes_to_the_requested_paths(curated, tmp_path):
     tsv, png = tmp_path / "deep" / "qc.tsv", tmp_path / "deep" / "cov.png"
     r = run_qc(
         "--config",
-        "config/pathogen/cdv.yaml",
+        "tests/fixtures/configs/cdv.yaml",
         "--aln",
         curated["aln"],
         "--metadata",
@@ -111,7 +111,7 @@ def test_qc_creates_missing_parent_directories(curated, tmp_path):
 def test_qc_reads_thresholds_from_config(curated, tmp_path):
     r = run_qc(
         "--config",
-        "config/pathogen/cdv.yaml",
+        "tests/fixtures/configs/cdv.yaml",
         "--aln",
         curated["aln"],
         "--out-tsv",
@@ -145,7 +145,7 @@ def _threshold_fixture(tmp_path):
     aln.write_text("".join(f">{k}|dog|2000\n{v}\n" for k, v in rows.items()))
 
     def config(**alignment):
-        cfg = yaml.safe_load(Path("config/pathogen/cdv.yaml").read_text())
+        cfg = yaml.safe_load(Path("tests/fixtures/configs/cdv.yaml").read_text())
         cfg["alignment"].update(alignment)
         path = tmp_path / "strict.yaml"
         path.write_text(yaml.safe_dump(cfg))
@@ -251,7 +251,7 @@ def test_subsample_writes_only_where_asked(curated, tmp_path):
         "beast",
         "subsample",
         "--config",
-        str(ROOT / "config/pathogen/cdv.yaml"),
+        str(ROOT / "tests/fixtures/configs/cdv.yaml"),
         "--mode",
         "global",
         "--aln",
@@ -298,7 +298,7 @@ def test_wild_groups_come_from_config_not_the_module_default(curated, tmp_path):
         "beast",
         "subsample",
         "--config",
-        str(ROOT / "config/pathogen/cdv.yaml"),
+        str(ROOT / "tests/fixtures/configs/cdv.yaml"),
         *common,
         "--out-aln",
         tmp_path / "c.fasta",
@@ -335,7 +335,7 @@ def test_subsample_is_deterministic(curated, tmp_path):
             "beast",
             "subsample",
             "--config",
-            str(ROOT / "config/pathogen/cdv.yaml"),
+            str(ROOT / "tests/fixtures/configs/cdv.yaml"),
             "--mode",
             "global",
             "--aln",
@@ -362,7 +362,7 @@ def test_subsample_output_labels_keep_the_contract(curated, tmp_path):
         "beast",
         "subsample",
         "--config",
-        str(ROOT / "config/pathogen/cdv.yaml"),
+        str(ROOT / "tests/fixtures/configs/cdv.yaml"),
         "--mode",
         "global",
         "--aln",
@@ -400,7 +400,7 @@ def curated_with_anchors(tmp_path_factory):
         cwd=ROOT,
         check=True,
     )
-    cfg = yaml.safe_load((ROOT / "config/pathogen/cdv.yaml").read_text())
+    cfg = yaml.safe_load((ROOT / "tests/fixtures/configs/cdv.yaml").read_text())
     cfg["references"]["table"] = "tests/fixtures/refs_test.tsv"
     cfg["references"]["include_as_anchors"] = True
     cfgp = out / "cfg.yaml"

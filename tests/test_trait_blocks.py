@@ -244,7 +244,7 @@ def run07(tmp_path, cfg_path, aln, *extra):
 
 
 def variant(tmp_path, **discrete_trait):
-    c = yaml.safe_load((ROOT / "config/pathogen/cdv-1200.yaml").read_text())
+    c = yaml.safe_load((ROOT / "tests/fixtures/configs/cdv-1200.yaml").read_text())
     c["beast"]["discrete_trait"].update(discrete_trait)
     p = tmp_path / "cfg.yaml"
     p.write_text(yaml.safe_dump(c, sort_keys=False))
@@ -252,7 +252,7 @@ def variant(tmp_path, **discrete_trait):
 
 
 def test_generated_xml_is_wellformed_and_has_no_dangling_refs(tmp_path, mock_aln):
-    xml, _ = run07(tmp_path, ROOT / "config/pathogen/cdv-1200.yaml", mock_aln)
+    xml, _ = run07(tmp_path, ROOT / "tests/fixtures/configs/cdv-1200.yaml", mock_aln)
     root = ET.fromstring(xml)
     ids = {e.attrib["id"] for e in root.iter() if "id" in e.attrib}
     refs = {
@@ -269,7 +269,7 @@ def test_config_symmetry_reaches_the_generated_xml(tmp_path, mock_aln):
 
 
 def test_no_trait_flag_produces_a_sequence_only_xml(tmp_path, mock_aln):
-    xml, _ = run07(tmp_path, ROOT / "config/pathogen/cdv-1200.yaml", mock_aln, "--no-trait")
+    xml, _ = run07(tmp_path, ROOT / "tests/fixtures/configs/cdv-1200.yaml", mock_aln, "--no-trait")
     assert "AncestralStateTreeLikelihood" not in xml
     assert "rateIndicator" not in xml
 
@@ -279,7 +279,7 @@ def test_drt_replicates_carry_no_trait(tmp_path, mock_aln):
     trait across 20 replicates buys nothing."""
     xml, _ = run07(
         tmp_path,
-        ROOT / "config/pathogen/cdv-1200.yaml",
+        ROOT / "tests/fixtures/configs/cdv-1200.yaml",
         mock_aln,
         "--replicate",
         "3",
@@ -300,13 +300,13 @@ def test_unmapped_host_becomes_ambiguous_not_a_state(tmp_path, mock_aln):
     extra = mock_aln.read_text() + ">ACC99999|pinniped|2011.500\n" + "A" * 600 + "\n"
     p = tmp_path / "with_pinniped.fasta"
     p.write_text(extra)
-    xml, out = run07(tmp_path, ROOT / "config/pathogen/cdv-1200.yaml", p)
+    xml, out = run07(tmp_path, ROOT / "tests/fixtures/configs/cdv-1200.yaml", p)
     assert "pinniped" in out and "ambiguous" in out
     assert "ACC99999|pinniped|2011.500=?" in xml
 
 
 def test_two_state_companion_config_generates(tmp_path, mock_aln):
-    cfg = ROOT / "config/pathogen/cdv-1200-dogwild.yaml"
+    cfg = ROOT / "tests/fixtures/configs/cdv-1200-dogwild.yaml"
     if not cfg.exists():
         pytest.skip("two-state companion config not present")
     xml, out = run07(tmp_path, cfg, mock_aln)

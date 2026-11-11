@@ -6,7 +6,7 @@ it anywhere else.
 
 ## Pipeline
 
-- **pathogen config** — the YAML under `config/pathogen/<id>.yaml` that holds everything pathogen-specific; code holds nothing pathogen-specific.
+- **pathogen config** — the YAML `<id>.yaml` that holds everything pathogen-specific; code holds nothing pathogen-specific. Lives in the pathogen repo, except the template, `cdv-smoke` and pathogens without a repo yet, which live in `config/pathogen/`.
 - **build** — one dated run of the workflow for one pathogen config; lives in `builds/<id>/<YYYYMMDD>/`. The newest date is the current build.
 - **build date** — the `YYYYMMDD` stamp of a build; pinned with `--config build_date=` to resume or reproduce.
 - **stage** — one of the eight top-level steps: fetch, curate, align, tree, gates, beast, auspice, publish. Each is a CLI subcommand group with defined inputs and outputs.

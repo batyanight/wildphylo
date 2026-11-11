@@ -86,7 +86,7 @@ def test_query_uses_organism_exp():
     [Organism:exp] expands to every strain and subtaxon beneath the node.
     Without it the query silently misses most records.
     """
-    q = fetch_mod.build_query(load(ROOT / "config/pathogen/cdv.yaml"))
+    q = fetch_mod.build_query(load(ROOT / "tests/fixtures/configs/cdv.yaml"))
     assert "txid11232[Organism:exp]" in q
 
 
@@ -98,7 +98,7 @@ def test_query_uses_config_length_bounds():
 
 
 def test_query_filter_with_leading_boolean_is_not_double_joined():
-    cfg = load(ROOT / "config/pathogen/cdv.yaml")
+    cfg = load(ROOT / "tests/fixtures/configs/cdv.yaml")
     cfg["fetch"]["query_filter"] = "NOT patent[Title]"
     q = fetch_mod.build_query(cfg)
     assert "AND NOT" not in q
@@ -106,13 +106,13 @@ def test_query_filter_with_leading_boolean_is_not_double_joined():
 
 
 def test_query_filter_without_boolean_gets_an_and():
-    cfg = load(ROOT / "config/pathogen/cdv.yaml")
+    cfg = load(ROOT / "tests/fixtures/configs/cdv.yaml")
     cfg["fetch"]["query_filter"] = "complete genome[Title]"
     assert "AND complete genome[Title]" in fetch_mod.build_query(cfg)
 
 
 def test_empty_query_filter_leaves_no_dangling_operator():
-    cfg = load(ROOT / "config/pathogen/cdv.yaml")
+    cfg = load(ROOT / "tests/fixtures/configs/cdv.yaml")
     cfg["fetch"]["query_filter"] = ""
     q = fetch_mod.build_query(cfg)
     assert not q.rstrip().endswith(("AND", "NOT", "OR"))
@@ -121,7 +121,7 @@ def test_empty_query_filter_leaves_no_dangling_operator():
 def test_fetch_requires_email(monkeypatch, tmp_path):
     """NCBI blocks anonymous bulk download; failing late wastes the run."""
     monkeypatch.setenv("NCBI_EMAIL", "")
-    argv = ["fetch", "records", "--config", "config/pathogen/cdv.yaml", "--dry-run"]
+    argv = ["fetch", "records", "--config", "tests/fixtures/configs/cdv.yaml", "--dry-run"]
     assert cli.main([*argv, "--log", str(tmp_path / "fetch.log")]) == 2
 
 
@@ -157,7 +157,7 @@ def _fetch_argv(tmp_path, *extra):
         "fetch",
         "records",
         "--config",
-        "config/pathogen/cdv.yaml",
+        "tests/fixtures/configs/cdv.yaml",
         "--out",
         str(tmp_path / "raw" / "cdv.gb"),
         "--acc",
@@ -206,7 +206,7 @@ def test_a_short_download_is_an_error(stub_entrez, tmp_path):
 @pytest.fixture(scope="session")
 def cdv_out(fixtures, tmp_path_factory):
     out = tmp_path_factory.mktemp("cdv_cur")
-    r = run_curate("config/pathogen/cdv.yaml", fixtures["cdv"], out)
+    r = run_curate("tests/fixtures/configs/cdv.yaml", fixtures["cdv"], out)
     assert r.returncode == 0, r.stderr[-2000:]
     return out
 
@@ -335,7 +335,7 @@ def test_nothing_is_dropped_silently(cdv_out):
 
 
 def test_keep_vaccines_flag_retains_them(fixtures, tmp_path):
-    r = run_curate("config/pathogen/cdv.yaml", fixtures["cdv"], tmp_path, "--keep-vaccines")
+    r = run_curate("tests/fixtures/configs/cdv.yaml", fixtures["cdv"], tmp_path, "--keep-vaccines")
     assert r.returncode == 0
     clean = pd.read_csv(tmp_path / "metadata_clean.tsv", sep="\t")
     assert "AF100006.1" in set(clean["accession"])
@@ -428,7 +428,7 @@ REFS = "tests/fixtures/refs_test.tsv"
 def anchor_cfg(tmp_path_factory):
     import yaml
 
-    cfg = yaml.safe_load((ROOT / "config/pathogen/cdv.yaml").read_text())
+    cfg = yaml.safe_load((ROOT / "tests/fixtures/configs/cdv.yaml").read_text())
     cfg["references"]["table"] = REFS
     cfg["references"]["include_as_anchors"] = True
     p = tmp_path_factory.mktemp("cfg") / "anchor.yaml"
@@ -585,7 +585,7 @@ def test_cds_span_must_be_a_multiple_of_three():
 
     from wildphylo.config import validate
 
-    cfg = yaml.safe_load((ROOT / "config/pathogen/cdv.yaml").read_text())
+    cfg = yaml.safe_load((ROOT / "tests/fixtures/configs/cdv.yaml").read_text())
     cfg["_path"] = "x"
     errors, _ = validate(cfg)
     assert not any("multiple of 3" in e for e in errors), (
@@ -602,7 +602,7 @@ def test_cds_span_disagreeing_with_expected_length_warns():
 
     from wildphylo.config import validate
 
-    cfg = yaml.safe_load((ROOT / "config/pathogen/cdv.yaml").read_text())
+    cfg = yaml.safe_load((ROOT / "tests/fixtures/configs/cdv.yaml").read_text())
     cfg["_path"] = "x"
     cfg["locus"]["coordinate_reference"]["cds"] = [1, 1200]
     _e, warnings = validate(cfg)
@@ -662,7 +662,7 @@ def test_curate_metadata_runs_in_process_through_the_cli(fixtures, tmp_path, cap
         "curate",
         "metadata",
         "--config",
-        "config/pathogen/cdv.yaml",
+        "tests/fixtures/configs/cdv.yaml",
         "--gb",
         str(fixtures["cdv"]),
         "--out-dir",
@@ -681,7 +681,7 @@ def test_curate_metadata_rejects_a_missing_genbank_file(tmp_path):
         "curate",
         "metadata",
         "--config",
-        "config/pathogen/cdv.yaml",
+        "tests/fixtures/configs/cdv.yaml",
         "--gb",
         str(tmp_path / "absent.gb"),
         "--out-dir",

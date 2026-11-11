@@ -77,7 +77,7 @@ pip install -e ".[dev]"
 pytest
 
 # dry run validates the config before anything downloads
-snakemake -s workflow/Snakefile --configfile config/pathogen/cdv.yaml --cores 8 -n
+snakemake -s workflow/Snakefile --configfile config/pathogen/cdv-smoke.yaml --cores 8 -n
 ```
 
 ## Adding a pathogen
@@ -91,12 +91,17 @@ plausibility bounds, host table, trait-state map, clock prior, subsampling
 strata, Nextstrain metadata. The template fails validation until you replace the
 placeholder taxid, so it cannot be run unedited.
 
-Two worked examples ship with the repo:
+Once a pathogen has an analysis, its config moves to that pathogen's own
+repository (see [DR-011](docs/DECISIONS.md)); wildphylo ships only the
+template, its own smoke config and configs for pathogens without a repo yet:
 
 | | Genome | Exercises |
 |---|---|---|
-| `cdv.yaml` | ssRNA(−), unsegmented | the baseline: single locus, direct transmission, host-jump inference |
+| `cdv-smoke.yaml` | ssRNA(−), unsegmented | the pipeline's smoke fixture: a tiny CDV build that runs the whole workflow quickly. The CDV analysis configs live in cdv-phylodynamics |
 | `btv.yaml` | dsRNA, 10 segments | per-segment clocks and date policies, reassortment screening, vector-borne transmission, serotype structure |
+
+`tests/fixtures/configs/` holds frozen copies of the CDV analysis configs. They
+exist so the tests have realistic configs to run against, not to be built from.
 
 ## Some things the validator catches
 
@@ -124,7 +129,8 @@ pathogen looks like.
 ```
 workflow/Snakefile           the DAG; gates are Snakemake checkpoints. Every
                              rule calls `wildphylo <stage> <step>`
-config/pathogen/*.yaml       one file per pathogen
+config/pathogen/*.yaml       template, smoke config, pathogens without a repo yet
+tests/fixtures/configs/      CDV analysis configs, frozen as test fixtures
 config/host_groups_*.tsv     host normalisation tables
 src/wildphylo/
   cli.py                     the `wildphylo` command: one subparser per stage

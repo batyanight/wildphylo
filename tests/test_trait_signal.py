@@ -345,14 +345,16 @@ def _base_cfg(repo_root):
     """A minimal valid config, loaded from the shipped CDV one."""
     import yaml
 
-    return yaml.safe_load((repo_root / "config" / "pathogen" / "cdv-1200.yaml").read_text())
+    return yaml.safe_load(
+        (repo_root / "tests" / "fixtures" / "configs" / "cdv-1200.yaml").read_text()
+    )
 
 
 def test_signal_gate_keys_validate(repo_root):
     from wildphylo import config as cfgmod
 
     cfg = _base_cfg(repo_root)
-    cfg["_path"] = str(repo_root / "config" / "pathogen" / "cdv-1200.yaml")
+    cfg["_path"] = str(repo_root / "tests" / "fixtures" / "configs" / "cdv-1200.yaml")
     errors, _ = cfgmod.validate(cfg)
     assert not errors
 
@@ -361,7 +363,7 @@ def test_bad_on_no_signal_is_an_error(repo_root):
     from wildphylo import config as cfgmod
 
     cfg = _base_cfg(repo_root)
-    cfg["_path"] = str(repo_root / "config" / "pathogen" / "cdv-1200.yaml")
+    cfg["_path"] = str(repo_root / "tests" / "fixtures" / "configs" / "cdv-1200.yaml")
     cfg["beast"]["discrete_trait"]["on_no_signal"] = "ignore"
     errors, _ = cfgmod.validate(cfg)
     assert any("on_no_signal" in e for e in errors)
@@ -371,7 +373,7 @@ def test_too_few_permutations_warns_about_p_resolution(repo_root):
     from wildphylo import config as cfgmod
 
     cfg = _base_cfg(repo_root)
-    cfg["_path"] = str(repo_root / "config" / "pathogen" / "cdv-1200.yaml")
+    cfg["_path"] = str(repo_root / "tests" / "fixtures" / "configs" / "cdv-1200.yaml")
     cfg["beast"]["discrete_trait"]["signal_permutations"] = 20
     _, warns = cfgmod.validate(cfg)
     assert any("smallest p" in w for w in warns)
@@ -381,7 +383,7 @@ def test_disabling_the_gate_warns(repo_root):
     from wildphylo import config as cfgmod
 
     cfg = _base_cfg(repo_root)
-    cfg["_path"] = str(repo_root / "config" / "pathogen" / "cdv-1200.yaml")
+    cfg["_path"] = str(repo_root / "tests" / "fixtures" / "configs" / "cdv-1200.yaml")
     cfg["beast"]["discrete_trait"]["signal_gate"] = False
     _, warns = cfgmod.validate(cfg)
     assert any("signal_gate" in w for w in warns)
@@ -395,7 +397,11 @@ def test_every_shipped_config_with_a_trait_declares_the_gate(repo_root):
     import yaml
 
     missing = []
-    for p in sorted((repo_root / "config" / "pathogen").glob("*.yaml")):
+    paths = [
+        *(repo_root / "config" / "pathogen").glob("*.yaml"),
+        *(repo_root / "tests" / "fixtures" / "configs").glob("*.yaml"),
+    ]
+    for p in sorted(paths):
         cfg = yaml.safe_load(p.read_text())
         dt = (cfg.get("beast") or {}).get("discrete_trait") or {}
         if dt.get("enabled") and "signal_gate" not in dt:
@@ -417,7 +423,7 @@ def test_config_paths_resolve_from_any_working_directory(repo_root, tmp_path, mo
 
     monkeypatch.chdir(tmp_path)
     cfg = _base_cfg(repo_root)
-    cfg["_path"] = str(repo_root / "config" / "pathogen" / "cdv-1200.yaml")
+    cfg["_path"] = str(repo_root / "tests" / "fixtures" / "configs" / "cdv-1200.yaml")
     got = cfgmod.resolve_path(cfg, cfg["hosts"]["table"])
     assert got.is_file()
     errors, _ = cfgmod.validate(cfg)
@@ -440,7 +446,7 @@ def test_resolve_path_prefers_the_working_directory(repo_root, tmp_path, monkeyp
     (tmp_path / "config").mkdir()
     local = tmp_path / "config" / "host_groups.tsv"
     local.write_text("x")
-    cfg = {"_path": str(repo_root / "config" / "pathogen" / "cdv-1200.yaml")}
+    cfg = {"_path": str(repo_root / "tests" / "fixtures" / "configs" / "cdv-1200.yaml")}
     assert cfgmod.resolve_path(cfg, "config/host_groups.tsv").resolve() == local.resolve()
 
 

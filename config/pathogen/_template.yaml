@@ -7,7 +7,8 @@
 # The dry run validates the config and will tell you what is wrong before
 # anything downloads. Work through its warnings before the real run.
 #
-# See config/pathogen/cdv.yaml for a fully worked example.
+# See tests/fixtures/configs/cdv.yaml for a fully worked example (a frozen copy;
+# the maintained CDV config lives in cdv-phylodynamics).
 # =============================================================================
 
 id: myvirus                       # short slug; names the build directory

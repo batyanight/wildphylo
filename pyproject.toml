@@ -12,7 +12,7 @@ license = {file = "LICENSE"}
 dependencies = ["biopython>=1.83", "pandas>=2.2", "numpy", "matplotlib", "pyyaml"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-cov", "snakemake>=8", "mypy>=1.10", "ruff"]
+dev = ["pytest>=8", "pytest-cov", "snakemake>=8", "mypy>=1.10", "ruff>=0.16,<0.17"]
 
 [project.scripts]
 wildphylo = "wildphylo.cli:main"
