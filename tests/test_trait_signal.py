@@ -51,9 +51,9 @@ def test_postorder_puts_children_before_parents():
     t = ts.parse_newick("(((A:1,B:1):1,C:1):1,D:1);")
     seen = set()
     for node in t.postorder:
-        l, r = t.left[node], t.right[node]
-        if l >= 0:
-            assert l in seen and r in seen, "parent visited before a child"
+        left, r = t.left[node], t.right[node]
+        if left >= 0:
+            assert left in seen and r in seen, "parent visited before a child"
         seen.add(int(node))
 
 
@@ -87,9 +87,9 @@ def test_polytomy_is_resolved_and_counted():
 
 def test_parsimony_score_hand_computed():
     t = ts.parse_newick(FOUR)
-    a, S = _states(t, dict(A=0, B=0, C=1, D=1))
+    a, S = _states(t, {"A": 0, "B": 0, "C": 1, "D": 1})
     assert ts.parsimony_score(t, a, S)[0] == 1  # one change at the root split
-    a, S = _states(t, dict(A=0, B=1, C=0, D=1))
+    a, S = _states(t, {"A": 0, "B": 1, "C": 0, "D": 1})
     assert ts.parsimony_score(t, a, S)[0] == 2  # alternating needs two
 
 
@@ -101,17 +101,17 @@ def test_association_index_hand_computed():
     Alternating:  (A,B) f=.5, n=2 -> .25 ; (C,D) .25 ; root .0625
     """
     t = ts.parse_newick(FOUR)
-    a, S = _states(t, dict(A=0, B=0, C=1, D=1))
+    a, S = _states(t, {"A": 0, "B": 0, "C": 1, "D": 1})
     assert ts.association_index(t, a, S)[0] == pytest.approx(0.0625)
-    a, S = _states(t, dict(A=0, B=1, C=0, D=1))
+    a, S = _states(t, {"A": 0, "B": 1, "C": 0, "D": 1})
     assert ts.association_index(t, a, S)[0] == pytest.approx(0.5625)
 
 
 def test_monophyletic_clade_sizes_hand_computed():
     t = ts.parse_newick(FOUR)
-    a, S = _states(t, dict(A=0, B=0, C=1, D=1))
+    a, S = _states(t, {"A": 0, "B": 0, "C": 1, "D": 1})
     assert list(ts.monophyletic_clades(t, a, S)[0]) == [2, 2]
-    a, S = _states(t, dict(A=0, B=1, C=0, D=1))
+    a, S = _states(t, {"A": 0, "B": 1, "C": 0, "D": 1})
     assert list(ts.monophyletic_clades(t, a, S)[0]) == [1, 1]
 
 
@@ -283,7 +283,7 @@ tree STATE_0 = [&R] ((1[&host_group="felid"]:0.5,2[&host_group="felid"]:0.5):0.3
 tree STATE_1 = [&R] ((1:0.5,3:0.5):0.3,(2:0.2,4:0.2):0.6):0.0;
 tree STATE_2 = [&R] ((1:0.5,4:0.5):0.3,(2:0.2,3:0.2):0.6):0.0;
 End;
-"""
+"""  # noqa: E501 -- Nexus fixture; tree lines cannot wrap
 
 
 def test_nexus_translate_block_is_resolved(tmp_path):
@@ -307,7 +307,7 @@ def test_burnin_is_applied_per_file_not_to_the_pool(tmp_path):
     assert len(both) == 4  # 2 kept from each, not 4 from one
 
 
-def test_label_parsing_in_cli_helper(tmp_path):
+def test_label_parsing_in_cli_helper():
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
     import importlib.util
 
@@ -329,6 +329,7 @@ def test_cli_help_works():
         capture_output=True,
         text=True,
         timeout=60,
+        check=False,
     )
     assert r.returncode == 0
     assert "usage:" in r.stdout.lower()
@@ -420,7 +421,7 @@ def test_config_paths_resolve_from_any_working_directory(repo_root, tmp_path, mo
     assert not any("not found" in e for e in errors)
 
 
-def test_resolve_path_leaves_absolute_paths_alone(repo_root, tmp_path):
+def test_resolve_path_leaves_absolute_paths_alone(tmp_path):
     from lib import config as cfgmod
 
     p = tmp_path / "abs.tsv"

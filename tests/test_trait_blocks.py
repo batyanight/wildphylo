@@ -42,7 +42,7 @@ def blocks(**kw):
 
 
 @pytest.mark.parametrize(
-    "n,sym,expected",
+    ("n", "sym", "expected"),
     [
         (2, True, 1),
         (2, False, 2),
@@ -228,6 +228,7 @@ def run07(tmp_path, cfg_path, aln, *extra):
         ],
         capture_output=True,
         text=True,
+        check=False,
     )
     assert r.returncode == 0, r.stderr
     return out.read_text(), r.stdout

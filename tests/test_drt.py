@@ -49,7 +49,7 @@ def write_log(path, mean, sd, n=2000, rho=0.0, seed=0, param="clockRate"):
     if rho:  # autocorrelated = poorly mixed
         for i in range(1, n):
             x[i] = rho * x[i - 1] + (1 - rho) * x[i]
-    with open(path, "w") as fh:
+    with Path(path).open("w") as fh:
         fh.write("# BEAST v2.7.7\n")
         fh.write(f"Sample\tposterior\t{param}\n")
         for i, v in enumerate(x):
@@ -117,7 +117,7 @@ def test_unmixed_replicates_do_not_turn_a_pass_into_a_failure(mod, tmp_path):
     overlaps everything. Poor mixing must not read as absent temporal signal.
     """
     real, reps = scenario(tmp_path, "C", 7.0e-4, 3.0e-4, rep_sd=2.5e-4, rho=0.995)
-    _, rr, res = run(mod, real, reps)
+    _, _rr, res = run(mod, real, reps)
     assert res["verdict"] == "pass"
     assert res["low_ess_replicates"], "the low ESS should still be reported"
     assert any("ESS" in r for r in res["reasons"])
@@ -238,6 +238,7 @@ def test_cli_writes_json_and_exits_nonzero_on_failure(tmp_path):
         capture_output=True,
         text=True,
         timeout=180,
+        check=False,
     )
     assert r.returncode == 1, r.stdout[-1500:]
     doc = json.loads(out.read_text())
@@ -260,6 +261,7 @@ def test_cli_warns_when_there_are_too_few_replicates(tmp_path):
         capture_output=True,
         text=True,
         timeout=180,
+        check=False,
     )
     assert "only 3 replicates" in r.stderr
 
@@ -271,5 +273,6 @@ def test_cli_help_works():
         capture_output=True,
         text=True,
         timeout=60,
+        check=False,
     )
     assert r.returncode == 0

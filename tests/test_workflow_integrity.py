@@ -66,7 +66,7 @@ def test_documented_gaps_match_reality(repo_root):
     gets written, the doc must stop claiming it is missing, or the gap list
     quietly becomes fiction.
     """
-    porting = (repo_root / "docs" / "PORTING.md").read_text()
+    (repo_root / "docs" / "PORTING.md").read_text()
     wrongly_claimed = sorted(
         s for s in _documented_gaps(repo_root) if (repo_root / "scripts" / s).is_file()
     )
@@ -87,6 +87,7 @@ def test_standalone_scripts_have_working_help(repo_root, script):
         capture_output=True,
         text=True,
         timeout=60,
+        check=False,
     )
     assert r.returncode == 0, f"{script} --help failed: {r.stderr[-500:]}"
     assert "usage:" in r.stdout.lower()
@@ -100,7 +101,7 @@ def test_doc_links_resolve(repo_root):
             r"\]\(([A-Za-z0-9_./-]+\.(?:md|yaml|toml|sh|cff))\)", doc.read_text()
         ):
             if not ((repo_root / target).is_file() or (doc.parent / target).is_file()):
-                broken.append(f"{doc.name} -> {target}")
+                broken.append(f"{doc.name} -> {target}")  # noqa: PERF401 -- two-condition filter reads better as a loop
     assert not broken, f"broken internal links: {broken}"
 
 
@@ -115,7 +116,7 @@ def test_workflow_yaml_parses(repo_root):
 
 def test_init_script_is_valid_bash(repo_root):
     r = subprocess.run(
-        ["bash", "-n", "INIT_REPO.sh"], cwd=repo_root, capture_output=True, text=True
+        ["bash", "-n", "INIT_REPO.sh"], cwd=repo_root, capture_output=True, text=True, check=False
     )
     assert r.returncode == 0, f"INIT_REPO.sh syntax error: {r.stderr}"
 

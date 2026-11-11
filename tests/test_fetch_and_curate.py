@@ -42,7 +42,9 @@ def fixtures(tmp_path_factory):
     """Generate the synthetic GenBank files once per session."""
     out = tmp_path_factory.mktemp("gb")
     script = ROOT / "tests" / "fixtures" / "make_genbank.py"
-    r = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, cwd=ROOT)
+    r = subprocess.run(
+        [sys.executable, str(script)], capture_output=True, text=True, cwd=ROOT, check=False
+    )
     assert r.returncode == 0, f"fixture generation failed: {r.stderr}"
     src = ROOT / "tests" / "fixtures"
     return {"cdv": src / "cdv_test.gb", "btv": src / "btv_test.gb", "tmp": out}
@@ -64,6 +66,7 @@ def run_curate(cfg: str, gb: Path, out: Path, *extra) -> subprocess.CompletedPro
         capture_output=True,
         text=True,
         cwd=ROOT,
+        check=False,
     )
 
 
@@ -109,7 +112,7 @@ def test_empty_query_filter_leaves_no_dangling_operator(fetch_mod):
     assert not q.rstrip().endswith(("AND", "NOT", "OR"))
 
 
-def test_fetch_requires_email(fetch_mod, tmp_path):
+def test_fetch_requires_email():
     """NCBI blocks anonymous bulk download; failing late wastes the run."""
     r = subprocess.run(
         [
@@ -123,6 +126,7 @@ def test_fetch_requires_email(fetch_mod, tmp_path):
         text=True,
         cwd=ROOT,
         env={"PATH": "/usr/bin:/bin", "NCBI_EMAIL": ""},
+        check=False,
     )
     assert r.returncode == 2
 
@@ -243,7 +247,9 @@ def test_pinniped_resolves_to_its_own_species_and_group(cdv_out):
 def test_tip_labels_follow_the_downstream_contract(cdv_out):
     """ACCESSION|host_group|decimal_year is what 04 and 06 parse."""
     labels = [
-        l[1:].strip() for l in (cdv_out / "H.fasta").read_text().splitlines() if l.startswith(">")
+        line[1:].strip()
+        for line in (cdv_out / "H.fasta").read_text().splitlines()
+        if line.startswith(">")
     ]
     assert labels
     for lab in labels:
@@ -299,9 +305,9 @@ def test_segments_share_taxon_labels(btv_out):
 
     def labels(seg):
         return {
-            l[1:].strip()
-            for l in (btv_out / f"{seg}.fasta").read_text().splitlines()
-            if l.startswith(">")
+            line[1:].strip()
+            for line in (btv_out / f"{seg}.fasta").read_text().splitlines()
+            if line.startswith(">")
         }
 
     a, b, c = labels("seg2"), labels("seg6"), labels("seg10")
@@ -372,7 +378,7 @@ def anchored(fixtures, anchor_cfg, tmp_path_factory):
 
 
 def _labels(path: Path) -> set[str]:
-    return {l[1:].strip() for l in path.read_text().splitlines() if l.startswith(">")}
+    return {line[1:].strip() for line in path.read_text().splitlines() if line.startswith(">")}
 
 
 def test_undated_references_survive_as_anchors(anchored):
@@ -382,7 +388,7 @@ def test_undated_references_survive_as_anchors(anchored):
     no_parseable_collection_date.
     """
     labels = _labels(anchored["dir"] / "H_anchors.fasta")
-    accs = {l.split("|")[0] for l in labels}
+    accs = {line.split("|")[0] for line in labels}
     assert {"AF164967", "Z47762"} <= accs
 
 
@@ -395,19 +401,19 @@ def test_anchor_labels_carry_a_non_numeric_date(anchored):
     for lab in _labels(anchored["dir"] / "H_anchors.fasta"):
         parts = lab.split("|")
         assert len(parts) == 3
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="could not convert"):
             float(parts[2])
 
 
 def test_anchor_labels_carry_the_lineage(anchored):
     for lab in _labels(anchored["dir"] / "H_anchors.fasta"):
         assert lab.split("|")[1].startswith("ref_")
-    assert any("America-2" in l for l in _labels(anchored["dir"] / "H_anchors.fasta"))
+    assert any("America-2" in line for line in _labels(anchored["dir"] / "H_anchors.fasta"))
 
 
 def test_anchors_are_not_in_the_analysis_fasta(anchored):
     """An anchor must not become a dated tip in the clock analysis."""
-    accs = {l.split("|")[0] for l in _labels(anchored["dir"] / "H.fasta")}
+    accs = {line.split("|")[0] for line in _labels(anchored["dir"] / "H.fasta")}
     assert not ({"AF164967", "Z47762"} & accs)
 
 

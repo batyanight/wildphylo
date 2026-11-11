@@ -44,6 +44,7 @@ def curated(tmp_path_factory):
         capture_output=True,
         text=True,
         cwd=ROOT,
+        check=False,
     )
     assert r.returncode == 0, r.stderr[-1500:]
 
@@ -62,6 +63,7 @@ def run(script, *args, cwd=None):
         capture_output=True,
         text=True,
         cwd=cwd or ROOT,
+        check=False,
     )
 
 
@@ -220,7 +222,7 @@ def test_wild_groups_come_from_config_not_the_module_default(curated, tmp_path):
     )
 
     def wild_line(out):
-        return next(l for l in out.splitlines() if l.startswith("wild host groups:"))
+        return next(line for line in out.splitlines() if line.startswith("wild host groups:"))
 
     c, b = wild_line(cdv.stdout), wild_line(btv.stdout)
     assert c != b, "both pathogens got the same wild-group set"
@@ -252,7 +254,7 @@ def test_subsample_is_deterministic(curated, tmp_path):
             "--out-meta",
             tmp_path / f"{tag}_metadata.tsv",
         )
-        return [l for l in a.read_text().splitlines() if l.startswith(">")]
+        return [line for line in a.read_text().splitlines() if line.startswith(">")]
 
     assert labels("r1") == labels("r2")
 
@@ -319,6 +321,7 @@ def curated_with_anchors(tmp_path_factory):
         capture_output=True,
         text=True,
         cwd=ROOT,
+        check=False,
     )
     assert r.returncode == 0, r.stderr[-1500:]
 

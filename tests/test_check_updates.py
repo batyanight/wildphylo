@@ -167,7 +167,7 @@ def test_the_query_comes_from_01_not_a_copy(mod, repo_root):
     If the count used a reimplemented query, a drift between the two would show
     up as a delta that looks like a real change in GenBank.
     """
-    fetch = mod._fetch_module()
+    fetch = mod._fetch_module()  # noqa: SLF001 -- the test targets the private loader on purpose
     assert hasattr(fetch, "build_query")
     cfg = yaml.safe_load((repo_root / "config" / "pathogen" / "cdv-1200.yaml").read_text())
     q = fetch.build_query(cfg)
@@ -210,6 +210,7 @@ sys.exit(m.main())
         text=True,
         timeout=120,
         env=env,
+        check=False,
     )
     return r, (tmp_path / "gh_output").read_text(), tmp_path / "out.json"
 
@@ -231,7 +232,7 @@ def test_cli_writes_github_outputs_when_there_is_work(repo_root, tmp_path):
 
 def test_cli_reports_false_when_nothing_changed(repo_root, tmp_path):
     _stage_previous(tmp_path, 200)
-    r, gh, out = _run_cli(repo_root, tmp_path, count=200)
+    r, gh, _out = _run_cli(repo_root, tmp_path, count=200)
     assert r.returncode == 0
     assert "proceed=false" in gh
     assert json.loads(gh.split("pathogens=")[1].strip()) == []
@@ -239,7 +240,7 @@ def test_cli_reports_false_when_nothing_changed(repo_root, tmp_path):
 
 def test_cli_force_env_overrides_no_change(repo_root, tmp_path):
     _stage_previous(tmp_path, 200)
-    r, gh, _ = _run_cli(repo_root, tmp_path, count=200, extra_env={"FORCE": "true"})
+    _r, gh, _ = _run_cli(repo_root, tmp_path, count=200, extra_env={"FORCE": "true"})
     assert "proceed=true" in gh
 
 
@@ -250,6 +251,7 @@ def test_cli_help_works():
         capture_output=True,
         text=True,
         timeout=60,
+        check=False,
     )
     assert r.returncode == 0
     assert "usage:" in r.stdout.lower()

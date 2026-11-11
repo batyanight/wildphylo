@@ -75,7 +75,7 @@ def run(build, out, *extra, config=None):
     ]
     if config:
         cmd += ["--config", str(config)]
-    return subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=120)
+    return subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=120, check=False)
 
 
 # --- the time axis ----------------------------------------------------------
@@ -188,7 +188,7 @@ def test_tip_and_internal_states_share_a_category(build, tmp_path):
 
 def test_the_trait_key_is_auto_detected(mod, build):
     """The XML writes tag=host_group; the old default was 'location'."""
-    nodes, tag = mod.parse_mcc(build / "mcc.tree")
+    _nodes, tag = mod.parse_mcc(build / "mcc.tree")
     assert tag == "host_group"
 
 
@@ -282,5 +282,6 @@ def test_cli_help_works():
         capture_output=True,
         text=True,
         timeout=60,
+        check=False,
     )
     assert r.returncode == 0

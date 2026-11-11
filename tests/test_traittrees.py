@@ -220,12 +220,13 @@ def test_jump_history_recovers_the_constructed_transitions(known_posterior, tmp_
         capture_output=True,
         text=True,
         timeout=120,
+        check=False,
     )
     assert r.returncode == 0, r.stderr[-2000:]
     assert "mean 2.00" in r.stdout, "two transitions per tree"
     assert "felid -> procyonid" in r.stdout
     assert "procyonid -> domestic_dog" in r.stdout
-    rows = [l.split("\t") for l in out.read_text().splitlines()[1:] if l.strip()]
+    rows = [line.split("\t") for line in out.read_text().splitlines()[1:] if line.strip()]
     assert len(rows) == 40, "20 trees x 2 transitions"
 
 
@@ -250,10 +251,11 @@ def test_a_jump_on_a_terminal_branch_is_flagged_as_terminal(known_posterior, tmp
         capture_output=True,
         text=True,
         timeout=120,
+        check=False,
     )
-    line = [l for l in r.stdout.splitlines() if "procyonid -> domestic_dog" in l][0]
+    line = next(line for line in r.stdout.splitlines() if "procyonid -> domestic_dog" in line)
     assert "100%" in line.split()[-1], "the dog jump sits on a terminal branch"
-    internal = [l for l in r.stdout.splitlines() if "felid -> procyonid" in l][0]
+    internal = next(line for line in r.stdout.splitlines() if "felid -> procyonid" in line)
     assert internal.split()[-1] == "0%"
 
 
@@ -276,6 +278,7 @@ def test_state_through_time_runs_on_the_same_file(known_posterior, tmp_path):
         capture_output=True,
         text=True,
         timeout=120,
+        check=False,
     )
     assert r.returncode == 0, r.stderr[-2000:]
     assert out.is_file()

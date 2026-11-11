@@ -173,7 +173,10 @@ def test_a_failing_gate_still_writes_its_report(tmp_path):
 
     root = Path(__file__).resolve().parents[1]
     # A tree whose branch lengths carry no relation to the dates in the labels.
-    nwk = "((A|x|2001.0:0.9,B|x|2002.0:0.1):0.5,(C|x|2003.0:0.8,D|x|2004.0:0.2):0.4,(E|x|2005.0:0.7,F|x|2006.0:0.3):0.6);"
+    nwk = (
+        "((A|x|2001.0:0.9,B|x|2002.0:0.1):0.5,(C|x|2003.0:0.8,D|x|2004.0:0.2):0.4,"
+        "(E|x|2005.0:0.7,F|x|2006.0:0.3):0.6);"
+    )
     tree = tmp_path / "t.nwk"
     tree.write_text(nwk)
     out = tmp_path / "r.json"
@@ -191,6 +194,7 @@ def test_a_failing_gate_still_writes_its_report(tmp_path):
         capture_output=True,
         text=True,
         cwd=root,
+        check=False,
     )
     assert r.returncode == 0, f"gate exited {r.returncode}; report would be deleted"
     assert out.is_file(), "the report was not written"
@@ -203,7 +207,10 @@ def test_exit_code_can_be_opted_into_for_shell_use(tmp_path):
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    nwk = "((A|x|2001.0:0.9,B|x|2002.0:0.1):0.5,(C|x|2003.0:0.8,D|x|2004.0:0.2):0.4,(E|x|2005.0:0.7,F|x|2006.0:0.3):0.6);"
+    nwk = (
+        "((A|x|2001.0:0.9,B|x|2002.0:0.1):0.5,(C|x|2003.0:0.8,D|x|2004.0:0.2):0.4,"
+        "(E|x|2005.0:0.7,F|x|2006.0:0.3):0.6);"
+    )
     tree = tmp_path / "t.nwk"
     tree.write_text(nwk)
     out = tmp_path / "r.json"
@@ -222,6 +229,7 @@ def test_exit_code_can_be_opted_into_for_shell_use(tmp_path):
         capture_output=True,
         text=True,
         cwd=root,
+        check=False,
     )
     assert r.returncode == 1
     assert out.is_file(), "the report must survive even when exiting non-zero"

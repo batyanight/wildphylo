@@ -111,7 +111,7 @@ def test_regex_patterns_supported(tmp_path):
 def test_malformed_table_raises_with_line_number(tmp_path):
     p = tmp_path / "h.tsv"
     p.write_text("raccoon\tProcyon lotor\n")
-    with pytest.raises(ValueError, match="h.tsv:1"):
+    with pytest.raises(ValueError, match=r"h\.tsv:1"):
         load_host_table(p)
 
 

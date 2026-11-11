@@ -216,7 +216,7 @@ def test_relative_change_keeps_its_sign(mod, tmp_path):
         temporal={"verdict": "pass", "r_squared": 0.11, "slope": 1e-4},
     )
     c = mod.compare(prev, curr, "x")
-    r2 = [f.message for f in c.findings if "R^2" in f.message][0]
+    r2 = next(f.message for f in c.findings if "R^2" in f.message)
     assert "-74%" in r2
 
 
@@ -240,6 +240,7 @@ def test_a_first_build_is_not_a_failure(tmp_path):
         capture_output=True,
         text=True,
         timeout=60,
+        check=False,
     )
     assert r.returncode == 0
     assert "nothing to compare" in out.read_text()
@@ -252,6 +253,7 @@ def test_a_missing_builds_directory_is_not_a_failure(tmp_path):
         capture_output=True,
         text=True,
         timeout=60,
+        check=False,
     )
     assert r.returncode == 0
 
@@ -309,6 +311,7 @@ def test_the_ci_invocation_works_without_an_auspice_json(tmp_path):
         capture_output=True,
         text=True,
         timeout=60,
+        check=False,
     )
     assert r.returncode == 1, "a lost sequence should fail the step"
     assert "cdv" in out.read_text()
@@ -338,6 +341,7 @@ def test_the_snakemake_invocation_works_with_one(tmp_path):
         capture_output=True,
         text=True,
         timeout=60,
+        check=False,
     )
     assert r.returncode == 0, r.stdout[-1000:]
     assert "TMRCA" in out.read_text()
@@ -350,5 +354,6 @@ def test_cli_help_works():
         capture_output=True,
         text=True,
         timeout=60,
+        check=False,
     )
     assert r.returncode == 0

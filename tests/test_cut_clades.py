@@ -84,13 +84,14 @@ def run(tree, out, *extra):
         capture_output=True,
         text=True,
         cwd=ROOT,
+        check=False,
     )
 
 
 def rows(path):
     import csv
 
-    with open(path) as fh:
+    with Path(path).open() as fh:
         return list(csv.DictReader(fh, delimiter="\t"))
 
 

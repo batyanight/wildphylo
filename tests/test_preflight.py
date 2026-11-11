@@ -312,8 +312,8 @@ def test_concatenating_reassorting_segments_is_fatal():
 
 def test_single_analysed_segment_warns_reassortment_invisible():
     c = seg_cfg()
-    for l in c["loci"][1:]:
-        l["analyse"] = False
+    for line in c["loci"][1:]:
+        line["analyse"] = False
     _e, w = validate(c)
     assert any("reassortment would go undetected" in x for x in w)
 

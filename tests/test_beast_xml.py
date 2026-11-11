@@ -80,6 +80,7 @@ def run(aln, out, *extra):
         capture_output=True,
         text=True,
         cwd=ROOT,
+        check=False,
     )
 
 
@@ -158,7 +159,7 @@ def test_agreeing_prior_passes(aln, report, tmp_path):
 
 
 @pytest.mark.parametrize(
-    "prior,marker",
+    ("prior", "marker"),
     [
         ("coalescent_constant", "CoalescentConstant"),
         ("coalescent_skyline", "BayesianSkyline"),
@@ -181,7 +182,7 @@ def test_tree_prior_is_honoured(aln, tmp_path, prior, marker):
 
 
 @pytest.mark.parametrize(
-    "model,marker",
+    ("model", "marker"),
     [
         ("relaxed_lognormal", "UCRelaxedClockModel"),
         ("strict", "StrictClockModel"),
