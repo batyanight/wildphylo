@@ -420,7 +420,7 @@ threshold is.
 ### Decision
 
 `symmetric: false` for the CDV host-group trait, with BSSVS on. The trait block
-is emitted by `07_make_beast_xml.py` from the config, not added by hand in
+is emitted by `wildphylo beast xml` from the config, not added by hand in
 BEAUti.
 
 ### Why asymmetric
@@ -559,7 +559,7 @@ permutations over a thousand trees at 65 tips runs in about twelve seconds.
   old and deeply placed clusters significantly and still produces outbound
   counts that are a consequence of sampling depth — which is exactly the
   america-2 case. Signal is necessary for a directional claim, not sufficient.
-  Read `08g_state_through_time.py` alongside the gate; they answer different
+  Read `wildphylo beast state-through-time` alongside the gate; they answer different
   questions.
 - **Failing to reject is not evidence of no structure when there is no power.**
   With fewer than five tips in a state, or fewer than twenty labelled tips
@@ -583,7 +583,7 @@ behind it, whatever its Bayes factor.
 
 **Decision.** The direction of a host transition is established by walking the
 sampled ancestral-state trees and comparing each node with its parent
-(`08f_jump_history.py`). The BSSVS `rateIndicator` vector is used only to say
+(`wildphylo beast jumps`). The BSSVS `rateIndicator` vector is used only to say
 WHICH transitions the model selected, never which way they point.
 
 **Why.** BSSVS reports the indicators as a flat vector, and mapping index to
@@ -632,7 +632,7 @@ distinguish one change from three on a branch is not really there anyway.
 
 **Retired.** `12_count_trait_jumps.py` was the first implementation of this
 idea: a contingency table with directional asymmetry, 172 lines, its own
-parser. `08f_jump_history.py` does everything it did and adds the timing, the
+parser. `wildphylo beast jumps` does everything it did and adds the timing, the
 root-state posterior, the tip census and the terminal share — all of which
 exist because the count alone could not distinguish transmission from
 anchoring. Two implementations of the same count, with two parsers, can

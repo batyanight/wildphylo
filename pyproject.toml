@@ -32,7 +32,7 @@ markers = [
 line-length = 99
 target-version = "py311"
 preview = false
-src = ["src", "scripts", "tests"]
+src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["ALL"]
@@ -60,10 +60,6 @@ ignore = [
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-# Numbered scripts: lifted into stage modules one at a time (docs/PLAN-stages.md).
-# A script's entry is deleted when it is ported; the stage module gets no exemption.
-"scripts/[0-9]*.py" = ["ANN", "T201", "EXE001", "INP001", "D"]
-"scripts/cdv_h_coords.py" = ["ANN", "T201", "EXE001", "INP001", "D"]
 "tests/*" = ["ANN", "D", "S101", "INP001", "T201", "PT018"]
 "tests/fixtures/*" = ["ALL"]
 # BEAST XML templates are f-strings whose lines must stay verbatim: wrapping

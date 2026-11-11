@@ -10,8 +10,8 @@ taxon, with gates that test whether the data can support the priors and
 calibrations before compute is spent. Pipeline and gates: `README.md`.
 
 Read before changing anything:
-- `docs/PORTING.md` — which scripts from cdv-phylodynamics are ported to the new
-  Snakefile CLI and which would still fail at runtime. Update it when you port one.
+- `docs/PLAN-stages.md` — the stage-CLI layout, the decisions behind it, and what
+  is still open. Update it when you finish or change a step.
 - `docs/DECISIONS.md` — decision records (DR-nnn). New pipeline-wide choices get
   a DR entry: what, why, the cost of the alternative, how to revisit per dataset.
 - `docs/NEXTSTRAIN.md` — this repo is the pipeline; per-pathogen Nextstrain
@@ -19,7 +19,9 @@ Read before changing anything:
 
 ## Layout
 - `workflow/Snakefile` — the DAG
-- `scripts/NN_*.py` — numbered steps; shared code in `scripts/lib/` (installed as `lib`)
+- `src/wildphylo/` — the installed package. `cli.py` is the `wildphylo` command;
+  `stages/<stage>.py` holds that stage's steps; the other modules are shared library code.
+- `GLOSSARY.md` — the terms to use in names, config keys, commits and conversation.
 - `config/pathogen/<name>.yaml` — everything pathogen-specific; start from
   `_template.yaml`. Shipped configs: cdv, cdv-1200, cdv-1200-dogwild,
   cdv-clades, cdv-smoke, btv.
@@ -30,7 +32,9 @@ Read before changing anything:
     conda activate wildphylo
     pip install -e ".[dev]"
     pytest                                 # -m 'not slow' / 'not needs_tools' to skip heavy tests
-    ruff check scripts/ tests/             # CI lint job; ruff comes from Homebrew, not the env
+    ruff check src/ tests/ && ruff format --check src/ tests/ && mypy
+    wildphylo --help                       # every stage and step
+    wildphylo config validate config/pathogen/*.yaml
     snakemake -s workflow/Snakefile --configfile config/pathogen/cdv-smoke.yaml --cores 8 -n
 NCBI CLIs are in the env: `esearch | efetch` (Entrez Direct) and `datasets`
 (NCBI Datasets). Prefer them for quick GenBank/taxonomy lookups over writing
@@ -47,14 +51,14 @@ than falling back to `cat`.
 - FASTA and alignments: `seqkit stats`, `seqkit fx2tab -n -l` — never print sequences.
 - BEAST XMLs embed the alignment: `rg -n 'chainLength|<prior|<operator|clock' FILE.xml`.
 - Posterior `.log` / `.trees`: never read directly. Use the gate scripts
-  (`08b_convergence.py` etc.) or `head` for column names.
+  (`wildphylo gates convergence` etc.) or `head` for column names.
 
 ## Rules
 - Nothing pathogen-specific in code: no hardcoded clock rates, taxids, host
   lists or date bounds. They go in the pathogen config.
 - NCBI email/key come from `NCBI_EMAIL` / `NCBI_API_KEY`, never the config.
 - A gate that fails stops the run. Don't add bypass flags without a DR entry.
-- Every rebuild is compared to the previous one (`12_compare_builds.py`); a lost
+- Every rebuild is compared to the previous one (`wildphylo gates compare`); a lost
   sequence or moved TMRCA is a regression until explained.
 
 ## Related

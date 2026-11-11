@@ -1,6 +1,6 @@
 """dates.py — collection-date parsing for tip-dated phylogenetics.
 
-Replaces the inline parser in 02_curate_metadata.py. Three changes that matter:
+Replaces the inline parser the curate step once had. Three changes that matter:
 
   1. Malformed dates return a reason, they do not raise. GenBank contains
      "2013-13-45" and "0000-01-01". The old parser crashed the run on these.

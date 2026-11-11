@@ -17,63 +17,51 @@ from wildphylo import cli
 SNAKEFILE = "workflow/Snakefile"
 
 
-def _referenced_scripts(text: str) -> set[str]:
-    return set(re.findall(r"scripts/[0-9A-Za-z_]+\.py", text))
+# `from wildphylo import config` is an import, not a call; exclude it.
+CLI_CALL = re.compile(r"\bwildphylo\s+(?!import\b)([a-z]+)\s+([a-z-]+)")
+
+
+def _cli_calls(text: str) -> set[tuple[str, str]]:
+    """Every ``wildphylo <stage> <step>`` pair a file invokes."""
+    return set(CLI_CALL.findall(text))
+
+
+def _registered() -> set[tuple[str, str]]:
+    return {(stage, name) for stage in cli.STAGES for name in cli.steps(stage)}
 
 
 def test_snakefile_exists(repo_root):
     assert (repo_root / SNAKEFILE).is_file()
 
 
-def _documented_gaps(repo_root) -> set[str]:
-    """Scripts docs/PORTING.md openly declares unwritten."""
-    porting = (repo_root / "docs" / "PORTING.md").read_text()
-    section = porting.split("## Not yet written at all")[1].split("## Not used")[0]
-    return set(re.findall(r"`(\w+\.py)`", section))
-
-
-def test_every_script_the_workflow_calls_is_present_or_documented(repo_root):
-    """
-    A missing script is tolerable only if PORTING.md says so. Undocumented
-    absence is the bug this test exists for: the DAG builds fine and the rule
-    fails at runtime, potentially hours in.
-    """
+def test_snakefile_calls_no_scripts_by_path(repo_root):
+    """Every rule goes through the CLI; a stray python path is a regression."""
     text = (repo_root / SNAKEFILE).read_text()
-    known = _documented_gaps(repo_root)
-    undocumented = sorted(
-        s
-        for s in _referenced_scripts(text)
-        if not (repo_root / s).is_file() and s.split("/")[-1] not in known
-    )
-    assert not undocumented, (
-        "the Snakefile calls scripts that neither exist nor appear in "
-        f"docs/PORTING.md: {undocumented}"
-    )
+    assert not re.findall(r"python\s+scripts/", text)
 
 
-def test_every_script_ci_calls_is_present_or_documented(repo_root):
-    known = _documented_gaps(repo_root)
-    undocumented = set()
+def test_every_step_the_workflow_calls_is_registered(repo_root):
+    """
+    A step the Snakefile names but the CLI does not register fails only when
+    the rule runs, which for this pipeline could be hours in. Catch it here.
+    """
+    called = _cli_calls((repo_root / SNAKEFILE).read_text())
+    assert called, "the Snakefile calls no wildphylo steps at all"
+    assert called <= _registered(), f"unregistered steps: {sorted(called - _registered())}"
+
+
+def test_every_step_ci_calls_is_registered(repo_root):
+    missing = set()
     for wf in (repo_root / ".github" / "workflows").glob("*.yml"):
-        for s in _referenced_scripts(wf.read_text()):
-            if not (repo_root / s).is_file() and s.split("/")[-1] not in known:
-                undocumented.add(f"{wf.name}:{s}")
-    assert not undocumented, f"CI references undocumented missing scripts: {sorted(undocumented)}"
+        for call in _cli_calls(wf.read_text()) - _registered():
+            missing.add(f"{wf.name}:{' '.join(call)}")
+    assert not missing, f"CI calls unregistered steps: {sorted(missing)}"
 
 
-def test_documented_gaps_match_reality(repo_root):
-    """
-    docs/PORTING.md lists the scripts that are referenced but unwritten. If one
-    gets written, the doc must stop claiming it is missing, or the gap list
-    quietly becomes fiction.
-    """
-    (repo_root / "docs" / "PORTING.md").read_text()
-    wrongly_claimed = sorted(
-        s for s in _documented_gaps(repo_root) if (repo_root / "scripts" / s).is_file()
-    )
-    assert not wrongly_claimed, (
-        f"docs/PORTING.md says these are unwritten, but they exist: {wrongly_claimed}"
-    )
+def test_every_stage_in_the_plan_registers_at_least_one_step():
+    """An empty stage module means a port was started and not finished."""
+    empty = [stage for stage in cli.STAGES if not cli.steps(stage)]
+    assert not empty, f"stages with no steps: {empty}"
 
 
 @pytest.mark.parametrize("step", ["temporal", "congruence"])

@@ -100,7 +100,7 @@ Two worked examples ship with the repo:
 
 ## Some things the validator catches
 
-Run against a real config, `lib/config` and `lib/preflight` report:
+Run against a real config, `wildphylo config validate` reports:
 
 ```
 [trait_states] OK (0E 1W)
@@ -122,21 +122,22 @@ pathogen looks like.
 ## Repository layout
 
 ```
-workflow/Snakefile           the DAG; gates are Snakemake checkpoints
+workflow/Snakefile           the DAG; gates are Snakemake checkpoints. Every
+                             rule calls `wildphylo <stage> <step>`
 config/pathogen/*.yaml       one file per pathogen
 config/host_groups_*.tsv     host normalisation tables
-scripts/
-  04b_temporal_signal.py     the temporal gate, runnable standalone
-  05b_segment_congruence.py  the congruence gate, runnable standalone
-  05c_cut_clades.py          split a tree into clades, test each for clock signal
-  08b_convergence.py         ESS and between-chain agreement
-  08d_drt_summary.py         the date-randomisation gate
-  12_compare_builds.py       build-to-build comparison
-  08e_trait_signal.py        the trait-signal gate, runnable standalone
-  08f_jump_history.py        host transitions, and when each one happened
-  08g_state_through_time.py  lineages carrying each state, year by year
-  13_check_updates.py        does the scheduled rebuild have anything to do?
-  lib/
+src/wildphylo/
+  cli.py                     the `wildphylo` command: one subparser per stage
+  stages/                    one module per stage, one step per subcommand
+    fetch.py                 records
+    curate.py                metadata, review (gate)
+    align.py                 qc
+    tree.py                  clades
+    gates.py                 temporal, congruence, convergence, trait-signal, drt, compare
+    beast.py                 subsample, xml, jumps, state-through-time
+    auspice.py               dataset, entropy
+    publish.py               dataset, check-updates
+    config.py                validate
   beastxml.py                BEAST model blocks: tree priors, clocks, tip dates
   config.py                  config loading and validation
   dates.py                   date parsing; never raises on malformed input
@@ -148,10 +149,11 @@ scripts/
   datepolicy.py              midpoint vs interval, decided per dataset
   segments.py                congruence screening and reassortment localisation
   preflight.py               per-step verification
-tests/                       429 tests
+tests/                       fixture-based pytest suite
+GLOSSARY.md                  the terms used in code, config and commits
 docs/DECISIONS.md            why each default is what it is
 docs/NEXTSTRAIN.md           organising many builds without chaos
-docs/PORTING.md              what is not wired up yet, and exactly why
+docs/PLAN-stages.md          the stage-CLI restructuring and its decisions
 ```
 
 ## Documentation
@@ -161,8 +163,9 @@ docs/PORTING.md              what is not wired up yet, and exactly why
   what was chosen. Written so it can be cited in a methods section.
 - **[docs/NEXTSTRAIN.md](docs/NEXTSTRAIN.md)** — one repo per pathogen, dataset
   naming, staging vs published, generated descriptions, archiving.
-- **[docs/PORTING.md](docs/PORTING.md)** — the honest gap list: which scripts
-  are not yet config-driven, and the exact argument mismatches.
+- **[docs/PLAN-stages.md](docs/PLAN-stages.md)** — the stage-CLI layout, the
+  decisions behind it, and what is still open.
+- **[GLOSSARY.md](GLOSSARY.md)** — the terms used in code, config and commits.
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — setup, testing conventions.
 
 ## Status
@@ -180,21 +183,9 @@ Done and CI-verified:
       (CDV schedules 9 jobs; BTV 18, across its 3 analysed segments)
 - [x] CI: tests on two Python versions, config validation, DAG dry run
 
-**Not yet working end to end.** Acquisition and curation are ported and tested;
-four carried-over scripts still take the old repo's command-line arguments, and
-four scripts are referenced but unwritten. Every gap is enumerated with its exact flag
-mismatch in **[docs/PORTING.md](docs/PORTING.md)**.
+Every step is a `wildphylo <stage> <step>` subcommand (`wildphylo --help`), the
+Snakefile calls nothing else, and the test suite runs each step on fixture data.
 
-- [x] Port `01_fetch` and `02_curate` onto the config and the new libraries
-- [x] Port `04_alignment_qc` and `06_subsample`
-- [x] Port `07_make_beast_xml`, discrete-trait block included
-- [x] Trait-signal gate (`08e_trait_signal.py`), wired so a build cannot reach
-      Auspice with an untested trait
-- [x] Convergence gate (`08b_convergence.py`): ESS plus between-chain agreement
-- [x] Scheduled-rebuild check (`13_check_updates.py`)
-- [x] Date-randomisation gate (`08d_drt_summary.py`)
-- [x] Comparison gate (`12_compare_builds.py`)
-- [x] Port `09_make_auspice` (config-driven, gate verdicts in the description)
 - [ ] End-to-end run on CDV, then BTV
 
 ## Acknowledgements

@@ -59,7 +59,7 @@ and it does not rule out deep-node anchoring -- a single old, deeply-placed
 clade of one state produces genuine clustering and genuine significance while
 still making every outbound count from that state a consequence of where the
 oldest tips sit. Signal is necessary for a directional claim, not sufficient.
-Run 08g_state_through_time.py as well; the two answer different questions.
+Run `wildphylo beast state-through-time` as well; the two answer different questions.
 
 Ambiguous tips
 --------------
@@ -761,7 +761,7 @@ def format_report(res: TraitSignalResult, width: int = 78) -> str:
         "It does NOT validate transition directions: a state whose tips are",
         "old and deeply placed clusters significantly and still produces",
         "outbound transition counts that are an artefact of sampling depth.",
-        "Read 08g_state_through_time.py alongside this.",
+        "Read `wildphylo beast state-through-time` alongside this.",
         "=" * width,
     ]
     return "\n".join(L)

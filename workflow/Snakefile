@@ -228,7 +228,7 @@ rule fetch:
         # Email and API key come from the environment (NCBI_EMAIL,
         # NCBI_API_KEY), never from the config: they are personal credentials,
         # not analysis parameters, and a config file gets committed.
-        "python scripts/01_fetch_sequences.py --config {params.cfg}"
+        "wildphylo fetch records --config {params.cfg}"
         " --out {output.gb} --acc {output.acc} --log {log} 2>&1 | tee {log}"
 
 
@@ -251,7 +251,7 @@ rule curate:
         cfg = lambda w: config["_path"],
     log: f"{OUT}/logs/02_curate.log"
     shell:
-        "python scripts/02_curate_metadata.py --config {params.cfg}"
+        "wildphylo curate metadata --config {params.cfg}"
         " --gb {input.gb} --out-dir {OUT}/interim --log {log}"
         " 2>&1 | tee {log}"
 
@@ -263,15 +263,12 @@ rule review_gate:
     unreviewed is how a result becomes a curation artefact.
     """
     input: review = rules.curate.output.review
-    output: touch(f"{OUT}/interim/.review_ok")
-    run:
-        import pandas as pd
-        df = pd.read_csv(input.review, sep="\t")
-        if len(df) and not config.get("accept_unreviewed", False):
-            raise WorkflowError(
-                f"{len(df)} records need manual review: {input.review}\n"
-                "Resolve them, or set accept_unreviewed: true to proceed "
-                "knowing these records carry unverified host or date labels.")
+    output: marker = f"{OUT}/interim/.review_ok"
+    params:
+        accept = ("--accept-unreviewed" if config.get("accept_unreviewed", False) else ""),
+    shell:
+        "wildphylo curate review --needs-review {input.review}"
+        " --marker {output.marker} {params.accept}"
 
 
 # --- 2. alignment and ML tree ----------------------------------------------
@@ -309,7 +306,7 @@ rule alignment_qc:
         cfg = lambda w: config["_path"],
     log: f"{OUT}/logs/04_qc_{{locus}}.log"
     shell:
-        "python scripts/04_alignment_qc.py --config {params.cfg} --aln {input.aln}"
+        "wildphylo align qc --config {params.cfg} --aln {input.aln}"
         " --metadata {input.meta} --out-tsv {output.tsv} --out-png {output.png}"
         " 2>&1 | tee {log}"
 
@@ -363,7 +360,7 @@ checkpoint temporal_gate:
         min_span = config["temporal_signal"]["min_span_years"],
     log: f"{OUT}/logs/04b_temporal_{{locus}}.log"
     shell:
-        "python scripts/04b_temporal_signal.py --tree {input.tree}"
+        "wildphylo gates temporal --tree {input.tree}"
         " --metadata {input.meta} --permutations {params.perm}"
         " --min-r2 {params.min_r2} --min-span {params.min_span}"
         " --out-json {output.report} --out-plot {output.plot}"
@@ -403,7 +400,7 @@ if CONGRUENCE:
             thresh = (config.get("segments") or {}).get("reassortant_threshold", 0.6),
         log: f"{OUT}/logs/05b_congruence.log"
         shell:
-            "python scripts/05b_segment_congruence.py --trees {input.trees}"
+            "wildphylo gates congruence --trees {input.trees}"
             " --names {params.names} --collapse-support {params.support}"
             " --reassortant-threshold {params.thresh}"
             " --out-json {output.json} --out-md {output.md}"
@@ -427,7 +424,7 @@ rule subsample:
         cfg = lambda w: config["_path"],
     log: f"{OUT}/logs/06_subsample_{{locus}}.log"
     shell:
-        "python scripts/06_subsample.py --config {params.cfg} --mode global"
+        "wildphylo beast subsample --config {params.cfg} --mode global"
         " --aln {input.aln} --metadata {input.meta} --target {params.target}"
         " --year-bin {params.bin} --seed {params.seed}"
         " --out-aln {output.aln} --out-meta {output.meta} 2>&1 | tee {log}"
@@ -450,7 +447,7 @@ rule beast_xml:
         cfg = lambda w: config["_path"],
     log: f"{OUT}/logs/07_xml_{{locus}}_seed{{seed}}.log"
     shell:
-        "python scripts/07_make_beast_xml.py --config {params.cfg}"
+        "wildphylo beast xml --config {params.cfg}"
         " --aln {input.aln} --metadata {input.meta}"
         " --temporal-report {input.gate} --seed {wildcards.seed}"
         " --out-xml {output.xml} --out-traits {output.traits} 2>&1 | tee {log}"
@@ -506,7 +503,7 @@ rule convergence:
         min_ess = config["beast"]["min_ess"],
     log: f"{OUT}/logs/08b_convergence_{{locus}}.log"
     shell:
-        "python scripts/08b_convergence.py --logs {input.logs}"
+        "wildphylo gates convergence --logs {input.logs}"
         " --burnin {params.burnin} --min-ess {params.min_ess}"
         " --out-json {output.json} --out-combined {output.combined} 2>&1 | tee {log}"
 
@@ -547,7 +544,7 @@ if TRAIT_SIGNAL:
                            .get("on_no_signal", "stop") == "stop") else ""),
         log: f"{OUT}/logs/08e_trait_signal_{{locus}}.log"
         shell:
-            "python scripts/08e_trait_signal.py --trees {input.trees}"
+            "wildphylo gates trait-signal --trees {input.trees}"
             " --config {params.cfg} --burnin {params.burnin}"
             " --permutations {params.perms} {params.on_fail}"
             " --out-json {output.json} --out-md {output.md} 2>&1 | tee {log}"
@@ -577,7 +574,7 @@ rule drt_xml:
     output: xml = f"{OUT}/drt/{{locus}}/rep{{rep}}/{PATHOGEN}_drt.xml"
     params: cfg = lambda w: config["_path"]
     shell:
-        "python scripts/07_make_beast_xml.py --config {params.cfg}"
+        "wildphylo beast xml --config {params.cfg}"
         " --aln {input.aln} --metadata {input.meta} --randomize-dates"
         " --replicate {wildcards.rep} --out-xml {output.xml}"
 
@@ -609,7 +606,7 @@ rule drt_summary:
                        .get("on_fail", "stop") == "stop") else ""),
     log: f"{OUT}/logs/08d_drt_{{locus}}.log"
     shell:
-        "python scripts/08d_drt_summary.py --real {input.real} --reps {input.reps}"
+        "wildphylo gates drt --real {input.real} --reps {input.reps}"
         " --burnin {params.burnin} {params.on_fail}"
         " --out-json {output.json} --out-plot {output.png} 2>&1 | tee {log}"
 
@@ -632,7 +629,7 @@ rule auspice:
     params: cfg = lambda w: config["_path"]
     log: AUSPICE_LOG
     shell:
-        "python scripts/09_make_auspice.py --config {params.cfg}"
+        "wildphylo auspice dataset --config {params.cfg}"
         " --mcc {input.mcc} --metadata {input.meta}"
         " --full-metadata {input.full_meta} --alignment {input.aln}"
         # The gate verdicts travel with the published build. A trait colouring
@@ -659,7 +656,7 @@ rule publish:
                 else "--no-alert-on-sequence-loss"),
     log: f"{OUT}/logs/12_compare_builds.log"
     shell:
-        "python scripts/12_compare_builds.py --current {input.json}"
+        "wildphylo gates compare --current {input.json}"
         " --builds-dir {params.prev} --max-tmrca-shift {params.shift}"
         " {params.loss} --pathogen " + PATHOGEN +
         " --out {output.report}"

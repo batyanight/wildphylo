@@ -1,6 +1,6 @@
 """beastxml.py — model blocks for the BEAST XML, driven by config.
 
-The original 07_make_beast_xml.py baked one model into a single f-string:
+The original BEAST XML script baked one model into a single f-string:
 HKY+G4, uncorrelated relaxed lognormal clock, constant-size coalescent. Every
 choice the pathogen config declares — tree_prior, clock_model,
 substitution_model — was ignored, and the clock rate defaulted to a CDV

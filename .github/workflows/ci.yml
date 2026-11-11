@@ -83,8 +83,8 @@ jobs:
         with: {python-version: "3.12", cache: pip}
       - run: pip install -e ".[dev]" ruff
       - name: ruff (rules pinned in pyproject.toml)
-        run: ruff check src/ scripts/ tests/
+        run: ruff check src/ tests/
       - name: ruff format
-        run: ruff format --check src/ scripts/ tests/
+        run: ruff format --check src/ tests/
       - name: mypy
         run: mypy
