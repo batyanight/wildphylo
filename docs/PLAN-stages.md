@@ -173,16 +173,50 @@ now fixes the search. Verified: two seeded 8-thread runs give the same
 topology (140 of 140 splits) and log-likelihood, with branch lengths agreeing
 to about 5e-5 (parallel floating-point); one thread is bit-identical.
 
+Behaviour-change review (2026-11-11). The three changes flagged for review
+before anything public is rebuilt:
+
+- **QC thresholds now resolved before the flags are computed.** Safe. For CDV
+  only `max_gap_fraction` differs from the built-in default (0.60 against
+  0.50), so sequences with a gap fraction in that band are no longer flagged.
+  Nothing downstream reads those flag columns: the only QC column that changes
+  membership is `ungapped_len`, which `tree clades` uses to prune short tips
+  and which no threshold touches. The change moves an audit table, not a
+  result.
+- **Several steps report through logging rather than stdout.** Safe. Every
+  wildphylo call in the Snakefile is `2>&1 | tee {log}`, and the only rules
+  that capture stdout to a file are the two mafft shell lines, which are tool
+  output, not step reports. Log files are unchanged.
+- **`beast subsample` refusing an unreadable config.** It was half-refusing.
+  An invalid config already exited 2, but YAML that does not parse raises
+  ParserError, which a broad `except Exception` swallowed, leaving the CDV
+  wild-group set in place. Fixed here, along with the same hole in `align qc`.
+
+Settled (2026-11-11), both found while rewriting the pathogen repo's METHODS:
+
+- **`hosts.dta_states` mapped `domestic_cat`**, a group no host rule produces,
+  so the merge never fired. `validate` now warns on such a key. The CDV
+  configs keep the five published state names and leave `ailurid` unmapped,
+  so the one red panda enters the trait as `?` rather than as a felid.
+- **The H CDS bounds** `[21, 1844]` number the CDS from the first base of the
+  H gene feature. AF164967.1 has gene H at 7059..9004 and CDS H at 7079..8902;
+  the configs now carry the genome-relative pair, which is what the key says
+  it holds.
+
 Not done, in rough priority:
 
-- **Smoke build passed offline** (2026-11-11, `builds/cdv-smoke/20261112`,
-  untracked): curate → review gate → align → qc → ml_tree (`tree.fast`) →
-  temporal gate (verdict `weak`, 143 tips) → subsample → BEAST XML ×2 seeds,
-  every step through the CLI. The raw input was the first 150 records of the
-  2026-10-03 snapshot, standing in for `fetch.max_records: 150`; the fetch
-  step itself was exercised only by its tests, because `NCBI_EMAIL` was unset.
-  Run a fresh `cdv-smoke` build with the email set once before relying on
-  the cap end to end.
+- **Smoke build passed against NCBI** (2026-11-11, `builds/cdv-smoke/20261111`,
+  untracked, `NCBI_EMAIL` set): fetch capped at 150 of 3232 records, curate →
+  review gate → align → qc → ml_tree (`tree.fast`) → temporal gate → subsample
+  → BEAST XML ×2 seeds → DRT XML. The gate FAILS on a real capped fetch, and
+  correctly: NCBI's first 150 CDV records are a 2011-2026 slice with R² =
+  0.0005 and date-shuffling p = 0.39. `cdv-smoke` therefore declares
+  `temporal_signal.on_fail: warn`, or nothing past the gate would ever be
+  exercised against real data. Run it to the XML targets, not to rule `all`,
+  which past the gate pulls the real 100M-state chains.
+- **A smoke fixture that rule `all` can finish** would need chain lengths
+  small enough to run and would then trip the convergence gate on ESS. Worth
+  solving; not solved.
 - **`publish dataset` is not wired into the Snakefile.** It needs a config key
   for the pathogen repo path, which phase 2 decides.
 - **`beast.py`** is ~2000 lines and is the next consolidation target.
