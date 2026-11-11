@@ -67,6 +67,7 @@ exclude:
   lab_passaged: true
 references:
   table: config/lineage_references.tsv
+  include_as_anchors: true
   expected_lineages:
   - America-1
   - America-2

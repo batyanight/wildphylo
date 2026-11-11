@@ -1,0 +1,31 @@
+{
+  "n_tips": 2008,
+  "span_years": 44.47600000000011,
+  "earliest": 1982.11,
+  "latest": 2026.586,
+  "precision_counts": {
+    "unknown": 2008
+  },
+  "frac_year_only": 0.0,
+  "occupancy": 0.7777777777777778,
+  "concentration": 0.6210159362549801,
+  "regressions": [
+    {
+      "rooting": "given",
+      "n": 2008,
+      "slope": -0.0009131154261834735,
+      "intercept": 2.4343338154748837,
+      "r_squared": 0.00023753573673038658,
+      "correlation": -0.01541219441644786,
+      "x_intercept": null
+    }
+  ],
+  "permutation_p": 0.7572427572427572,
+  "permutation_n": 1000,
+  "verdict": "fail",
+  "notes": [
+    "root-to-tip slope is non-positive: divergence does not increase with sampling date, which rules out a simple clock on this rooting",
+    "R^2 = 0.000 is below 0.1; the clock signal is weak",
+    "date-shuffling p = 0.757: the observed slope is not distinguishable from randomly assigned dates"
+  ]
+}

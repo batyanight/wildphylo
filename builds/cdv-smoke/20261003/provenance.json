@@ -1,0 +1,19 @@
+{
+  "pathogen": "cdv-smoke",
+  "build_date": "20261003",
+  "config_path": "/Users/batya/wildphylo/config/pathogen/cdv-smoke.yaml",
+  "config_sha256": "139a8c906ffebc13335dddcdd8f64c07801b36178e73ff598b3d8dfbc0504feb",
+  "config_warnings": [
+    "host groups absent from hosts.dta_states and excluded from the trait analysis: ailurid, other, pinniped, primate, unknown, ursid, viverrid",
+    "discrete trait has 5 states -> 10 transition rates to estimate. Rates far outnumbering informative transitions is the usual cause of an unresolved root"
+  ],
+  "n_accessions": 3201,
+  "platform": "macOS-26.6-arm64-arm-64bit",
+  "python": "3.11.16",
+  "tools": {
+    "mafft": "",
+    "iqtree3": "IQ-TREE version 3.1.3 for MacOS ARM 64-bit built Jul 26 2026",
+    "beast": "BEAST v2.7.7"
+  },
+  "git_commit": "181f322a58318e65b3db00f684a66e8dc7c33007"
+}
