@@ -99,7 +99,21 @@ temporal_signal:
   min_span_years: 5.0
   permutations: 1000
   max_concentration: 0.75
-  on_fail: stop
+  # The only config shipped with on_fail: warn, and only because this one is
+  # not an analysis. fetch.max_records takes the FIRST 150 records NCBI
+  # returns, which for CDV is a 2011-2026 slice with no clock signal
+  # (R^2 = 0.0005, shuffling p = 0.39). The gate is right to fail it. Stopping
+  # there would leave subsample, beast xml and drt xml untested against real
+  # data, which is the whole point of this fixture, so the override is
+  # declared here rather than passed on the command line.
+  #
+  # Run this fixture to explicit XML targets, NOT to rule `all`:
+  #   .../beast/<locus>/seed<N>/cdv-smoke.xml  .../drt/<locus>/rep1/*_drt.xml
+  # Past the gate, rule `all` pulls the real chains (100M states, and 20M per
+  # date-randomisation replicate), which is days on a laptop. A smoke fixture
+  # with chain lengths small enough for rule `all` would then trip the
+  # convergence gate on ESS, so the targets are explicit instead.
+  on_fail: warn
   on_weak: warn
 beast:
   clock_rate_prior: 0.000746
