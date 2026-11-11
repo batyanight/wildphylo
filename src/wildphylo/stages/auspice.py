@@ -21,10 +21,12 @@ from typing import TYPE_CHECKING, Any
 import yaml
 
 from wildphylo.cli import step
+from wildphylo.layout import BuildLayout
 from wildphylo.newick import Node, iter_trees, label_date
+from wildphylo.stages.curate import loci_of
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
 
 log = logging.getLogger(__name__)
 
@@ -202,16 +204,121 @@ def gate_summary(paths: Iterable[Path | str] | None) -> list[tuple[str, str, str
     return out
 
 
+# --- --build-dir defaults ---------------------------------------------------
+#
+# Shared with ``publish dataset``, which needs the same dataset path.
+
+
+def dataset_path(layout: BuildLayout, cfg: dict[str, Any], locus: str) -> Path:
+    """Where ``auspice dataset`` writes for ``locus``, by the Snakefile's rule.
+
+    A multi-locus config has one dataset per locus, named ``<build_name>_<locus>``;
+    a single-locus config keeps the bare ``<build_name>`` so a published URL does
+    not move (docs/NEXTSTRAIN.md).
+    """
+    build_name = (cfg.get("nextstrain") or {}).get("build_name")
+    if not build_name:
+        raise ValueError("the config has no nextstrain.build_name")
+    return layout.auspice_dataset(str(build_name), locus if len(loci_of(cfg)) > 1 else None)
+
+
+def add_build_dir_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add ``--build-dir`` and ``--locus``; the step defines its own ``--config``."""
+    parser.add_argument(
+        "--build-dir",
+        type=Path,
+        help="Build directory (builds/<id>/<YYYYMMDD>). Every path flag not given "
+        "explicitly defaults to where the build layout puts that file; needs "
+        "--config and --locus.",
+    )
+    parser.add_argument("--locus", help="Locus name; with --build-dir, picks the per-locus files.")
+
+
+def resolve_build_dir(
+    args: argparse.Namespace,
+    defaults: Callable[[BuildLayout, dict[str, Any], str], dict[str, Any]],
+    flags: tuple[str, ...],
+    required: tuple[str, ...],
+) -> str | None:
+    """Fill the unset path ``flags`` from the build layout; return an error message or None.
+
+    ``flags`` are ``args`` attributes (``full_metadata`` for ``--full-metadata``).
+    ``defaults(layout, cfg, locus)`` returns the layout's value for each. Only
+    attributes still None are filled, so an explicit flag always wins. Without
+    ``--build-dir`` nothing is filled. Afterwards every attribute in ``required``
+    must be set, which is how a flag can be optional on the command line yet
+    mandatory for the step.
+    """
+    if args.build_dir is not None:
+        unset = [name for name in flags if getattr(args, name) is None]
+        if args.config is None:
+            return "--build-dir needs --config"
+        if unset and args.locus is None:
+            names = ", ".join("--" + n.replace("_", "-") for n in unset)
+            return f"--build-dir needs --locus to default {names} (or pass them explicitly)"
+        if unset:
+            if not args.config.is_file():
+                return f"config not found: {args.config}"
+            cfg = yaml.safe_load(args.config.read_text()) or {}
+            try:
+                found = defaults(BuildLayout.at(args.build_dir, cfg), cfg, args.locus)
+            except ValueError as e:
+                return str(e)
+            for name in unset:
+                setattr(args, name, found[name])
+                log.debug("--%s defaults to %s", name.replace("_", "-"), found[name])
+    absent = [n for n in required if getattr(args, n) is None]
+    if absent:
+        names = ", ".join("--" + n.replace("_", "-") for n in absent)
+        return f"{names} required (or use --build-dir with --config and --locus)"
+    return None
+
+
+def _existing(*paths: Path) -> list[Path]:
+    return [p for p in paths if p.is_file()]
+
+
+def _dataset_defaults(layout: BuildLayout, cfg: dict[str, Any], locus: str) -> dict[str, Any]:
+    """Layout defaults for the unset path flags of ``auspice dataset``."""
+    return {
+        "mcc": layout.mcc_tree(locus),
+        "metadata": layout.subsample_metadata(locus),
+        "full_metadata": layout.metadata(),
+        # The tree was built from the subsample, so that is the sequence count to report.
+        "alignment": layout.subsample(locus),
+        "gates": _existing(
+            layout.temporal_report(locus),
+            layout.convergence_report(locus),
+            layout.trait_signal_report(locus),
+            layout.drt_summary(locus),
+            layout.congruence_report(),
+        ),
+        "output": dataset_path(layout, cfg, locus),
+    }
+
+
+def _entropy_defaults(layout: BuildLayout, cfg: dict[str, Any], locus: str) -> dict[str, Any]:
+    """Layout defaults for the unset path flags of ``auspice entropy``."""
+    dataset = dataset_path(layout, cfg, locus)
+    return {
+        "json": dataset,
+        "alignment": layout.subsample(locus),
+        # In place: the step backs the file up before overwriting it (--no-backup).
+        "output": dataset,
+    }
+
+
 def add_arguments_dataset(parser: argparse.ArgumentParser) -> None:
     """Flags of ``wildphylo auspice dataset``."""
-    parser.add_argument("--mcc", required=True, type=Path)
+    parser.add_argument("--mcc", type=Path, help="BEAST MCC tree. Required without --build-dir.")
     parser.add_argument(
         "--config",
         type=Path,
         help="Pathogen config. Title, maintainer, build URL, "
         "colourings and the trait key come from here; "
-        "nothing naming the pathogen is hardcoded.",
+        "nothing naming the pathogen is hardcoded. Required with --build-dir.",
     )
+    add_build_dir_arguments(parser)
     parser.add_argument("--metadata", type=Path, help="Subsampled metadata with a 'label' column.")
     parser.add_argument(
         "--full-metadata", type=Path, help="metadata_clean.tsv, for country and species."
@@ -226,8 +333,9 @@ def add_arguments_dataset(parser: argparse.ArgumentParser) -> None:
         "--gates",
         nargs="*",
         type=Path,
-        default=[],
-        help="Gate JSONs whose verdicts belong in the description.",
+        default=None,
+        help="Gate JSONs whose verdicts belong in the description. With --build-dir "
+        "and no --gates: every gate report of the locus that exists.",
     )
     parser.add_argument(
         "--most-recent",
@@ -247,7 +355,7 @@ def add_arguments_dataset(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--trait-name", default=None, help="What to call the trait in Auspice.")
     parser.add_argument("--title", default=None)
     parser.add_argument("--maintainer", default=None)
-    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--output", type=Path, help="Required without --build-dir.")
 
 
 @step("auspice", "dataset", "Convert a BEAST MCC tree to an Auspice v2 dataset")
@@ -278,8 +386,24 @@ def dataset(args: argparse.Namespace) -> int:
     failed its signal test is indistinguishable from one that passed unless the
     build says so.
 
+    With ``--build-dir`` (plus ``--config`` and ``--locus``) every path not given is
+    taken from the build layout: the locus's MCC tree, subsampled metadata and
+    alignment, the build's cleaned metadata, the gate reports that exist, and the
+    dataset path (``<build_name>_<locus>.json`` only for multi-locus configs).
+
     Exit code is non-zero if the MCC tree or its time axis is unusable.
     """
+    error = resolve_build_dir(
+        args,
+        _dataset_defaults,
+        flags=("mcc", "metadata", "full_metadata", "alignment", "gates", "output"),
+        required=("mcc", "output"),
+    )
+    if error:
+        log.error("%s", error)
+        return 1
+    if args.gates is None:
+        args.gates = []
     if not args.mcc.is_file():
         log.error("MCC tree not found: %s", args.mcc)
         return 1
@@ -773,8 +897,10 @@ def final_checks(doc: AuspiceNode, locus_name: str) -> bool:
 
 def add_arguments_entropy(parser: argparse.ArgumentParser) -> None:
     """Flags of ``wildphylo auspice entropy``."""
-    parser.add_argument("--json", required=True, type=Path)
-    parser.add_argument("--alignment", required=True, type=Path)
+    parser.add_argument("--json", type=Path, help="Required without --build-dir.")
+    parser.add_argument("--alignment", type=Path, help="Required without --build-dir.")
+    parser.add_argument("--config", type=Path, help="Pathogen config. Required with --build-dir.")
+    add_build_dir_arguments(parser)
     parser.add_argument(
         "--reference",
         help="Taxon label defining the coordinate system. "
@@ -794,7 +920,11 @@ def add_arguments_entropy(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Do not keep a timestamped copy of the output file before overwriting it.",
     )
-    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="Required without --build-dir; with it, the dataset is updated in place.",
+    )
 
 
 @step("auspice", "entropy", "Add the entropy panel and per-node mutations to an Auspice dataset")
@@ -813,8 +943,22 @@ def entropy(args: argparse.Namespace) -> int:
     reference's own bases, and mutations at insertion columns (which have no
     coordinate) are dropped and counted. This is also what augur does.
 
+    With ``--build-dir`` (plus ``--config`` and ``--locus``) the dataset, the
+    subsampled alignment and the output default to the build layout's files; the
+    output defaults to the dataset itself, so it is updated in place (the usual
+    timestamped backup applies).
+
     Exit code is non-zero on a failed check.
     """
+    error = resolve_build_dir(
+        args,
+        _entropy_defaults,
+        flags=("json", "alignment", "output"),
+        required=("json", "alignment", "output"),
+    )
+    if error:
+        log.error("%s", error)
+        return 1
     if args.gene_start is not None or args.cds:
         log.warning(
             "note: --gene-start and --cds are ignored — CDS extents now come from "

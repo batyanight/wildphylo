@@ -18,10 +18,13 @@ import yaml
 
 from wildphylo.cli import step
 from wildphylo.config import validate
+from wildphylo.stages.auspice import add_build_dir_arguments, dataset_path, resolve_build_dir
 from wildphylo.stages.fetch import build_query
 
 if TYPE_CHECKING:
     import argparse
+
+    from wildphylo.layout import BuildLayout
 
 log = logging.getLogger(__name__)
 
@@ -355,20 +358,30 @@ def _read_json_object(path: Path) -> dict[str, Any] | None:
     return doc
 
 
+def _dataset_defaults(layout: BuildLayout, cfg: dict[str, Any], locus: str) -> dict[str, Any]:
+    """Layout defaults for the unset path flags of ``publish dataset``."""
+    return {
+        "dataset": dataset_path(layout, cfg, locus),
+        "comparison": layout.build_comparison_json(),
+        "provenance": layout.provenance(),
+    }
+
+
 def add_arguments_dataset(parser: argparse.ArgumentParser) -> None:
     """Flags of ``wildphylo publish dataset``."""
     parser.add_argument(
         "--dataset",
         type=Path,
-        required=True,
-        help="Auspice JSON produced by `wildphylo auspice dataset`.",
+        help="Auspice JSON produced by `wildphylo auspice dataset`. Required without --build-dir.",
     )
     parser.add_argument(
         "--comparison",
         type=Path,
-        required=True,
-        help="build_comparison.json written by `wildphylo gates compare`.",
+        help="build_comparison.json written by `wildphylo gates compare`. "
+        "Required without --build-dir.",
     )
+    parser.add_argument("--config", type=Path, help="Pathogen config. Required with --build-dir.")
+    add_build_dir_arguments(parser)
     parser.add_argument(
         "--pathogen-repo",
         type=Path,
@@ -384,9 +397,8 @@ def add_arguments_dataset(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--provenance",
         type=Path,
-        required=True,
         help="provenance.json of the build; copied to "
-        "<pathogen-repo>/builds/<build_date>/provenance.json.",
+        "<pathogen-repo>/builds/<build_date>/provenance.json. Required without --build-dir.",
     )
     parser.add_argument(
         "--force",
@@ -403,7 +415,15 @@ def dataset(args: argparse.Namespace) -> int:
     comparison says the build regressed; ``--force`` overrides a regression. It
     never runs git: committing and pushing the pathogen repo is a reviewed,
     deliberate act.
+
+    With ``--build-dir`` (plus ``--config`` and ``--locus``) the dataset, comparison
+    and provenance default to the build layout's files.
     """
+    paths = ("dataset", "comparison", "provenance")
+    error = resolve_build_dir(args, _dataset_defaults, flags=paths, required=paths)
+    if error:
+        log.error("%s", error)
+        return 1
     for label, path in (
         ("dataset", args.dataset),
         ("comparison", args.comparison),

@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
+import yaml
 
 from wildphylo import cli
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from wildphylo.layout import BuildLayout
 
 
 @pytest.fixture
@@ -106,3 +105,84 @@ def test_publishing_does_not_touch_git(staged):
     _comparison(staged, "ok")
     assert _publish(staged) == 0
     assert not (staged["repo"] / ".git").exists()
+
+
+# --- --build-dir defaults ---------------------------------------------------
+
+CONFIG = Path(__file__).parent / "fixtures" / "configs" / "cdv-1200.yaml"
+
+
+def _build(tmp_path: Path) -> BuildLayout:
+    """A finished build laid out as BuildLayout expects, with an ``ok`` comparison."""
+    layout = BuildLayout.at(tmp_path / "build", yaml.safe_load(CONFIG.read_text()))
+    for path, body in (
+        (layout.auspice_dataset("cdv-phylodynamics"), {"version": "v2", "tree": {}}),
+        (layout.build_comparison_json(), {"verdict": "ok"}),
+        (layout.provenance(), {"build_date": "20260919"}),
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(body))
+    return layout
+
+
+def _publish_build_dir(tmp_path: Path, *extra: str) -> int:
+    repo = tmp_path / "repo"
+    repo.mkdir(exist_ok=True)
+    return cli.main(
+        [
+            "publish",
+            "dataset",
+            "--config",
+            str(CONFIG),
+            "--build-dir",
+            str(tmp_path / "build"),
+            "--locus",
+            "H",
+            "--pathogen-repo",
+            str(repo),
+            "--name",
+            "cdv-phylodynamics",
+            *extra,
+        ]
+    )
+
+
+def test_build_dir_defaults_dataset_comparison_and_provenance(tmp_path):
+    layout = _build(tmp_path)
+    assert _publish_build_dir(tmp_path) == 0
+    repo = tmp_path / "repo"
+    assert (repo / "auspice" / "cdv-phylodynamics.json").read_text() == layout.auspice_dataset(
+        "cdv-phylodynamics"
+    ).read_text()
+    assert (repo / "builds" / "20260919" / "provenance.json").is_file()
+
+
+def test_an_explicit_flag_overrides_the_build_dir_default(tmp_path):
+    layout = _build(tmp_path)
+    layout.build_comparison_json().write_text(json.dumps({"verdict": "regression"}))
+    ok = tmp_path / "other_comparison.json"
+    ok.write_text(json.dumps({"verdict": "ok"}))
+    assert _publish_build_dir(tmp_path) == 1  # the default comparison refuses
+    assert _publish_build_dir(tmp_path, "--comparison", str(ok)) == 0
+
+
+def test_build_dir_without_a_locus_is_refused(tmp_path, caplog):
+    _build(tmp_path)
+    assert (
+        cli.main(
+            [
+                "publish",
+                "dataset",
+                "--config",
+                str(CONFIG),
+                "--build-dir",
+                str(tmp_path / "build"),
+                "--pathogen-repo",
+                str(tmp_path),
+                "--name",
+                "x",
+            ]
+        )
+        == 1
+    )
+    assert "--locus" in caplog.text

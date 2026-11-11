@@ -19,8 +19,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+import yaml
 
 from wildphylo import cli
+from wildphylo.layout import BuildLayout
 from wildphylo.stages import auspice
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -403,3 +405,140 @@ def test_the_coordinate_frame_skips_insertion_columns():
     assert frame.refpos_for_col[8] == 7
     assert 7 not in frame.refpos_for_col
     assert frame.codon_columns(2) == (8, 9, 10)
+
+
+# --- --build-dir defaults ---------------------------------------------------
+
+CONFIG = ROOT / "tests" / "fixtures" / "configs" / "cdv-1200.yaml"
+
+
+def _layout(tmp_path, config=CONFIG):
+    return BuildLayout.at(tmp_path / "build", yaml.safe_load(Path(config).read_text()))
+
+
+def _stage(path: Path, text: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    return path
+
+
+@pytest.fixture
+def laid_out(tmp_path):
+    """A build directory holding exactly the inputs ``auspice dataset`` defaults to."""
+    layout = _layout(tmp_path)
+    _stage(layout.mcc_tree("H"), MCC)
+    _stage(layout.subsample_metadata("H"), META)
+    _stage(layout.metadata(), META)
+    _stage(layout.subsample("H"), ">a\nACGT\n>b\nACGT\n")
+    _stage(layout.convergence_report("H"), json.dumps({"verdict": "pass"}))
+    return layout
+
+
+def _dataset_cli(tmp_path, *extra, config=CONFIG):
+    return cli.main(
+        [
+            "auspice",
+            "dataset",
+            "--config",
+            str(config),
+            "--build-dir",
+            str(tmp_path / "build"),
+            "--locus",
+            "H",
+            *extra,
+        ]
+    )
+
+
+def test_dataset_build_dir_defaults_every_path(laid_out, tmp_path, caplog):
+    caplog.set_level(logging.INFO)
+    assert _dataset_cli(tmp_path) == 0
+    out = laid_out.auspice_dataset("cdv-phylodynamics")  # single locus: no suffix
+    assert out.is_file()
+    doc = json.loads(out.read_text())
+    assert "pass" in json.dumps(doc["meta"])  # the convergence gate that exists was picked up
+    assert "2 sequences" in caplog.text  # the subsample, not the full alignment
+
+
+def test_dataset_build_dir_suffixes_the_name_only_for_several_loci(tmp_path):
+    cfg = yaml.safe_load(CONFIG.read_text())
+    cfg["loci"] = [{"name": "H", "analyse": True}, {"name": "N", "analyse": True}]
+    del cfg["locus"]
+    config = _stage(tmp_path / "multi.yaml", yaml.safe_dump(cfg))
+    layout = _layout(tmp_path, config)
+    _stage(layout.mcc_tree("H"), MCC)
+    _stage(layout.subsample_metadata("H"), META)
+    assert _dataset_cli(tmp_path, config=config) == 0
+    assert layout.auspice_dataset("cdv-phylodynamics", "H").is_file()
+
+
+def test_dataset_explicit_flag_overrides_the_build_dir_default(laid_out, tmp_path):
+    other = _stage(tmp_path / "elsewhere" / "ds.json", "")
+    assert _dataset_cli(tmp_path, "--output", str(other)) == 0
+    assert json.loads(other.read_text())["version"] == "v2"
+    assert not laid_out.auspice_dataset("cdv-phylodynamics").exists()
+
+
+@pytest.mark.parametrize("drop", ["--config", "--locus"])
+def test_dataset_build_dir_needs_config_and_locus(tmp_path, caplog, drop):
+    argv = ["auspice", "dataset", "--config", str(CONFIG), "--locus", "H"]
+    argv += ["--build-dir", str(tmp_path / "build")]
+    i = argv.index(drop)
+    del argv[i : i + 2]
+    assert cli.main(argv) == 1
+    assert drop in caplog.text
+
+
+def test_dataset_without_build_dir_still_requires_mcc_and_output(caplog):
+    assert cli.main(["auspice", "dataset"]) == 1
+    assert "--mcc, --output required" in caplog.text
+
+
+def test_entropy_build_dir_defaults_every_path(tmp_path):
+    layout = _layout(tmp_path)
+    dataset = layout.auspice_dataset("cdv-phylodynamics")
+    _stage(dataset, json.dumps(_dataset()))
+    _stage(layout.subsample("H"), ALIGNMENT)
+    code = cli.main(
+        [
+            "auspice",
+            "entropy",
+            "--config",
+            str(CONFIG),
+            "--build-dir",
+            str(tmp_path / "build"),
+            "--locus",
+            "H",
+            "--reference",
+            "a",
+        ]
+    )
+    assert code == 0
+    assert "entropy" in json.loads(dataset.read_text())["meta"]["panels"]  # updated in place
+    assert len(list(dataset.parent.glob("*.bak.json"))) == 1
+
+
+def test_entropy_explicit_flag_overrides_the_build_dir_default(tmp_path):
+    layout = _layout(tmp_path)
+    dataset = _stage(layout.auspice_dataset("cdv-phylodynamics"), json.dumps(_dataset()))
+    _stage(layout.subsample("H"), ALIGNMENT)
+    out = tmp_path / "elsewhere" / "out.json"
+    code = cli.main(
+        [
+            "auspice",
+            "entropy",
+            "--config",
+            str(CONFIG),
+            "--build-dir",
+            str(tmp_path / "build"),
+            "--locus",
+            "H",
+            "--reference",
+            "a",
+            "--output",
+            str(out),
+        ]
+    )
+    assert code == 0
+    assert "entropy" in json.loads(out.read_text())["meta"]["panels"]
+    assert json.loads(dataset.read_text())["meta"]["panels"] == ["tree"]
