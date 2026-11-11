@@ -19,7 +19,7 @@ import random
 import numpy as np
 import pytest
 
-from wildphylo import cli
+from wildphylo import cli, newick
 from wildphylo import traitsignal as ts
 from wildphylo.stages import gates
 
@@ -38,7 +38,7 @@ def _states(top, mapping):
 
 
 def test_parse_four_tip_tree():
-    t = ts.parse_newick(FOUR)
+    t = newick.parse_topology(FOUR)
     assert t.n_tips == 4
     assert t.n_nodes == 7
     assert sorted(t.tip_index) == ["A", "B", "C", "D"]
@@ -46,7 +46,7 @@ def test_parse_four_tip_tree():
 
 
 def test_postorder_puts_children_before_parents():
-    t = ts.parse_newick("(((A:1,B:1):1,C:1):1,D:1);")
+    t = newick.parse_topology("(((A:1,B:1):1,C:1):1,D:1);")
     seen = set()
     for node in t.postorder:
         left, r = t.left[node], t.right[node]
@@ -57,7 +57,7 @@ def test_postorder_puts_children_before_parents():
 
 def test_strip_comments_removes_beast_annotations():
     nk = '(A[&host="felid",rate=1.0]:0.5,B[&host="dog"]:0.5)[&posterior=1.0]:0.0;'
-    assert ts.strip_comments(nk) == "(A:0.5,B:0.5):0.0;"
+    assert newick.strip_comments(nk) == "(A:0.5,B:0.5):0.0;"
 
 
 def test_strip_comments_survives_a_bracket_inside_a_quoted_annotation():
@@ -66,16 +66,16 @@ def test_strip_comments_survives_a_bracket_inside_a_quoted_annotation():
     naive regex and leave junk in the newick.
     """
     nk = '(A[&note="a]b",rate=1]:0.5,B:0.5);'
-    assert ts.strip_comments(nk) == "(A:0.5,B:0.5);"
+    assert newick.strip_comments(nk) == "(A:0.5,B:0.5);"
 
 
 def test_duplicate_tip_labels_are_rejected():
     with pytest.raises(ValueError, match="duplicate"):
-        ts.parse_newick("((A:1,A:1):1,B:1);")
+        newick.parse_topology("((A:1,A:1):1,B:1);")
 
 
 def test_polytomy_is_resolved_and_counted():
-    t = ts.parse_newick("(A:1,B:1,C:1,D:1);")
+    t = newick.parse_topology("(A:1,B:1,C:1,D:1);")
     assert t.n_tips == 4
     assert t.n_polytomies == 1
 
@@ -84,7 +84,7 @@ def test_polytomy_is_resolved_and_counted():
 
 
 def test_parsimony_score_hand_computed():
-    t = ts.parse_newick(FOUR)
+    t = newick.parse_topology(FOUR)
     a, S = _states(t, {"A": 0, "B": 0, "C": 1, "D": 1})
     assert ts.parsimony_score(t, a, S)[0] == 1  # one change at the root split
     a, S = _states(t, {"A": 0, "B": 1, "C": 0, "D": 1})
@@ -98,7 +98,7 @@ def test_association_index_hand_computed():
     Clean split:  (A,B) f=1 -> 0 ; (C,D) f=1 -> 0 ; root f=.5, n=4 -> .5/8
     Alternating:  (A,B) f=.5, n=2 -> .25 ; (C,D) .25 ; root .0625
     """
-    t = ts.parse_newick(FOUR)
+    t = newick.parse_topology(FOUR)
     a, S = _states(t, {"A": 0, "B": 0, "C": 1, "D": 1})
     assert ts.association_index(t, a, S)[0] == pytest.approx(0.0625)
     a, S = _states(t, {"A": 0, "B": 1, "C": 0, "D": 1})
@@ -106,7 +106,7 @@ def test_association_index_hand_computed():
 
 
 def test_monophyletic_clade_sizes_hand_computed():
-    t = ts.parse_newick(FOUR)
+    t = newick.parse_topology(FOUR)
     a, S = _states(t, {"A": 0, "B": 0, "C": 1, "D": 1})
     assert list(ts.monophyletic_clades(t, a, S)[0]) == [2, 2]
     a, S = _states(t, {"A": 0, "B": 1, "C": 0, "D": 1})
@@ -115,7 +115,7 @@ def test_monophyletic_clade_sizes_hand_computed():
 
 def test_statistics_vectorise_identically_over_labellings():
     """A batch of R labellings must give what R separate calls give."""
-    t = ts.parse_newick(FOUR)
+    t = newick.parse_topology(FOUR)
     batch = np.array([[0, 0, 1, 1], [0, 1, 0, 1], [1, 1, 1, 0]], dtype=np.int64)
     got = ts.parsimony_score(t, batch, 2)
     one = [ts.parsimony_score(t, batch[i : i + 1], 2)[0] for i in range(3)]
@@ -156,7 +156,7 @@ def two_groups():
 def test_gate_passes_on_known_signal(two_groups):
     a, b, states = two_groups
     rng = random.Random(11)
-    trees = [ts.parse_newick(_clustered_tree([a, b], rng)) for _ in range(60)]
+    trees = [newick.parse_topology(_clustered_tree([a, b], rng)) for _ in range(60)]
     res = ts.trait_signal(trees, states, n_permutations=200, seed=1)
     assert res.verdict == "pass"
     assert res.ai.observed < res.ai.null_lo
@@ -167,7 +167,7 @@ def test_gate_passes_on_known_signal(two_groups):
 def test_gate_fails_on_known_noise(two_groups):
     a, b, states = two_groups
     rng = random.Random(12)
-    trees = [ts.parse_newick(_rand_tree(a + b, rng)) for _ in range(60)]
+    trees = [newick.parse_topology(_rand_tree(a + b, rng)) for _ in range(60)]
     res = ts.trait_signal(trees, states, n_permutations=200, seed=1)
     assert res.verdict == "fail"
     assert res.ai.p > 0.05 and res.ps.p > 0.05
@@ -180,7 +180,7 @@ def test_p_value_cannot_be_zero(two_groups):
     """
     a, b, states = two_groups
     rng = random.Random(13)
-    trees = [ts.parse_newick(_clustered_tree([a, b], rng)) for _ in range(20)]
+    trees = [newick.parse_topology(_clustered_tree([a, b], rng)) for _ in range(20)]
     res = ts.trait_signal(trees, states, n_permutations=99, seed=1)
     assert res.ai.p == pytest.approx(1 / 100)
     assert res.ai.p > 0
@@ -202,7 +202,7 @@ def test_null_is_one_permutation_across_all_trees_not_one_per_tree():
     rng = random.Random(14)
     tips = [f"t{i}" for i in range(30)]
     states = {t: ("A" if i % 2 else "B") for i, t in enumerate(tips)}
-    trees = [ts.parse_newick(_rand_tree(tips, rng)) for _ in range(80)]
+    trees = [newick.parse_topology(_rand_tree(tips, rng)) for _ in range(80)]
     res = ts.trait_signal(trees, states, n_permutations=300, seed=2)
     assert res.ai.null_lo < res.ai.observed < res.ai.null_hi
     assert 0.05 < res.ai.p < 0.95
@@ -215,7 +215,7 @@ def test_unassigned_tips_are_pruned_not_treated_as_a_state(two_groups):
     """
     a, b, states = two_groups
     rng = random.Random(15)
-    trees = [ts.parse_newick(_clustered_tree([a, b], rng)) for _ in range(20)]
+    trees = [newick.parse_topology(_clustered_tree([a, b], rng)) for _ in range(20)]
     with_unknown = dict(states)
     for t in a[:5]:
         with_unknown[t] = "?"
@@ -228,7 +228,7 @@ def test_unassigned_tips_are_pruned_not_treated_as_a_state(two_groups):
 def test_single_state_is_refused():
     rng = random.Random(16)
     tips = [f"t{i}" for i in range(10)]
-    trees = [ts.parse_newick(_rand_tree(tips, rng))]
+    trees = [newick.parse_topology(_rand_tree(tips, rng))]
     with pytest.raises(ValueError, match="nothing to test"):
         ts.trait_signal(trees, dict.fromkeys(tips, "A"), n_permutations=10)
 
@@ -236,7 +236,7 @@ def test_single_state_is_refused():
 def test_mismatched_traits_file_is_refused_not_silently_intersected():
     rng = random.Random(17)
     tips = [f"t{i}" for i in range(10)]
-    trees = [ts.parse_newick(_rand_tree(tips, rng))]
+    trees = [newick.parse_topology(_rand_tree(tips, rng))]
     with pytest.raises(ValueError, match="no tip label"):
         ts.trait_signal(
             trees, {f"other{i}": "A" if i % 2 else "B" for i in range(10)}, n_permutations=10
@@ -248,7 +248,7 @@ def test_low_power_is_reported_not_silently_passed():
     a = [f"a{i}" for i in range(3)]
     b = [f"b{i}" for i in range(12)]
     states = {**dict.fromkeys(a, "A"), **dict.fromkeys(b, "B")}
-    trees = [ts.parse_newick(_clustered_tree([a, b], rng)) for _ in range(20)]
+    trees = [newick.parse_topology(_clustered_tree([a, b], rng)) for _ in range(20)]
     res = ts.trait_signal(trees, states, n_permutations=100, seed=1)
     joined = " ".join(res.reasons)
     assert "LOW POWER" in joined
@@ -260,7 +260,7 @@ def test_result_is_json_serialisable(two_groups):
 
     a, b, states = two_groups
     rng = random.Random(19)
-    trees = [ts.parse_newick(_clustered_tree([a, b], rng)) for _ in range(10)]
+    trees = [newick.parse_topology(_clustered_tree([a, b], rng)) for _ in range(10)]
     res = ts.trait_signal(trees, states, n_permutations=20, seed=1)
     round_tripped = json.loads(json.dumps(res.to_dict()))
     assert round_tripped["verdict"] == res.verdict
@@ -287,7 +287,7 @@ End;
 def test_nexus_translate_block_is_resolved(tmp_path):
     p = tmp_path / "x.trees"
     p.write_text(NEXUS)
-    trees = ts.read_posterior([p], burnin=0.0)
+    trees = newick.read_posterior([p], burnin=0.0)
     assert len(trees) == 3
     assert "MT932504|wild_felid|1992" in trees[0].tip_index
     assert "1" not in trees[0].tip_index
@@ -301,7 +301,7 @@ def test_burnin_is_applied_per_file_not_to_the_pool(tmp_path):
     a, b = tmp_path / "a.trees", tmp_path / "b.trees"
     a.write_text(NEXUS)
     b.write_text(NEXUS)
-    both = ts.read_posterior([a, b], burnin=1 / 3)
+    both = newick.read_posterior([a, b], burnin=1 / 3)
     assert len(both) == 4  # 2 kept from each, not 4 from one
 
 

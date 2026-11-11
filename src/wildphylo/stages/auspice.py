@@ -61,15 +61,7 @@ from typing import TYPE_CHECKING, Any
 import yaml
 
 from wildphylo.cli import step
-from wildphylo.traittrees import (
-    TRANSLATE_ROW_RE,
-    TREE_LINE_RE,
-    NewickParser,
-    Node,
-    detect_tag,
-    label_date,
-    strip_leading_comment,
-)
+from wildphylo.newick import Node, iter_trees, label_date
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -90,37 +82,10 @@ def parse_mcc(path: Path, tag: str | None = None) -> tuple[list[Node], str]:
     parser would be a further place for the same quoting and nesting edge cases
     to be got wrong differently.
     """
-    raw = path.read_text()
-    translate: dict[str, str] = {}
-    in_translate = False
-    newick: str | None = None
-    for line in raw.splitlines():
-        s = line.strip()
-        low = s.lower()
-        if low.startswith("translate"):
-            in_translate = True
-            continue
-        if in_translate:
-            if s.startswith(";") or low.startswith("tree "):
-                in_translate = False
-            else:
-                m = TRANSLATE_ROW_RE.match(s)
-                if m:
-                    translate[m.group(1)] = m.group(2).strip().strip("'\"")
-                if s.endswith(";"):
-                    in_translate = False
-                continue
-        m = TREE_LINE_RE.match(s)
-        if m and newick is None:
-            newick = strip_leading_comment(m.group(1))
-    if newick is None:
+    first = next(iter_trees(path, tag, keep_annotations=True), None)
+    if first is None:
         raise ValueError(f"no tree line found in {path}")
-
-    resolved = detect_tag(newick, tag)
-    nodes = NewickParser(newick, resolved, keep_annotations=True).parse()
-    for nd in nodes:
-        if nd["is_tip"] and nd["label"] in translate:
-            nd["label"] = translate[nd["label"]]
+    _, nodes, resolved = first
     return nodes, resolved
 
 

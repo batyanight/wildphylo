@@ -33,8 +33,7 @@ from wildphylo.beastxml import (
 from wildphylo.cli import step
 from wildphylo.config import ConfigError
 from wildphylo.config import load as load_config
-from wildphylo.preflight import check_clock_prior
-from wildphylo.traittrees import (
+from wildphylo.newick import (
     TREE_LINE_RE,
     Node,
     iter_trees,
@@ -42,6 +41,7 @@ from wildphylo.traittrees import (
     node_depths,
     smart_open,
 )
+from wildphylo.preflight import check_clock_prior
 
 if TYPE_CHECKING:
     import argparse
@@ -1238,7 +1238,7 @@ NEXT STEPS
 
 # =========================================================================== #
 # Shared by jumps and state-through-time. Both read the same posterior of BEAST
-# discrete-trait trees through wildphylo.traittrees: a transition count and a
+# discrete-trait trees through wildphylo.newick: a transition count and a
 # lineage share computed by two different parsers could not both be true of the
 # same posterior.
 # =========================================================================== #

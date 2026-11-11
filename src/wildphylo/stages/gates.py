@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from wildphylo import newick
 from wildphylo import traitsignal as tsig
 from wildphylo.beastlog import (
     NON_PARAMETERS,
@@ -800,7 +801,7 @@ def trait_signal(args: argparse.Namespace) -> int:
         log.error("no such tree file: %s", missing[0])
         return 1
 
-    trees = tsig.read_posterior(
+    trees = newick.read_posterior(
         paths, burnin=args.burnin, thin=args.thin, max_trees=args.max_trees
     )
     log.info(

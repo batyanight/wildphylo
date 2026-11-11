@@ -28,7 +28,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from wildphylo import cli  # noqa: E402
-from wildphylo import traittrees as tt  # noqa: E402
+from wildphylo import newick as tt  # noqa: E402
 from wildphylo.stages import beast  # noqa: E402
 
 # --- annotation extraction --------------------------------------------------
@@ -299,3 +299,99 @@ def test_both_steps_use_the_one_shared_parser():
     assert "spec_from_file_location" not in text
     assert beast.iter_trees is tt.iter_trees
     assert beast.node_depths is tt.node_depths
+
+
+# --- one parser, two views --------------------------------------------------
+#
+# The jump/state steps walk the node list; the trait signal gate consumes the
+# Topology arrays. Both are built by the same parser, so the same tree must
+# come out as the same shape, labels and states from either entry point.
+
+TRAIT_NEXUS = """#NEXUS
+Begin trees;
+\tTranslate
+\t\t1 MT932504|wild_felid|1992,
+\t\t2 MT932511|wild_felid|1992,
+\t\t3 MW984525|procyonid|2015,
+\t\t4 KX024709|domestic_dog|2004
+;
+tree STATE_0 = [&R] ((1[&host_group="felid"]:0.5,2[&host_group="felid"]:0.5):0.3,(3:0.2,4:0.2):0.6):0.0;
+tree STATE_1 = [&R] ((1:0.5,3:0.5):0.3,(2:0.2,4:0.2):0.6):0.0;
+End;
+"""  # noqa: E501 -- Nexus fixture; tree lines cannot wrap
+
+
+def _node_clades(nodes):
+    """The set of tip-label sets, one per internal node, from a node list."""
+    below = [frozenset() for _ in nodes]
+    for i in reversed(range(len(nodes))):  # children come after parents
+        nd = nodes[i]
+        if nd["is_tip"]:
+            below[i] = frozenset([nd["label"]])
+        if nd["parent"] is not None:
+            below[nd["parent"]] = below[nd["parent"]] | below[i]
+    return {below[i] for i, nd in enumerate(nodes) if not nd["is_tip"]}
+
+
+def _topology_clades(top):
+    """The same set of clades, read from the Topology arrays."""
+    name = {v: k for k, v in top.tip_index.items()}
+    below = {}
+    clades = set()
+    for raw in top.postorder:
+        node = int(raw)
+        left, right = int(top.left[node]), int(top.right[node])
+        if left < 0:
+            below[node] = frozenset([name[node]])
+        else:
+            below[node] = below[left] | below[right]
+            clades.add(below[node])
+    return clades
+
+
+@pytest.mark.parametrize("which", [0, 1])
+def test_both_views_of_a_nexus_tree_agree(tmp_path, which):
+    p = tmp_path / "x.trees"
+    p.write_text(TRAIT_NEXUS)
+    _, nodes, _ = list(tt.iter_trees(p))[which]
+    top = list(tt.iter_topologies(p, burnin=0.0))[which]
+    assert sorted(top.tip_index) == sorted(n["label"] for n in nodes if n["is_tip"])
+    assert _topology_clades(top) == _node_clades(nodes)
+    assert top.n_tips == sum(n["is_tip"] for n in nodes)
+
+
+def test_translated_labels_and_states_come_from_one_parse(tmp_path):
+    p = tmp_path / "x.trees"
+    p.write_text(TRAIT_NEXUS)
+    _, nodes, tag = next(tt.iter_trees(p))
+    top = next(tt.iter_topologies(p, burnin=0.0))
+    assert tag == "host_group"
+    states = {n["label"]: n["state"] for n in nodes if n["is_tip"]}
+    assert states == {
+        "MT932504|wild_felid|1992": "felid",
+        "MT932511|wild_felid|1992": "felid",
+        "MW984525|procyonid|2015": None,
+        "KX024709|domestic_dog|2004": None,
+    }
+    assert set(top.tip_index) == set(states)
+
+
+def test_reading_annotations_does_not_change_the_topology():
+    plain = tt.parse_topology(tt.strip_comments(KNOWN))
+    annotated = tt.parse_topology(KNOWN)
+    assert annotated.tip_index == plain.tip_index
+    assert annotated.postorder.tolist() == plain.postorder.tolist()
+    assert annotated.left.tolist() == plain.left.tolist()
+    assert annotated.right.tolist() == plain.right.tolist()
+    # ... and the node view of the same string still has the states
+    states = [n["state"] for n in tt.parse_newick(KNOWN, "host_group") if n["is_tip"]]
+    assert states == ["felid", "felid", "procyonid", "domestic_dog"]
+
+
+def test_a_polytomy_is_one_node_in_the_list_and_counted_in_the_topology():
+    nk = "(A:1,B:1,C:1,D:1);"
+    nodes = tt.parse_newick(nk)
+    assert len(nodes[0]["children"]) == 4
+    top = tt.parse_topology(nk)
+    assert top.n_polytomies == 1
+    assert top.n_tips == 4
