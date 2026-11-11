@@ -15,15 +15,13 @@ module docstring describes.
 from __future__ import annotations
 
 import random
-import subprocess
-import sys
-from pathlib import Path
 
 import numpy as np
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from wildphylo import cli
 from wildphylo import traitsignal as ts
+from wildphylo.stages import gates
 
 FOUR = "((A:1,B:1):1,(C:1,D:1):1);"
 
@@ -308,31 +306,36 @@ def test_burnin_is_applied_per_file_not_to_the_pool(tmp_path):
 
 
 def test_label_parsing_in_cli_helper():
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location(
-        "gate08e", Path(__file__).resolve().parents[1] / "scripts" / "08e_trait_signal.py"
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    got = mod.states_from_labels(["MT932504|wild_felid|1992"], 1, "|")
+    got = gates.states_from_labels(["MT932504|wild_felid|1992"], 1, "|")
     assert got == {"MT932504|wild_felid|1992": "wild_felid"}
     with pytest.raises(ValueError, match="no field"):
-        mod.states_from_labels(["nofields"], 1, "|")
+        gates.states_from_labels(["nofields"], 1, "|")
 
 
-def test_cli_help_works():
-    r = subprocess.run(
-        [sys.executable, "scripts/08e_trait_signal.py", "--help"],
-        cwd=Path(__file__).resolve().parents[1],
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
-    )
-    assert r.returncode == 0
-    assert "usage:" in r.stdout.lower()
+def test_cli_runs_end_to_end_on_a_posterior_sample(tmp_path):
+    trees = tmp_path / "x.trees"
+    trees.write_text(NEXUS)
+    out, md = tmp_path / "trait_signal.json", tmp_path / "trait_signal.md"
+    argv = ["gates", "trait-signal", "--trees", str(trees), "--burnin", "0"]
+    argv += ["--permutations", "20", "--out-json", str(out), "--out-md", str(md)]
+    rc = cli.main(argv)
+    assert rc == 0, "a fail verdict must not exit non-zero without --exit-nonzero-on-fail"
+    import json
+
+    assert json.loads(out.read_text())["verdict"] in ("pass", "weak", "fail")
+    assert md.read_text().startswith("```")
+
+
+def test_cli_missing_tree_file_is_an_error(tmp_path):
+    assert cli.main(["gates", "trait-signal", "--trees", str(tmp_path / "nope.trees")]) == 1
+
+
+def test_cli_help_works(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["gates", "trait-signal", "--help"])
+    rc = exc.value.code
+    assert rc == 0
+    assert "usage:" in capsys.readouterr().out.lower()
 
 
 # --- config plumbing --------------------------------------------------------
@@ -449,7 +452,7 @@ def test_gate_is_wired_into_the_workflow(repo_root):
     A gate that exists as a script but is not in the DAG is a gate nobody runs.
     """
     sf = (repo_root / "workflow" / "Snakefile").read_text()
-    assert "08e_trait_signal.py" in sf
+    assert "wildphylo gates trait-signal" in sf
     assert "rule trait_signal" in sf
 
 

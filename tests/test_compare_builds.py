@@ -10,27 +10,20 @@ bugs as results.
 
 from __future__ import annotations
 
-import importlib.util
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
+from wildphylo import cli
+from wildphylo.stages import gates
+
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
 
 
 @pytest.fixture(scope="module")
 def mod():
-    spec = importlib.util.spec_from_file_location(
-        "cmp12", ROOT / "scripts" / "12_compare_builds.py"
-    )
-    m = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = m
-    spec.loader.exec_module(m)
-    return m
+    return gates
 
 
 def make_build(root, date, accs=None, temporal=None, tmrca=None, gates=None):
@@ -74,7 +67,7 @@ def test_a_normal_monthly_rebuild_is_clean(mod, tmp_path):
         accs=[f"A{i}" for i in range(108)],
         temporal={"verdict": "pass", "r_squared": 0.43, "slope": 7.2e-4},
     )
-    c = mod.compare(
+    c = mod.compare_builds(
         prev, curr, "x", current_auspice=auspice(1965.0), previous_auspice=auspice(1964.6)
     )
     assert c.verdict == "ok"
@@ -86,7 +79,7 @@ def test_a_normal_monthly_rebuild_is_clean(mod, tmp_path):
 def test_losing_sequences_is_an_error_and_names_them(mod, tmp_path):
     prev = make_build(tmp_path, "20260901", accs=[f"A{i}" for i in range(100)])
     curr = make_build(tmp_path, "20261001", accs=[f"A{i}" for i in range(80)])
-    c = mod.compare(prev, curr, "x")
+    c = mod.compare_builds(prev, curr, "x")
     assert c.verdict == "regression"
     msg = " ".join(f.message for f in c.findings if f.level == "error")
     assert "A80" in msg, "the lost accessions must be named, not just counted"
@@ -95,7 +88,7 @@ def test_losing_sequences_is_an_error_and_names_them(mod, tmp_path):
 def test_sequence_loss_can_be_downgraded(mod, tmp_path):
     prev = make_build(tmp_path, "20260901", accs=["A", "B", "C"])
     curr = make_build(tmp_path, "20261001", accs=["A", "B"])
-    c = mod.compare(prev, curr, "x", alert_on_loss=False)
+    c = mod.compare_builds(prev, curr, "x", alert_on_loss=False)
     assert c.verdict == "review"
 
 
@@ -108,7 +101,7 @@ def test_a_stable_count_hiding_a_composition_change_is_caught(mod, tmp_path):
     curr = make_build(
         tmp_path, "20261001", accs=[f"A{i}" for i in range(80)] + [f"B{i}" for i in range(20)]
     )
-    c = mod.compare(prev, curr, "x", alert_on_loss=False)
+    c = mod.compare_builds(prev, curr, "x", alert_on_loss=False)
     msgs = " ".join(f.message for f in c.findings)
     assert "swapped out" in msgs
     assert "count is unchanged" in msgs
@@ -117,7 +110,7 @@ def test_a_stable_count_hiding_a_composition_change_is_caught(mod, tmp_path):
 def test_a_big_tmrca_shift_is_an_error(mod, tmp_path):
     prev = make_build(tmp_path, "20260901", accs=["A"])
     curr = make_build(tmp_path, "20261001", accs=["A"])
-    c = mod.compare(
+    c = mod.compare_builds(
         prev,
         curr,
         "x",
@@ -132,7 +125,7 @@ def test_a_big_tmrca_shift_is_an_error(mod, tmp_path):
 def test_a_small_tmrca_shift_is_only_a_note(mod, tmp_path):
     prev = make_build(tmp_path, "20260901", accs=["A"])
     curr = make_build(tmp_path, "20261001", accs=["A"])
-    c = mod.compare(
+    c = mod.compare_builds(
         prev,
         curr,
         "x",
@@ -156,7 +149,7 @@ def test_a_gate_verdict_dropping_is_a_regression(mod, tmp_path):
         accs=["A"],
         temporal={"verdict": "fail", "r_squared": 0.4, "slope": 1e-4},
     )
-    c = mod.compare(prev, curr, "x")
+    c = mod.compare_builds(prev, curr, "x")
     assert c.verdict == "regression"
     assert any("regressed" in f.message for f in c.findings)
 
@@ -174,7 +167,7 @@ def test_a_gate_verdict_improving_is_not_a_regression(mod, tmp_path):
         accs=["A"],
         temporal={"verdict": "pass", "r_squared": 0.4, "slope": 1e-4},
     )
-    c = mod.compare(prev, curr, "x")
+    c = mod.compare_builds(prev, curr, "x")
     assert c.verdict == "ok"
     assert any("improved" in f.message for f in c.findings)
 
@@ -193,7 +186,7 @@ def test_per_clade_gates_are_compared_separately(mod, tmp_path):
     }
     prev = make_build(tmp_path, "20260901", accs=["A"], gates=g_prev)
     curr = make_build(tmp_path, "20261001", accs=["A"], gates=g_curr)
-    c = mod.compare(prev, curr, "x")
+    c = mod.compare_builds(prev, curr, "x")
     assert c.verdict == "regression"
     assert any("america2" in f.message for f in c.findings)
 
@@ -215,7 +208,7 @@ def test_relative_change_keeps_its_sign(mod, tmp_path):
         accs=["A"],
         temporal={"verdict": "pass", "r_squared": 0.11, "slope": 1e-4},
     )
-    c = mod.compare(prev, curr, "x")
+    c = mod.compare_builds(prev, curr, "x")
     r2 = next(f.message for f in c.findings if "R^2" in f.message)
     assert "-74%" in r2
 
@@ -227,35 +220,14 @@ def test_a_first_build_is_not_a_failure(tmp_path):
     """A new pathogen has nothing to compare against. That must not block it."""
     make_build(tmp_path / "p", "20261001", accs=["A"])
     out = tmp_path / "r.md"
-    r = subprocess.run(
-        [
-            sys.executable,
-            "scripts/12_compare_builds.py",
-            "--builds-dir",
-            str(tmp_path / "p"),
-            "--out",
-            str(out),
-        ],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
-    )
-    assert r.returncode == 0
+    rc = cli.main(["gates", "compare", "--builds-dir", str(tmp_path / "p"), "--out", str(out)])
+    assert rc == 0
     assert "nothing to compare" in out.read_text()
 
 
 def test_a_missing_builds_directory_is_not_a_failure(tmp_path):
-    r = subprocess.run(
-        [sys.executable, "scripts/12_compare_builds.py", "--builds-dir", str(tmp_path / "nope")],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
-    )
-    assert r.returncode == 0
+    rc = cli.main(["gates", "compare", "--builds-dir", str(tmp_path / "nope")])
+    assert rc == 0
 
 
 def test_a_tree_with_no_date_is_not_compared_as_zero(mod):
@@ -296,24 +268,10 @@ def test_the_ci_invocation_works_without_an_auspice_json(tmp_path):
         temporal={"verdict": "pass", "r_squared": 0.4, "slope": 1e-4},
     )
     out = tmp_path / "r.md"
-    r = subprocess.run(
-        [
-            sys.executable,
-            "scripts/12_compare_builds.py",
-            "--pathogen",
-            "cdv",
-            "--builds-dir",
-            str(root),
-            "--out",
-            str(out),
-        ],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
+    rc = cli.main(
+        ["gates", "compare", "--pathogen", "cdv", "--builds-dir", str(root), "--out", str(out)]
     )
-    assert r.returncode == 1, "a lost sequence should fail the step"
+    assert rc == 1, "a lost sequence should fail the step"
     assert "cdv" in out.read_text()
 
 
@@ -324,10 +282,10 @@ def test_the_snakemake_invocation_works_with_one(tmp_path):
     cur = tmp_path / "current.json"
     cur.write_text(json.dumps(auspice(1964.8)))
     out = tmp_path / "r.md"
-    r = subprocess.run(
+    rc = cli.main(
         [
-            sys.executable,
-            "scripts/12_compare_builds.py",
+            "gates",
+            "compare",
             "--current",
             str(cur),
             "--builds-dir",
@@ -336,24 +294,15 @@ def test_the_snakemake_invocation_works_with_one(tmp_path):
             "5.0",
             "--out",
             str(out),
-        ],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
+        ]
     )
-    assert r.returncode == 0, r.stdout[-1000:]
+    assert rc == 0
     assert "TMRCA" in out.read_text()
 
 
-def test_cli_help_works():
-    r = subprocess.run(
-        [sys.executable, "scripts/12_compare_builds.py", "--help"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
-    )
-    assert r.returncode == 0
+def test_cli_help_works(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["gates", "compare", "--help"])
+    rc = exc.value.code
+    assert rc == 0
+    assert "usage:" in capsys.readouterr().out.lower()

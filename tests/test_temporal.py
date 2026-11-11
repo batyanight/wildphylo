@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+from wildphylo import cli
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from wildphylo.temporal import (
     assess,
@@ -167,11 +169,7 @@ def test_a_failing_gate_still_writes_its_report(tmp_path):
     workflow reads the verdict from the JSON.
     """
     import json
-    import subprocess
-    import sys
-    from pathlib import Path
 
-    root = Path(__file__).resolve().parents[1]
     # A tree whose branch lengths carry no relation to the dates in the labels.
     nwk = (
         "((A|x|2001.0:0.9,B|x|2002.0:0.1):0.5,(C|x|2003.0:0.8,D|x|2004.0:0.2):0.4,"
@@ -180,33 +178,15 @@ def test_a_failing_gate_still_writes_its_report(tmp_path):
     tree = tmp_path / "t.nwk"
     tree.write_text(nwk)
     out = tmp_path / "r.json"
-    r = subprocess.run(
-        [
-            sys.executable,
-            "scripts/04b_temporal_signal.py",
-            "--tree",
-            str(tree),
-            "--permutations",
-            "50",
-            "--out-json",
-            str(out),
-        ],
-        capture_output=True,
-        text=True,
-        cwd=root,
-        check=False,
+    rc = cli.main(
+        ["gates", "temporal", "--tree", str(tree), "--permutations", "50", "--out-json", str(out)]
     )
-    assert r.returncode == 0, f"gate exited {r.returncode}; report would be deleted"
+    assert rc == 0, f"gate exited {rc}; report would be deleted"
     assert out.is_file(), "the report was not written"
     json.loads(out.read_text())
 
 
 def test_exit_code_can_be_opted_into_for_shell_use(tmp_path):
-    import subprocess
-    import sys
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[1]
     nwk = (
         "((A|x|2001.0:0.9,B|x|2002.0:0.1):0.5,(C|x|2003.0:0.8,D|x|2004.0:0.2):0.4,"
         "(E|x|2005.0:0.7,F|x|2006.0:0.3):0.6);"
@@ -214,10 +194,10 @@ def test_exit_code_can_be_opted_into_for_shell_use(tmp_path):
     tree = tmp_path / "t.nwk"
     tree.write_text(nwk)
     out = tmp_path / "r.json"
-    r = subprocess.run(
+    rc = cli.main(
         [
-            sys.executable,
-            "scripts/04b_temporal_signal.py",
+            "gates",
+            "temporal",
             "--tree",
             str(tree),
             "--permutations",
@@ -225,11 +205,7 @@ def test_exit_code_can_be_opted_into_for_shell_use(tmp_path):
             "--out-json",
             str(out),
             "--exit-nonzero-on-fail",
-        ],
-        capture_output=True,
-        text=True,
-        cwd=root,
-        check=False,
+        ]
     )
-    assert r.returncode == 1
+    assert rc == 1
     assert out.is_file(), "the report must survive even when exiting non-zero"

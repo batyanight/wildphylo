@@ -19,28 +19,22 @@ entirely reasonable:
 
 from __future__ import annotations
 
-import importlib.util
 import json
-import subprocess
-import sys
+import logging
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from wildphylo import cli
+from wildphylo.stages import gates
+
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
 
 
 @pytest.fixture(scope="module")
 def mod():
-    spec = importlib.util.spec_from_file_location(
-        "drt08d", ROOT / "scripts" / "08d_drt_summary.py"
-    )
-    m = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = m
-    spec.loader.exec_module(m)
-    return m
+    return gates
 
 
 def write_log(path, mean, sd, n=2000, rho=0.0, seed=0, param="clockRate"):
@@ -87,7 +81,7 @@ def scenario(
 def run(mod, real, reps, burnin=0.10, min_ess=100):
     r = mod.rate_summary(real, 0.0, None)
     rr = [mod.rate_summary(p, burnin, r["param"]) for p in reps]
-    return r, rr, mod.assess(r, rr, min_ess=min_ess)
+    return r, rr, mod.assess_drt(r, rr, min_ess=min_ess)
 
 
 # --- the four scenarios -----------------------------------------------------
@@ -222,10 +216,10 @@ def test_cli_writes_json_and_exits_nonzero_on_failure(tmp_path):
         write_log(p, rng.normal(2.0e-4, 2.5e-5), 3e-5, seed=100 + i)
         reps.append(str(p))
     out = tmp_path / "drt.json"
-    r = subprocess.run(
+    rc = cli.main(
         [
-            sys.executable,
-            "scripts/08d_drt_summary.py",
+            "gates",
+            "drt",
             "--real",
             str(real),
             "--reps",
@@ -233,21 +227,16 @@ def test_cli_writes_json_and_exits_nonzero_on_failure(tmp_path):
             "--out-json",
             str(out),
             "--exit-nonzero-on-fail",
-        ],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=180,
-        check=False,
+        ]
     )
-    assert r.returncode == 1, r.stdout[-1500:]
+    assert rc == 1
     doc = json.loads(out.read_text())
     assert doc["verdict"] == "fail"
     assert doc["real"]["param"] == "clockRate"
     assert len(doc["replicates"]) == 10
 
 
-def test_cli_warns_when_there_are_too_few_replicates(tmp_path):
+def test_cli_warns_when_there_are_too_few_replicates(tmp_path, caplog):
     real = tmp_path / "real.log"
     write_log(real, 7.0e-4, 3e-5, seed=1)
     reps = []
@@ -255,24 +244,14 @@ def test_cli_warns_when_there_are_too_few_replicates(tmp_path):
         p = tmp_path / f"rep{i}.log"
         write_log(p, 2.0e-4, 2e-5, seed=200 + i)
         reps.append(str(p))
-    r = subprocess.run(
-        [sys.executable, "scripts/08d_drt_summary.py", "--real", str(real), "--reps", *reps],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=180,
-        check=False,
-    )
-    assert "only 3 replicates" in r.stderr
+    with caplog.at_level(logging.WARNING):
+        cli.main(["gates", "drt", "--real", str(real), "--reps", *reps])
+    assert "only 3 replicates" in caplog.text
 
 
-def test_cli_help_works():
-    r = subprocess.run(
-        [sys.executable, "scripts/08d_drt_summary.py", "--help"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
-    )
-    assert r.returncode == 0
+def test_cli_help_works(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["gates", "drt", "--help"])
+    rc = exc.value.code
+    assert rc == 0
+    assert "usage:" in capsys.readouterr().out.lower()

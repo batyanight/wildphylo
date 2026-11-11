@@ -9,31 +9,21 @@ the number agrees with Tracer, which is what the user will check it against.
 
 from __future__ import annotations
 
-import importlib.util
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from wildphylo import beastlog, cli
+from wildphylo.stages import gates
+
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
 
 
 @pytest.fixture(scope="module")
 def mod():
-    spec = importlib.util.spec_from_file_location(
-        "conv08b", ROOT / "scripts" / "08b_convergence.py"
-    )
-    m = importlib.util.module_from_spec(spec)
-    # Register before exec: @dataclass resolves cls.__module__ through
-    # sys.modules while building __init__, and a path-loaded module is not
-    # there unless it is put there.
-    sys.modules[spec.name] = m
-    spec.loader.exec_module(m)
-    return m
+    return gates
 
 
 def ar1(n, rho, rng):
@@ -48,13 +38,13 @@ def ar1(n, rho, rng):
 # --- ESS --------------------------------------------------------------------
 
 
-def test_ess_of_independent_samples_is_the_sample_count(mod):
+def test_ess_of_independent_samples_is_the_sample_count():
     rng = np.random.default_rng(1)
     x = rng.standard_normal(10000)
-    assert mod.ess(x) == pytest.approx(10000, rel=0.10)
+    assert beastlog.ess(x) == pytest.approx(10000, rel=0.10)
 
 
-def test_ess_of_autocorrelated_samples_matches_theory(mod):
+def test_ess_of_autocorrelated_samples_matches_theory():
     """
     For AR(1), ESS = N (1 - rho) / (1 + rho). An estimator that ignored
     autocorrelation would return N here, which is the failure that makes a
@@ -64,22 +54,22 @@ def test_ess_of_autocorrelated_samples_matches_theory(mod):
     n = 20000
     for rho in (0.5, 0.8):
         theory = n * (1 - rho) / (1 + rho)
-        got = mod.ess(ar1(n, rho, rng))
+        got = beastlog.ess(ar1(n, rho, rng))
         assert got == pytest.approx(theory, rel=0.25), f"rho={rho}"
 
 
-def test_ess_never_exceeds_the_number_of_samples(mod):
+def test_ess_never_exceeds_the_number_of_samples():
     rng = np.random.default_rng(3)
     x = -0.6 * np.ones(500)  # anti-correlated: raw formula can exceed n
     x = x + rng.standard_normal(500) * 0.01
-    assert mod.ess(x) <= 500
+    assert beastlog.ess(x) <= 500
 
 
-def test_ess_of_a_constant_does_not_divide_by_zero(mod):
-    assert mod.ess(np.full(1000, 2.5)) == 1000
+def test_ess_of_a_constant_does_not_divide_by_zero():
+    assert beastlog.ess(np.full(1000, 2.5)) == 1000
 
 
-def test_ess_is_fast_enough_to_run_every_build(mod):
+def test_ess_is_fast_enough_to_run_every_build():
     """
     Tracer's nested loop is O(lag x n) in Python and takes minutes on a real
     log. A gate slow enough to be skipped is not a gate.
@@ -90,38 +80,38 @@ def test_ess_is_fast_enough_to_run_every_build(mod):
     x = rng.standard_normal(10000)
     t0 = time.time()
     for _ in range(30):
-        mod.ess(x)
+        beastlog.ess(x)
     assert time.time() - t0 < 5.0
 
 
 # --- HPD and overlap --------------------------------------------------------
 
 
-def test_hpd_of_a_standard_normal(mod):
+def test_hpd_of_a_standard_normal():
     rng = np.random.default_rng(5)
-    lo, hi = mod.hpd(rng.standard_normal(200000))
+    lo, hi = beastlog.hpd(rng.standard_normal(200000))
     assert lo == pytest.approx(-1.96, abs=0.05)
     assert hi == pytest.approx(1.96, abs=0.05)
 
 
-def test_hpd_is_the_shortest_interval_not_the_quantile_interval(mod):
+def test_hpd_is_the_shortest_interval_not_the_quantile_interval():
     """
     On a skewed posterior the shortest interval and the 2.5/97.5 quantile
     interval differ, and clock rates and tree heights are skewed.
     """
     rng = np.random.default_rng(6)
     x = rng.exponential(1.0, 200000)
-    lo, hi = mod.hpd(x)
+    lo, hi = beastlog.hpd(x)
     q_lo, q_hi = np.percentile(x, [2.5, 97.5])
     assert (hi - lo) < (q_hi - q_lo)
     assert lo < q_lo
 
 
-def test_overlap_is_one_for_the_same_distribution_and_zero_when_disjoint(mod):
+def test_overlap_is_one_for_the_same_distribution_and_zero_when_disjoint():
     rng = np.random.default_rng(7)
     a, b = rng.standard_normal(5000), rng.standard_normal(5000)
-    assert mod.overlap(a, b) > 0.85
-    assert mod.overlap(a, b + 50) == 0.0
+    assert beastlog.overlap(a, b) > 0.85
+    assert beastlog.overlap(a, b + 50) == 0.0
 
 
 # --- log parsing ------------------------------------------------------------
@@ -142,15 +132,15 @@ def write_log(path, params, n=2000, seed=0, shift=0.0, rho=0.0):
         )
 
 
-def test_comment_lines_and_header_are_parsed(mod, tmp_path):
+def test_comment_lines_and_header_are_parsed(tmp_path):
     p = tmp_path / "a.log"
     write_log(p, ["posterior", "clockRate"], n=100)
-    header, data = mod.read_beast_log(p)
+    header, data = beastlog.read_beast_log(p)
     assert header == ["Sample", "posterior", "clockRate"]
     assert data.shape == (100, 3)
 
 
-def test_truncated_final_line_is_dropped_not_raised(mod, tmp_path):
+def test_truncated_final_line_is_dropped_not_raised(tmp_path):
     """
     A log from a chain still running ends mid-line. Refusing to read it would
     mean the only way to check progress is to wait for the chain to finish.
@@ -159,15 +149,15 @@ def test_truncated_final_line_is_dropped_not_raised(mod, tmp_path):
     write_log(p, ["posterior", "clockRate"], n=100)
     with Path(p).open("a") as fh:
         fh.write("99000\t-123.4")  # missing the last column
-    _header, data = mod.read_beast_log(p)
+    _header, data = beastlog.read_beast_log(p)
     assert data.shape == (100, 3)
 
 
-def test_empty_log_is_refused(mod, tmp_path):
+def test_empty_log_is_refused(tmp_path):
     p = tmp_path / "empty.log"
     p.write_text("# nothing here\n")
     with pytest.raises(ValueError, match="no usable samples"):
-        mod.read_beast_log(p)
+        beastlog.read_beast_log(p)
 
 
 # --- the gate ---------------------------------------------------------------
@@ -177,7 +167,7 @@ def test_two_agreeing_well_mixed_chains_pass(mod, tmp_path):
     a, b = tmp_path / "a.log", tmp_path / "b.log"
     write_log(a, ["posterior", "clockRate"], seed=1)
     write_log(b, ["posterior", "clockRate"], seed=2)
-    res = mod.analyse([a, b], burnin=0.10, min_ess=200)
+    res = mod.analyse_convergence([a, b], burnin=0.10, min_ess=200)
     from wildphylo.preflight import check_convergence
 
     checks = check_convergence({"beast": {"min_ess": 200}}, res["ess"], 2, res["overlap"])
@@ -194,7 +184,7 @@ def test_chains_in_different_places_are_caught_despite_high_ess(mod, tmp_path):
     a, b = tmp_path / "a.log", tmp_path / "b.log"
     write_log(a, ["posterior", "clockRate"], seed=1, shift=0.0)
     write_log(b, ["posterior", "clockRate"], seed=2, shift=40.0)
-    res = mod.analyse([a, b], burnin=0.10, min_ess=200)
+    res = mod.analyse_convergence([a, b], burnin=0.10, min_ess=200)
     assert min(res["ess"].values()) > 200, "each chain is well mixed"
     assert res["overlap"]["clockRate"] < 0.5
     from wildphylo.preflight import check_convergence
@@ -207,7 +197,7 @@ def test_a_sticky_chain_fails_on_ess(mod, tmp_path):
     a, b = tmp_path / "a.log", tmp_path / "b.log"
     write_log(a, ["posterior", "clockRate"], n=2000, seed=1, rho=0.995)
     write_log(b, ["posterior", "clockRate"], n=2000, seed=2, rho=0.995)
-    res = mod.analyse([a, b], burnin=0.10, min_ess=200)
+    res = mod.analyse_convergence([a, b], burnin=0.10, min_ess=200)
     assert min(res["ess"].values()) < 200
 
 
@@ -220,14 +210,14 @@ def test_chains_logging_different_parameters_are_refused(mod, tmp_path):
     write_log(a, ["posterior", "clockRate"])
     write_log(b, ["posterior", "clockRate", "rateIndicator.1"])
     with pytest.raises(ValueError, match="different parameters"):
-        mod.analyse([a, b], burnin=0.10, min_ess=200)
+        mod.analyse_convergence([a, b], burnin=0.10, min_ess=200)
 
 
 def test_burnin_is_applied_within_each_chain(mod, tmp_path):
     a, b = tmp_path / "a.log", tmp_path / "b.log"
     write_log(a, ["posterior"], n=1000, seed=1)
     write_log(b, ["posterior"], n=1000, seed=2)
-    res = mod.analyse([a, b], burnin=0.20, min_ess=10)
+    res = mod.analyse_convergence([a, b], burnin=0.20, min_ess=10)
     assert [c["n_kept"] for c in res["chains"]] == [800, 800]
 
 
@@ -235,7 +225,7 @@ def test_too_short_after_burnin_is_refused(mod, tmp_path):
     a = tmp_path / "a.log"
     write_log(a, ["posterior"], n=11)
     with pytest.raises(ValueError, match="too short"):
-        mod.analyse([a], burnin=0.90, min_ess=10)
+        mod.analyse_convergence([a], burnin=0.90, min_ess=10)
 
 
 def test_pooled_ess_is_the_sum_not_the_ess_of_the_concatenation(mod, tmp_path):
@@ -246,7 +236,7 @@ def test_pooled_ess_is_the_sum_not_the_ess_of_the_concatenation(mod, tmp_path):
     a, b = tmp_path / "a.log", tmp_path / "b.log"
     write_log(a, ["posterior"], n=2000, seed=1)
     write_log(b, ["posterior"], n=2000, seed=2)
-    res = mod.analyse([a, b], burnin=0.0, min_ess=10)
+    res = mod.analyse_convergence([a, b], burnin=0.0, min_ess=10)
     per = res["ess_per_chain"]["posterior"]
     assert res["ess"]["posterior"] == pytest.approx(sum(per), rel=1e-6)
 
@@ -255,9 +245,9 @@ def test_combined_log_renumbers_samples_and_keeps_every_row(mod, tmp_path):
     a, b = tmp_path / "a.log", tmp_path / "b.log"
     write_log(a, ["posterior", "clockRate"], n=500, seed=1)
     write_log(b, ["posterior", "clockRate"], n=500, seed=2)
-    res = mod.analyse([a, b], burnin=0.10, min_ess=10)
+    res = mod.analyse_convergence([a, b], burnin=0.10, min_ess=10)
     out = tmp_path / "combined.log"
-    n = mod.write_combined(res, out)
+    n = mod.write_combined_log(res, out)
     assert n == 900
     lines = [
         line for line in out.read_text().splitlines() if line.strip() and not line.startswith("#")
@@ -275,10 +265,10 @@ def test_cli_writes_json_and_exits_nonzero_when_chains_disagree(tmp_path):
     write_log(a, ["posterior", "clockRate"], seed=1, shift=0.0)
     write_log(b, ["posterior", "clockRate"], seed=2, shift=40.0)
     out = tmp_path / "convergence.json"
-    r = subprocess.run(
+    rc = cli.main(
         [
-            sys.executable,
-            "scripts/08b_convergence.py",
+            "gates",
+            "convergence",
             "--logs",
             str(a),
             str(b),
@@ -290,14 +280,9 @@ def test_cli_writes_json_and_exits_nonzero_when_chains_disagree(tmp_path):
             str(out),
             "--out-combined",
             str(tmp_path / "combined.log"),
-        ],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
+        ]
     )
-    assert r.returncode == 1, r.stdout[-1500:]
+    assert rc == 1
     doc = json.loads(out.read_text())
     assert doc["verdict"] == "fail"
     assert doc["checks"]["errors"]
@@ -310,36 +295,16 @@ def test_cli_exits_zero_on_a_healthy_pair(tmp_path):
     write_log(a, ["posterior", "clockRate"], seed=1)
     write_log(b, ["posterior", "clockRate"], seed=2)
     out = tmp_path / "convergence.json"
-    r = subprocess.run(
-        [
-            sys.executable,
-            "scripts/08b_convergence.py",
-            "--logs",
-            str(a),
-            str(b),
-            "--out-json",
-            str(out),
-        ],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-    )
-    assert r.returncode == 0, r.stdout[-1500:]
+    rc = cli.main(["gates", "convergence", "--logs", str(a), str(b), "--out-json", str(out)])
+    assert rc == 0
     doc = json.loads(out.read_text())
     assert doc["verdict"] == "pass"
     assert doc["hpd"]["clockRate"][1] < doc["hpd"]["clockRate"][2]
 
 
-def test_cli_help_works():
-    r = subprocess.run(
-        [sys.executable, "scripts/08b_convergence.py", "--help"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
-    )
-    assert r.returncode == 0
-    assert "usage:" in r.stdout.lower()
+def test_cli_help_works(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["gates", "convergence", "--help"])
+    rc = exc.value.code
+    assert rc == 0
+    assert "usage:" in capsys.readouterr().out.lower()

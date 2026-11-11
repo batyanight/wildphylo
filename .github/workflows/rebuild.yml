@@ -84,7 +84,7 @@ jobs:
       - name: Compare against the previous build
         shell: bash -el {0}
         run: |
-          python scripts/12_compare_builds.py \
+          wildphylo gates compare \
             --pathogen ${{ matrix.pathogen }} \
             --builds-dir builds/${{ matrix.pathogen }} \
             --out /tmp/comparison.md

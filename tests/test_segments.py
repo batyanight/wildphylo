@@ -8,12 +8,11 @@ localised rather than just registering as "the trees differ".
 """
 
 import io
-import sys
-from pathlib import Path
+import json
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from Bio import Phylo
 
+from wildphylo import cli
 from wildphylo.segments import (
     assess_congruence,
     find_reassortant_candidates,
@@ -208,3 +207,49 @@ def test_result_is_json_serialisable():
 
     r = assess_congruence({"seg2": t(CONGRUENT), "seg6": t(SWAPPED)}, collapse_support=None)
     json.dumps(r.to_dict())
+
+
+# --- gates congruence (CLI) --------------------------------------------------
+
+
+def _write_trees(tmp_path, *newicks):
+    paths = []
+    for i, nwk in enumerate(newicks):
+        p = tmp_path / f"seg{i}.nwk"
+        p.write_text(nwk)
+        paths.append(str(p))
+    return paths
+
+
+def test_cli_congruent_segments_are_permitted_and_reports_are_written(tmp_path):
+    trees = _write_trees(tmp_path, CONGRUENT, CONGRUENT)
+    out = tmp_path / "congruence.json"
+    md, tsv = tmp_path / "congruence.md", tmp_path / "reassortants.tsv"
+    argv = ["gates", "congruence", "--trees", *trees, "--names", "s0", "s1"]
+    argv += ["--collapse-support", "-1", "--out-json", str(out)]
+    argv += ["--out-md", str(md), "--out-tsv", str(tsv), "--require-concatenation"]
+    rc = cli.main(argv)
+    assert rc == 0
+    doc = json.loads(out.read_text())
+    assert doc["verdict"] == "congruent"
+    assert doc["concatenate"] is True
+    assert "Segment congruence" in md.read_text()
+    assert tsv.read_text().splitlines()[0] == "taxon\tincongruence"
+
+
+def test_cli_decoupled_segments_fail_only_when_concatenation_is_required(tmp_path):
+    trees = _write_trees(tmp_path, CONGRUENT, SWAPPED)
+    out = tmp_path / "congruence.json"
+    args = ["gates", "congruence", "--trees", *trees, "--collapse-support", "-1"]
+    args += ["--out-json", str(out)]
+    assert cli.main(args) == 0
+    assert json.loads(out.read_text())["concatenate"] is False
+    assert cli.main([*args, "--require-concatenation"]) == 1
+
+
+def test_cli_refuses_a_single_tree_and_mismatched_names(tmp_path):
+    trees = _write_trees(tmp_path, CONGRUENT, CONGRUENT)
+    out = str(tmp_path / "c.json")
+    assert cli.main(["gates", "congruence", "--trees", trees[0], "--out-json", out]) == 2
+    args = ["gates", "congruence", "--trees", *trees, "--names", "only_one", "--out-json", out]
+    assert cli.main(args) == 2

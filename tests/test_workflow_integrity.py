@@ -9,9 +9,10 @@ this pipeline could be hours in. Cheap to check, expensive to miss.
 
 import re
 import subprocess
-import sys
 
 import pytest
+
+from wildphylo import cli
 
 SNAKEFILE = "workflow/Snakefile"
 
@@ -75,22 +76,16 @@ def test_documented_gaps_match_reality(repo_root):
     )
 
 
-@pytest.mark.parametrize("script", ["04b_temporal_signal.py", "05b_segment_congruence.py"])
-def test_standalone_scripts_have_working_help(repo_root, script):
+@pytest.mark.parametrize("step", ["temporal", "congruence"])
+def test_standalone_gates_have_working_help(step, capsys):
     """
-    The two gate scripts are documented as runnable on their own. A --help that
+    The two gate steps are documented as runnable on their own. A --help that
     crashes means an import error nobody has noticed.
     """
-    r = subprocess.run(
-        [sys.executable, f"scripts/{script}", "--help"],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
-    )
-    assert r.returncode == 0, f"{script} --help failed: {r.stderr[-500:]}"
-    assert "usage:" in r.stdout.lower()
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["gates", step, "--help"])
+    assert exc.value.code == 0
+    assert "usage:" in capsys.readouterr().out.lower()
 
 
 def test_doc_links_resolve(repo_root):
