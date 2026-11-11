@@ -162,10 +162,14 @@ that deleted them and the originals are in the cdv-phylodynamics repo.
 
 Not done, in rough priority:
 
-- **Smoke build not run.** Every DAG dry-runs, but the fetch step needs
-  `NCBI_EMAIL`, which was unset in the session. Run
-  `snakemake -s workflow/Snakefile --configfile config/pathogen/cdv-smoke.yaml --cores 8`
-  before merging.
+- **Smoke build passed offline** (2026-11-11, `builds/cdv-smoke/20261112`,
+  untracked): curate → review gate → align → qc → ml_tree (`tree.fast`) →
+  temporal gate (verdict `weak`, 143 tips) → subsample → BEAST XML ×2 seeds,
+  every step through the CLI. The raw input was the first 150 records of the
+  2026-10-03 snapshot, standing in for `fetch.max_records: 150`; the fetch
+  step itself was exercised only by its tests, because `NCBI_EMAIL` was unset.
+  Run a fresh `cdv-smoke` build with the email set once before relying on
+  the cap end to end.
 - **`--build-dir` defaults** from the interface table are not implemented;
   steps keep their explicit path flags, so the Snakefile diff stayed mechanical.
 - **`publish dataset` is not wired into the Snakefile.** It needs a config key
@@ -173,4 +177,4 @@ Not done, in rough priority:
 - **`beast.py`** is ~2000 lines and is the next consolidation target.
 - **Report output channels changed** in several steps from print to logging
   (stderr). The Snakefile's `2>&1 | tee` keeps the log files the same.
-- Tag `v0.2.0` after the smoke build passes; phase 2 pins to that tag.
+- `v0.2.0` is tagged locally; push `main` and the tag so phase 2 can pin it.
