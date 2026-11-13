@@ -127,7 +127,8 @@ pathogen looks like.
 ## Repository layout
 
 ```
-src/wildphylo/workflow/Snakefile           the DAG; gates are Snakemake checkpoints. Every
+src/wildphylo/workflow/Snakefile
+                             the DAG; gates are Snakemake checkpoints. Every
                              rule calls `wildphylo <stage> <step>`
 config/pathogen/*.yaml       template, smoke config, pathogens without a repo yet
 tests/fixtures/configs/      CDV analysis configs, frozen as test fixtures
