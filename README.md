@@ -8,7 +8,7 @@ cannot.
 
 > **Status: early.** The library layer, the gates and the test suite are done
 > and CI-verified. The acquisition and Nextstrain ends are being ported from
-> the CDV implementation — see [Status](#status).
+> the CDV implementation. See [Status](#status).
 
 ---
 
@@ -38,32 +38,32 @@ fetch → curate → [REVIEW GATE] → align → QC → ML tree → [TEMPORAL GA
                             → MCC → Auspice → [COMPARISON GATE] → publish
 ```
 
-**Review gate** — refuses while `needs_review.tsv` is non-empty. Ambiguous host
+**Review gate**: refuses while `needs_review.tsv` is non-empty. Ambiguous host
 labels are the *input* to the host-transition analysis, not a detail.
 
-**Temporal gate** — automated root-to-tip regression, date-shuffling
+**Temporal gate**: automated root-to-tip regression, date-shuffling
 permutation test, and sampling-design diagnostics. On `fail` the Bayesian branch
 is not scheduled at all. Replaces the manual TempEst step a user could skip.
 
-**Congruence gate** — for segmented genomes, compares segment topologies and
+**Congruence gate**: for segmented genomes, compares segment topologies and
 refuses concatenation when histories are decoupled. Localises incongruence to
 individual taxa, so reassortants can be excluded from the trait analysis rather
 than generating host transitions that reflect reassortment instead of
 transmission.
 
-**Convergence gate** — ESS and between-chain agreement, checked automatically
+**Convergence gate**: ESS and between-chain agreement, checked automatically
 before any number is reported. A single chain can have every ESS in the
 thousands while sitting in a region of parameter space the other chain never
 visits; ESS alone cannot see that.
 
-**Trait signal gate** — a discrete-trait analysis always returns a transition
+**Trait signal gate**: a discrete-trait analysis always returns a transition
 table, whether or not host is associated with the phylogeny at all. This
 shuffles the host labels across the tips of the posterior trees already sampled
 and asks whether the real labelling is more clustered than chance. Minutes on
 existing files. Without it, an unsupported transition table reaches publication
 looking identical to a supported one.
 
-**Comparison gate** — every rebuild is compared against the previous one. A lost
+**Comparison gate**: every rebuild is compared against the previous one. A lost
 sequence or a TMRCA that moved is a curation regression until proven otherwise.
 
 ## Quick start
@@ -121,7 +121,7 @@ That last one is a real bug found in a real host table: `sea lion` was
 unreachable, so a pinniped would have entered the tree as *Panthera leo*.
 
 A clock prior disagreeing with the measured root-to-tip slope by more than 10×
-is a hard error, not a warning — that is what a rate copied from the wrong
+is a hard error, not a warning. That is what a rate copied from the wrong
 pathogen looks like.
 
 ## Repository layout
@@ -167,15 +167,15 @@ docs/PLAN-stages.md          the stage-CLI restructuring and its decisions
 
 ## Documentation
 
-- **[docs/DECISIONS.md](docs/DECISIONS.md)** — decision records. Each one states
+- **[docs/DECISIONS.md](docs/DECISIONS.md)**: decision records. Each one states
   the choice, the justification, what the alternative costs, and the pitfalls of
   what was chosen. Written so it can be cited in a methods section.
-- **[docs/NEXTSTRAIN.md](docs/NEXTSTRAIN.md)** — one repo per pathogen, dataset
+- **[docs/NEXTSTRAIN.md](docs/NEXTSTRAIN.md)**: one repo per pathogen, dataset
   naming, staging vs published, generated descriptions, archiving.
-- **[docs/PLAN-stages.md](docs/PLAN-stages.md)** — the stage-CLI layout, the
+- **[docs/PLAN-stages.md](docs/PLAN-stages.md)**: the stage-CLI layout, the
   decisions behind it, and what is still open.
-- **[GLOSSARY.md](GLOSSARY.md)** — the terms used in code, config and commits.
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** — setup, testing conventions.
+- **[GLOSSARY.md](GLOSSARY.md)**: the terms used in code, config and commits.
+- **[CONTRIBUTING.md](CONTRIBUTING.md)**: setup, testing conventions.
 
 ## Status
 
@@ -199,8 +199,8 @@ Snakefile calls nothing else, and the test suite runs each step on fixture data.
 
 ## Acknowledgements
 
-Substantial parts of this repository — the gate architecture, the library
-layer, the test suite, the decision records and the BTV config — were drafted
+Substantial parts of this repository (the gate architecture, the library
+layer, the test suite, the decision records and the BTV config) were drafted
 with Claude (Anthropic) in an extended back-and-forth with the author, who
 specified the requirements, chose the design direction, and is responsible for
 the scientific content.
@@ -219,4 +219,4 @@ which remains the CDV pathogen repository.
 
 ## Author
 
-Batya Nightingale — [ORCID 0000-0002-0706-8951](https://orcid.org/0000-0002-0706-8951)
+Batya Nightingale, [ORCID 0000-0002-0706-8951](https://orcid.org/0000-0002-0706-8951)

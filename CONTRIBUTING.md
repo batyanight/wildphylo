@@ -79,14 +79,14 @@ check, add a test that makes it fire, not only one that passes.
 
 **A failing test on a synthetic fixture sometimes means the fixture is
 unrealistic.** The segment congruence tests were first written on six-taxon
-trees, which have only three informative splits — so a full clade swap topped
+trees, which have only three informative splits, so a full clade swap topped
 out at RF 0.33, below the 0.40 threshold. The tempting fix was lowering the
 threshold, which would have been wrong for real data. Check the fixture before
 you change a constant.
 
 ## Scientific changes
 
-Anything that changes a number — a threshold, a default policy, a prior — needs
+Anything that changes a number (a threshold, a default policy, a prior) needs
 an entry in `docs/DECISIONS.md` recording the decision, the justification, the
 alternative's cost, and the pitfalls of the choice made. "It's the standard
 approach" is not a justification; say why it is right *here*.

@@ -1,7 +1,7 @@
 # Managing many Nextstrain builds
 
-You have one build now. You will shortly have several per pathogen — BTV alone
-wants one per analysed segment — and then several pathogens. The failure mode
+You have one build now. You will shortly have several per pathogen (BTV alone
+wants one per analysed segment) and then several pathogens. The failure mode
 is not technical. It is that in eighteen months you have fourteen datasets, four
 of them stale, two contradicting each other, and no way to tell which is which
 from the URL.
@@ -29,8 +29,8 @@ btv-phylodynamics/           another.
 
 Why not one monorepo with everything in it:
 
-- **Community URLs are per-repo.** `nextstrain.org/community/batyanight/<repo>`
-  — every dataset in a monorepo shares one namespace, and the URL cannot tell
+- **Community URLs are per-repo.** `nextstrain.org/community/batyanight/<repo>`.
+  Every dataset in a monorepo shares one namespace, and the URL cannot tell
   a reader which pathogen they are looking at without reading the trailing
   segments.
 - **Citation.** A DOI on a monorepo cites "my pipeline work". A DOI on
@@ -73,7 +73,7 @@ Rules that will save you later:
   build. Keep one stable URL per *analysis*, and archive dated copies under
   `builds/` where they are not served.
 - **Order segments from general to specific.** `seg2/wildlife` not
-  `wildlife/seg2` — Auspice's dataset selector nests on the path, and the first
+  `wildlife/seg2`. Auspice's dataset selector nests on the path, and the first
   segment should be the thing a reader chooses first.
 - **Keep the default dataset meaningful.** The bare repo URL should resolve to
   something, not 404. For BTV, make it the segment you would show someone who
@@ -123,7 +123,7 @@ You will build things that are not ready to be seen. Three tiers:
 | Published | `main`, URL `/community/user/repo` | anyone |
 
 Nextstrain Community serves any branch via `@branch`, which makes staging free.
-Use it. The alternative — publishing to `main` and hoping nobody looks yet — is
+Use it. The alternative, publishing to `main` and hoping nobody looks yet, is
 how a half-finished analysis gets cited.
 
 If you ever need genuinely private datasets, that is Nextstrain Groups, which is
@@ -171,7 +171,7 @@ builds/<pathogen>/<date>/     archived. never served. one per rebuild.
 ```
 
 Keep `provenance.json`, the accession list, the temporal-signal report and the
-QC table for every archived build — they are small. Drop the alignments, trees
+QC table for every archived build. They are small. Drop the alignments, trees
 and BEAST logs, which are large and regenerable.
 
 `nextstrain.update.keep_builds` prunes the archive. Twelve is a reasonable
@@ -186,7 +186,7 @@ cannot.
 ## 7. Compare every rebuild against the last one before publishing
 
 A rebuild that silently changes a published TMRCA is the worst failure mode
-here, because nothing errors — you just quietly start telling people something
+here, because nothing errors. You just quietly start telling people something
 different.
 
 The `publish` rule refuses when:
@@ -210,8 +210,8 @@ A narrative is a Markdown file that walks a reader through a dataset with the
 view pinned at each step. `narratives/<repo>_<name>.md` in the same repo, served
 at `/community/narratives/user/repo/name`.
 
-This is the right home for the felid-outbreak story in your CDV work — the two
-clusters 23 years apart, each matching a published investigation. That is
+This is the right home for the felid-outbreak story in your CDV work (the two
+clusters 23 years apart, each matching a published investigation). That is
 currently prose in a README describing a tree nobody is looking at while they
 read it. As a narrative, the tree moves as the text does.
 
@@ -223,7 +223,7 @@ dataset names should be stable.
 
 ## 9. What to do right now, in order
 
-1. Create `wildphylo` as the pipeline repo — this scaffold.
+1. Create `wildphylo` as the pipeline repo, this scaffold.
 2. Keep `cdv-phylodynamics` as the CDV pathogen repo. Strip the pipeline code
    out of it once `wildphylo` is installable; leave the config, `auspice/`, the
    provenance, the DOI and the README. The existing Community URL keeps

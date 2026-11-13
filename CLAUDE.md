@@ -1,4 +1,4 @@
-# CLAUDE.md — wildphylo
+# CLAUDE.md: wildphylo
 
 Context for Claude Code sessions. Keep this file short; detail lives in the docs
 it points to. Personal working preferences live in `~/.claude/CLAUDE.md`, not here.
@@ -10,24 +10,24 @@ taxon, with gates that test whether the data can support the priors and
 calibrations before compute is spent. Pipeline and gates: `README.md`.
 
 Read before changing anything:
-- `docs/PLAN-stages.md` — the stage-CLI layout, the decisions behind it, and what
+- `docs/PLAN-stages.md`: the stage-CLI layout, the decisions behind it, and what
   is still open. Update it when you finish or change a step.
-- `docs/DECISIONS.md` — decision records (DR-nnn). New pipeline-wide choices get
+- `docs/DECISIONS.md`: decision records (DR-nnn). New pipeline-wide choices get
   a DR entry: what, why, the cost of the alternative, how to revisit per dataset.
-- `docs/NEXTSTRAIN.md` — this repo is the pipeline; per-pathogen Nextstrain
+- `docs/NEXTSTRAIN.md`: this repo is the pipeline; per-pathogen Nextstrain
   repos consume it.
 
 ## Layout
-- `src/wildphylo/workflow/Snakefile` — the DAG
-- `src/wildphylo/` — the installed package. `cli.py` is the `wildphylo` command;
+- `src/wildphylo/workflow/Snakefile`: the DAG
+- `src/wildphylo/`: the installed package. `cli.py` is the `wildphylo` command;
   `stages/<stage>.py` holds that stage's steps; the other modules are shared library code.
-- `GLOSSARY.md` — the terms to use in names, config keys, commits and conversation.
-- `config/pathogen/<name>.yaml` — everything pathogen-specific; start from
+- `GLOSSARY.md`: the terms to use in names, config keys, commits and conversation.
+- `config/pathogen/<name>.yaml`: everything pathogen-specific; start from
   `_template.yaml`. Shipped configs: `cdv-smoke` (the pipeline's own smoke
   fixture) and `btv` (no pathogen repo yet). Analysis configs live in the
   pathogen repos (DR-011), not here. The CDV configs the tests use are
   fixtures in `tests/fixtures/configs/`.
-- `builds/<config>/<YYYYMMDD>/` — build outputs; the newest date is current.
+- `builds/<config>/<YYYYMMDD>/`: build outputs; the newest date is current.
   Only the audit trail is tracked (provenance, checks, QC, temporal, clade summaries).
 
 ## Commands
@@ -50,7 +50,7 @@ than falling back to `cat`.
 - Snakefile (~700 lines): `rg -n '^rule ' src/wildphylo/workflow/Snakefile`, then read the rule.
 - DECISIONS.md (~650 lines): `rg -n '^## DR-' docs/DECISIONS.md`, then read the one DR.
 - Build audit files: `jq` on `provenance.json` / `checks.json`; `mlr --itsv` on QC TSVs.
-- FASTA and alignments: `seqkit stats`, `seqkit fx2tab -n -l` — never print sequences.
+- FASTA and alignments: `seqkit stats`, `seqkit fx2tab -n -l`. Never print sequences.
 - BEAST XMLs embed the alignment: `rg -n 'chainLength|<prior|<operator|clock' FILE.xml`.
 - Posterior `.log` / `.trees`: never read directly. Use the gate scripts
   (`wildphylo gates convergence` etc.) or `head` for column names.
