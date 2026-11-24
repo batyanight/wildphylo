@@ -685,3 +685,163 @@ from wildphylo's CI against the development branch. If a second pathogen repo
 needs the same host or lineage tables, move the shared tables into a small
 package rather than copying them. Re-open this record if the pathogen repos
 stop pinning a wildphylo release.
+
+---
+
+## DR-012 — Ornithophilic and bridge vectors are separate trait states, amending DR-006
+
+**Status:** accepted
+**Applies to:** `hosts.vector_policy`, `hosts.dta_states`
+**Decided for:** EEEV. Not inherited by other vector-borne pathogens.
+
+### Decision
+
+For EEEV, vector-derived sequences enter the discrete-trait analysis as **two**
+states rather than being annotated out: `vector_ornithophilic` (*Culiseta
+melanura*, *Culiseta* spp.) and `vector_bridge` (*Coquillettidia*, *Aedes*,
+*Ochlerotatus*, *Culex*). `vector_other` (family-level and unresolved mosquito
+strings) stays annotated and out of the trait analysis.
+
+DR-006 stands for BTV and remains the default for any new vector-borne
+pathogen. This record is an exception argued per dataset, not a new default.
+
+### Why
+
+DR-006's reasoning is that a vector sequence records where the virus was
+sampled, not where the lineage is maintained, so a `vector` state measures
+entomological effort. That holds when the vectors are interchangeable. For EEEV
+they are not. *Cs. melanura* feeds on passerines and sits inside the enzootic
+cycle; *Coquillettidia* and *Aedes* feed on both birds and mammals and are the
+route out of it. The difference between those two is the transmission mechanism
+the build is asking about, so collapsing them to one state, or annotating both
+away, removes the question rather than protecting it.
+
+The quantities decided it. Of 577 near-complete EEEV genomes at NCBI
+(2026-11-23 probe, see issue #2), 262 are *Culiseta*, 74 are bridge vectors, 58
+are avian, 97 equid and 27 human. Under `annotate`, 351 of 577 tips carry no
+trait state, and every inference about the enzootic cycle would rest on the 58
+avian tips alone.
+
+### What it costs
+
+DR-006's objection applies in full and is not answered, only accepted: a rate
+into `vector_ornithophilic` is partly a statement about where *Culiseta*
+trapping happens. New York and Massachusetts run funded arbovirus surveillance
+with *Culiseta* trapping; most of the United States does not. The 262
+*Culiseta* genomes are therefore a map of surveillance programmes as much as of
+the virus.
+
+Three consequences follow and are mandatory, not optional:
+
+- Report trapping-derived tip counts per state and per year beside any
+  transition table, so a reader can see the sampling frame.
+- Treat a high `temporal_signal.max_concentration` as a result about
+  surveillance design, per §8 of the spec, not a caveat.
+- Do not interpret the absolute rate into `vector_ornithophilic`. The
+  interpretable quantities are the *contrasts*: ornithophilic against bridge,
+  and avian against mammalian.
+
+### Pitfall
+
+The split is only as good as the host-string parsing. GenBank host values for
+EEEV pools arrive as `Culiseta melanura; dev_stage; adult`, as bare binomials,
+and at family level (`Culicidae`). A string that falls through to `vector_other`
+is silently removed from the analysis, which is the failure mode this record is
+trying to avoid. The shadowing audit on `config/host_groups_eeev.tsv` is the
+check, and the unmatched-string count belongs in the review gate output.
+
+### How to revisit
+
+If the trait-signal gate (DR-009) passes only because the two vector states
+carry it, and avian against mammalian shows no signal on its own, the result is
+about mosquito surveillance rather than about the enzootic cycle. Say so.
+Re-open this record if a later EEEV build adds sequences from a state with no
+*Culiseta* programme and the ornithophilic rate moves materially.
+
+---
+
+## DR-013 — A whole-genome locus is declared as such, not as a polyprotein feature
+
+**Status:** accepted
+**Applies to:** `locus`, `wildphylo config validate`
+
+### Decision
+
+The `locus` block gains a `whole_genome: true` form. When set, `aliases` is not
+required, extraction does not look for a named gene feature, and records are
+filtered on nucleotide completeness against `coordinate_reference` instead of on
+an annotated feature span. The validator's alias and CDS checks apply only to
+the named-feature form.
+
+### Why
+
+`locus` is modelled on a named gene with GenBank aliases and a CDS span, which
+suits a 1500 nt gene from a dataset where most records are partial. EEEV is
+unsegmented, 11.7 kb, and the build wants complete genomes, matching Tan et al.
+2018. Expressing that as the nsP1234 and structural polyprotein aliases would
+work, and would be a misstatement: the two CDSs omit the 5' and 3' UTRs and the
+junction region, so `provenance.json` would record a polyprotein build while the
+alignment is genomic. A config that lies about what was aligned is the kind of
+thing the audit trail exists to prevent.
+
+The alternative of declaring two loci and concatenating reuses existing
+machinery but invents a segmented structure for a virus that has none, and
+`segments.concatenate` carries congruence semantics that do not apply.
+
+### What it costs
+
+A schema change and a branch in the extractor and the validator, against a
+config-only change that would have shipped today. It also means two kinds of
+`locus` in the same key, which is a wart; the honest version would be separate
+`locus` and `genome` sections, at the price of changing every existing config.
+
+### How to revisit
+
+Powassan and any other unsegmented whole-genome build will take the same form.
+If a third shape appears, split the key rather than adding a third flag.
+
+---
+
+## DR-014 — Madariaga anchors are fetched deliberately, never inherited from the EEEV query
+
+**Status:** accepted
+**Applies to:** `fetch`, `references.include_as_anchors`
+
+### Decision
+
+South and Central American records under taxid 11021 are excluded by geo
+screen. Madariaga virus outgroup anchors are fetched as a pinned list of
+accessions from taxid **1440170**, flagged as anchors: in the tree for rooting,
+out of the clock calibration and out of the discrete-trait analysis.
+
+### Why
+
+The spec's §5 assumed taxid 11021 would return Madariaga records and proposed
+retaining whatever arrived as anchors. The probe showed otherwise. Madariaga is
+*Alphavirus madariaga*, taxid 1440170, a **sibling species of *Alphavirus
+eastern*, not a child**, so `txid11021[Organism:exp]` already excludes its 60
+records. What taxid 11021 does return is 151 legacy records with South or
+Central American geography, of which **exactly one is a near-complete genome**.
+
+So the original plan would have produced a single accidental anchor, chosen by
+whichever Peruvian isolate happened to be sequenced to completion, and the
+rooting of the tree would depend on it. An outgroup is a deliberate choice of
+reference taxa or it is not an outgroup.
+
+### What it costs
+
+The anchor accessions are a hand-picked list in the config, which has to be
+justified and pinned, and a reader must take the choice on trust unless the
+build reports the root position with and without them. Do both.
+
+### Pitfall
+
+Anchors must be excluded from the root-to-tip regression as well as the clock
+prior. A cross-species slope is the exact failure §5 warned about, and it will
+not look wrong: it will look like a tidy line with a plausible rate.
+
+### How to revisit
+
+If the question becomes continental, Madariaga moves to the ingroup and this
+record is superseded rather than amended, because the clock, the trait states
+and the subsampling strata all change with it.

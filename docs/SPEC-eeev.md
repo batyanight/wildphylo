@@ -1,6 +1,7 @@
 # Build spec — EEEV, Northeast emergence and the enzootic cycle
 
-**Status:** draft for review. Nothing here is validated against data yet.
+**Status:** open questions resolved 2026-11-23 (DR-012, DR-013, DR-014). Pathogen
+parameters are still unvalidated; the metadata probe results are in issue #2.
 **Pipeline:** [wildphylo](https://github.com/batyanight/wildphylo) @ `8197e4b`
 **Author:** Batya Nightingale
 **Drafted:** 2026-11-23
@@ -153,8 +154,12 @@ Three options:
   tree for rooting, out of the clock and the trait analysis.
 - **retain as ingroup** — only if the question becomes continental.
 
-Default: **retain as anchors**, because the build still needs a root and
-Madariaga is the natural outgroup. Record as a decision record once confirmed.
+~~Default: **retain as anchors**~~ **Resolved: DR-014.** The probe showed taxid
+1440170 is a sibling species already excluded by the EEEV query, and that only
+one South American record under 11021 is a near-complete genome. Retaining what
+arrives would give a single accidental anchor. Anchors are instead a pinned
+accession list fetched from 1440170, and South American records under 11021 are
+excluded by geo screen.
 
 ### Locus
 
@@ -162,9 +167,11 @@ EEEV is unsegmented, but wildphylo's `locus` block is modelled on a *named gene
 feature* with GenBank aliases and a coordinate reference. A whole-genome build
 does not fit that shape cleanly. **Open design question** — see §9.
 
-Candidate: build on the whole genome (matching Tan et al. 2018, which used
-complete genomes), with the nsP/structural polyprotein aliases as the extraction
-target, and `nucleotide_completeness` as the filter.
+**Resolved: DR-013.** The `locus` block gains a `whole_genome: true` form rather
+than borrowing the polyprotein aliases, because the two CDSs omit the UTRs and
+the junction region and `provenance.json` would then record a polyprotein build
+over a genomic alignment. Filter on `nucleotide_completeness` against the
+coordinate reference.
 
 ### Dates
 
@@ -198,6 +205,13 @@ discrete-trait analysis would run on the minority of tips, and the trait-signal
 gate would likely fail for lack of states — not because host is unassociated
 with the tree, but because the data were set aside.
 
+*Measured 2026-11-23 (issue #2): mosquito-derived is 351 of 577 near-complete
+genomes, so the majority claim holds. The predicted gate failure does not. The
+remaining tips are equid 97, avian 58 and human 27, which is a workable DTA.
+`annotate` would not have broken the analysis; it would have silently narrowed
+it to spillover hosts, which is the weaker failure and the harder one to
+notice.*
+
 Three readings, none free:
 
 | Policy | Consequence for EEEV |
@@ -216,7 +230,11 @@ about the enzootic cycle in a way a sequence from a bridge vector is not.
 This needs a decision record of its own — it amends DR-006 for ornithophilic
 vectors rather than overriding it, and the argument has to be made explicitly
 because it reintroduces exactly the sampling-effort confound DR-006 rejects.
-**Flagged for discussion, not decided.**
+
+**Resolved: DR-012.** The split is accepted for EEEV, with DR-006 left standing
+as the default for every other vector-borne pathogen, and with the
+sampling-effort confound accepted rather than answered. The reporting duties
+DR-012 imposes are conditions of the decision, not suggestions.
 
 ## 7. Host table — `config/host_groups_eeev.tsv`
 
@@ -261,17 +279,52 @@ concentrated where surveillance programmes are funded. Phylogeographic inference
 on that is sensitive to sampling design. `temporal_signal.max_concentration`
 exists to flag it; report it as a result rather than a caveat.
 
-## 9. Open questions
+## 9. Open questions, resolved 2026-11-23
 
-1. **§6 vector policy** — the ornithophilic/bridge split. This is the main
-   scientific judgement in the spec and it amends a standing decision record.
-2. **Locus model** — how a whole-genome build expresses itself in a config whose
-   `locus` block expects a named gene. Does wildphylo need a `whole_genome: true`
-   form, or is the polyprotein the locus?
-3. **Madariaga** — anchors or exclusion, pending a check of what taxid 11021
-   actually returns.
-4. **Q1 extension scope** — is generalising the trait path part of the capstone
-   deliverable, or does the capstone stay on Q2 with Q1 as future work?
+All four were settled after the metadata probe (issue #2). The probe also found
+a fifth blocker that §2 did not list.
+
+1. **§6 vector policy** → **DR-012.** Ornithophilic and bridge vectors are
+   separate trait states for EEEV, amending DR-006 for this pathogen only. The
+   sampling-effort confound DR-006 rejects is accepted here, because 351 of 577
+   near-complete genomes are mosquito-derived and `annotate` would leave the
+   enzootic cycle resting on 58 avian tips. DR-012 makes the per-state trapping
+   counts and the contrast-only reading of the rates mandatory.
+2. **Locus model** → **DR-013.** `locus` gains a `whole_genome: true` form. The
+   polyprotein aliases would have shipped today and would have recorded a
+   polyprotein build over a genomic alignment.
+3. **Madariaga** → **DR-014.** Anchors are a pinned accession list from taxid
+   1440170, and South American records under 11021 go out by geo screen. The
+   premise in §5 was wrong: 1440170 is a sibling species, already excluded, and
+   only one South American record under 11021 is a near-complete genome.
+4. **Q1 extension scope** → **capstone deliverable.** The build and the
+   pipeline extension are one piece of work: Q1 is the scientific core, the
+   trait generalisation and geo parsing are the engineering contribution, Q2 is
+   the first result. This needs the faculty host conversation and HPC access
+   (§11) before the BEAST stage, not before the laptop steps.
+
+### Trait states
+
+`dta_states` is six: `vector_ornithophilic`, `vector_bridge`, `passerine`,
+`other_wild_bird`, `farmed_bird`, `mammal_spillover`. Passerines stay separate
+from other wild birds because only passerines are enzootic hosts, and lumping
+them would let herons and ibises read as enzootic signal. `other_wild_bird` is
+thin at 10 near-complete genomes and may not survive the rate-count check.
+`equid`, `human` and `other_mammal` collapse into `mammal_spillover`: every one
+is a dead-end host, so the distinctions among them carry no transmission
+information. `vector_other` and `NO_HOST` stay annotated and out.
+
+Six asymmetric states is 30 rates over roughly 542 host-bearing near-complete
+tips. That is the count to put to the rate-count check before the first run.
+
+### The fifth blocker, for Q1
+
+§2 listed three blockers for the geography question. There is a fourth: of 764
+US records with a geo string, only 301 name a state. 435 name a sub-state
+locality (Oswego, Onondaga, Plymouth and Bristol are counties), and Florida and
+New York appear at top level, so the field mixes resolutions within one column.
+A `division` parser needs a county-to-state lookup for the majority of US
+records, not a split on the colon.
 
 ## 10. First steps, in order
 
